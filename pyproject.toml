@@ -12,6 +12,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+ui = ["streamlit>=1.37"]
 
 [build-system]
 requires = ["setuptools>=68"]
