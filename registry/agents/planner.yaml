@@ -1,0 +1,12 @@
+name: planner
+description: Turns a task profile into a workflow graph, marking which steps need a model and why.
+kind: llm
+role: planner
+capabilities: [plan_workflow]
+inputs: [task_profile]
+outputs: [workflow_plan]
+risk: low
+prompt: >
+  You plan workflows. For each step, use plain code or an existing tool unless the step needs language
+  understanding or generation; when it does, say why in one sentence.
+evals: [plan_schema_valid, every_llm_step_has_reason]

@@ -1,0 +1,119 @@
+"""The factory config loads, starts every role on ARC, and enforces family separation in both tiers."""
+
+from pathlib import Path
+
+import pytest
+import yaml
+
+from factory.config import load_config
+from tests.helpers import paid_config_path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture
+def cfg():
+    return load_config(ROOT / "configs" / "factory.yaml")
+
+
+def write(tmp_path, data) -> Path:
+    path = tmp_path / "configs" / "factory.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data["models_file"] = str(ROOT / "configs" / "models.yaml")
+    path.write_text(yaml.safe_dump(data))
+    return path
+
+
+def shipped():
+    return yaml.safe_load((ROOT / "configs" / "factory.yaml").read_text())
+
+
+def test_factory_config_loads_and_resolves_paths(cfg):
+    assert cfg.root == ROOT
+    assert cfg.providers["claude"].data_scope == "public_only"
+    assert cfg.providers["arc"].api_key_env == "ARC_API_KEY"
+
+
+def test_every_role_starts_on_a_free_arc_model(cfg):
+    for name, role in cfg.roles.items():
+        assert role.provider == "arc" and not cfg.model_info(role.model).real, name
+
+
+def test_paid_models_are_escalation_steps_only(cfg):
+    assert cfg.escalations["coder"].model == "gpt-6.1-sol"
+    assert cfg.escalations["reviewer"].model == "claude-sonnet-5-5"
+    assert cfg.model_info(cfg.escalations["reviewer"].model).real
+
+
+def test_shipped_roles_respect_family_separation_in_both_tiers(cfg):
+    assert cfg.separation_errors() == []
+    assert cfg.families("coder") == {"glm", "openai"}
+    assert cfg.families("reviewer") == {"deepseek", "claude"}
+
+
+def test_a_reviewer_sharing_an_authors_family_is_rejected(tmp_path):
+    data = shipped()
+    data["roles"]["reviewer"]["model"] = "GLM-5.3"  # GLM writes the code
+    with pytest.raises(ValueError, match="family separation"):
+        load_config(write(tmp_path, data))
+
+
+def test_escalation_steps_count_for_separation(tmp_path):
+    data = shipped()
+    data["roles"]["coder"]["quality"] = {"provider": "claude", "model": "claude-opus-5-5"}  # Claude also reviews
+    with pytest.raises(ValueError, match="reviewer 'reviewer' shares \\['claude'\\] with author 'coder'"):
+        load_config(write(tmp_path, data))
+
+
+def test_unknown_model_fails_at_load(tmp_path):
+    data = {"name": "t", "providers": {"p": {"format": "openai", "base_url": "http://x"}},
+            "roles": {"r": {"provider": "p", "model": "no-such-model"}}}
+    with pytest.raises(KeyError, match="no-such-model"):
+        load_config(write(tmp_path, data))
+
+
+def test_credits_must_name_known_providers(tmp_path):
+    data = shipped()
+    data["credits"]["by_provider"]["gemini"] = 5
+    with pytest.raises(ValueError, match="gemini"):
+        load_config(write(tmp_path, data))
+
+
+def test_tiers_switch_roles_to_their_escalation_step(monkeypatch, tmp_path):
+    monkeypatch.delenv("FACTORY_TIER", raising=False)
+    path = paid_config_path(tmp_path)
+    eco = load_config(path, tier="economy")
+    q = load_config(path, tier="quality")
+    assert eco.roles["agent"].model == "claude-sonnet-5-5" and q.roles["agent"].model == "claude-opus-5-5"
+    assert eco.roles["coder"].model == "GLM-5.3-thinking-high" and q.roles["coder"].model == "gpt-6.1-sol"
+    assert q.roles["coder"].provider == "openai"
+    monkeypatch.setenv("FACTORY_TIER", "quality")
+    assert load_config(path).roles["agent"].model == "claude-opus-5-5"
+
+
+def test_one_role_can_take_its_escalation_step(monkeypatch, tmp_path):
+    monkeypatch.delenv("FACTORY_TIER", raising=False)
+    monkeypatch.setenv("FACTORY_ROLE_TIERS", "reviewer=quality")
+    cfg = load_config(paid_config_path(tmp_path))
+    assert cfg.roles["reviewer"].model == "claude-sonnet-5-5"
+    assert cfg.roles["coder"].model == "GLM-5.3-thinking-high"
+    monkeypatch.setenv("FACTORY_ROLE_TIERS", "nobody=quality")
+    with pytest.raises(ValueError, match="unknown roles"):
+        load_config(paid_config_path(tmp_path))
+
+
+def test_a_role_cannot_escalate_from_one_free_model_to_another(tmp_path):
+    data = shipped()
+    data["roles"]["planner"]["quality"] = {"model": "GLM-5.3"}
+    with pytest.raises(ValueError, match="both tiers are free"):
+        load_config(write(tmp_path, data))
+
+
+def test_dotenv_fills_missing_keys_but_never_overrides_the_environment(monkeypatch, tmp_path):
+    monkeypatch.delenv("ARC_API_KEY", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "from-env")
+    (tmp_path / ".env").write_text("# keys\nARC_API_KEY='from-file'\nOPENAI_API_KEY=from-file\n")
+    load_config(write(tmp_path, shipped()))
+    import os
+    assert os.environ["ARC_API_KEY"] == "from-file" and os.environ["OPENAI_API_KEY"] == "from-env"
+    monkeypatch.delenv("ARC_API_KEY")

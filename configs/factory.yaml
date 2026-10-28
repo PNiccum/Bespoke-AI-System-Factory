@@ -1,0 +1,65 @@
+# The factory's default deployment: ARC models first, paid models only on escalation and with approval.
+# Keys come from environment variables (see .env.example); never put a key in this file.
+name: factory
+description: >
+  Bespoke AI System Factory: turns a task into a reproducible workflow, exported as a code bundle,
+  with an LLM only at the steps that need one.
+
+# The class demo uses public example data only, so inputs may go to Claude or OpenAI once approved.
+data_public: true
+
+providers:
+  arc:
+    format: anthropic        # Bespoke_LLM called the ARC gateway in Messages format
+    base_url: https://llm-api.arc.vt.edu/api
+    api_key_env: ARC_API_KEY
+    max_concurrency: 8       # ARC allows 20 in-flight requests per user
+  claude:
+    format: anthropic        # Claude API
+    api_key_env: ANTHROPIC_API_KEY
+    data_scope: public_only
+    prompt_caching: true     # agent turns re-send their history; cached input costs a tenth
+    batch: true              # Message Batches for non-interactive calls: half price
+  openai:
+    format: openai
+    base_url: https://api.openai.com
+    api_key_env: OPENAI_API_KEY
+    token_param: max_completion_tokens
+    batch: true
+    data_scope: public_only
+
+# Every role starts on a free ARC model. `quality` is the paid escalation step, taken only when the free model's
+# output fails its check, and only after a person approves the spend.
+# Family separation: authors use GLM, then OpenAI; reviewers use DeepSeek, then Claude. No reviewer can ever share a
+# family with an author, in either tier.
+tier: economy
+role_tiers: {}
+
+roles:
+  # GLM was the only ARC model to finish Bespoke_LLM's agent-driver probe.
+  planner:  {provider: arc, model: GLM-5.3-thinking-high, kind: author}
+  agent:    {provider: arc, model: GLM-5.3-thinking-high, kind: author}
+  coder:
+    provider: arc
+    model: GLM-5.3-thinking-high
+    kind: author
+    quality: {provider: openai, model: gpt-6.1-sol, max_tokens: 16000}
+  reviewer:
+    provider: arc
+    model: DeepSeek-V4.1-Flash-thinking-max
+    kind: reviewer
+    max_tokens: 64000
+    quality: {provider: claude, model: claude-sonnet-5-5, max_tokens: 16000}
+
+budget:
+  approve_above_usd: 1.00   # a paid call that would take a run past $1 waits for approval
+  max_real_usd: 3.00        # hard stop for one run
+
+# Paid credit on hand (2026-10-28). $10 is held back for rehearsals and the Dec 3 showcase.
+credits:
+  by_provider: {claude: 20.00, openai: 15.00}
+  reserve_usd: 10.00
+
+agent_caps:
+  max_steps: 40
+  max_real_usd: 1.00

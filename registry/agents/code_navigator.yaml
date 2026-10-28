@@ -1,0 +1,9 @@
+name: code_navigator
+description: Finds the files, functions, and tests related to an issue by searching the repository. No model.
+kind: tool
+entrypoint: factory.tools.repo:locate   # built in phase 1
+capabilities: [locate_code]
+domains: [software]
+inputs: [repo_path, issue_text]
+outputs: [candidate_locations]
+risk: low

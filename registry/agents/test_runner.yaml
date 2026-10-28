@@ -1,0 +1,9 @@
+name: test_runner
+description: Runs the repository's tests in a sandbox and reports which passed and failed. No model.
+kind: tool
+entrypoint: factory.tools.sandbox:run_tests   # built in phase 1
+capabilities: [run_tests]
+domains: [software]
+inputs: [repo_path, patch]
+outputs: [test_report]
+risk: low

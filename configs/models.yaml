@@ -1,0 +1,87 @@
+# Model catalog shared by all labs: family (for family separation) and price.
+# Prices are USD per million tokens. Claude API prices as of 2026-09-25;
+# check https://www.anthropic.com/pricing before relying on them.
+#
+# ARC models are free (real: false). Each borrows the price of the Claude model
+# that would replace it in its usual role (shadow_of), so every build is costed
+# as if every model were paid. Change shadow_of to model a different swap.
+
+models:
+  # --- Claude API -----------------------------------------------------------
+  claude-opus-5-5:
+    family: claude
+    input: 4.00
+    output: 20.00
+    cache_read: 0.20
+    cache_write: 5.00      # 5-minute cache writes, 1.25x input
+  claude-sonnet-5-5:
+    family: claude
+    input: 2.00
+    output: 10.00
+    cache_read: 0.20
+    cache_write: 2.50
+  claude-haiku-4-5:
+    family: claude
+    input: 1.00
+    output: 5.00
+    cache_read: 0.10
+    cache_write: 1.25
+
+  # --- OpenAI API (prices from developers.openai.com/api/docs/pricing, 2026-10-28; standard tier,
+  # short context). OpenAI also makes gpt-oss, so both share the "openai" family: a GPT model never
+  # judges what gpt-oss wrote, or the reverse. OpenAI bills no cache writes, so cache_write = input.
+  gpt-6-astra:
+    family: openai
+    input: 10.00
+    output: 50.00
+    cache_read: 1.00
+    cache_write: 10.00
+  gpt-6.1-sol:
+    family: openai
+    input: 2.00
+    output: 10.00
+    cache_read: 0.10
+    cache_write: 2.00
+  gpt-6-luna:
+    family: openai
+    input: 0.10
+    output: 0.50
+    cache_read: 0.01
+    cache_write: 0.10
+
+  # --- VT ARC gateway (free; shadow-priced) -----------------------------------
+  GLM-5.3-thinking-high:
+    family: glm
+    real: false
+    shadow_of: claude-sonnet-5-5
+  DeepSeek-V4.1-Flash-thinking-max:
+    family: deepseek
+    real: false
+    shadow_of: claude-sonnet-5-5
+  gpt-oss-120b:
+    family: openai
+    real: false
+    shadow_of: claude-sonnet-5-5
+  GLM-5.3:
+    family: glm
+    real: false
+    shadow_of: claude-sonnet-5-5
+  DeepSeek-V4.1-Flash:
+    family: deepseek
+    real: false
+    shadow_of: claude-sonnet-5-5
+  DeepSeek-V4.1-Flash-thinking-low:
+    family: deepseek
+    real: false
+    shadow_of: claude-sonnet-5-5
+  gpt-oss-120b-thinking-high:
+    family: openai
+    real: false
+    shadow_of: claude-sonnet-5-5
+  gpt-oss-120b-thinking-low:
+    family: openai
+    real: false
+    shadow_of: claude-sonnet-5-5
+  Qwen3-Embedding-4B:
+    family: qwen
+    real: false            # embeddings have no Claude equivalent; priced at 0
