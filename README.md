@@ -13,7 +13,7 @@ Built for ADS 5984 (Agentic AI in Practice), fall 2026. Planning doc:
 Phase 1 (coding MVP) in progress. In place: the model adapter, spend gate and credit ledger, agent loop, provenance
 log, the agent registry, and the first plain-code agents (`code_navigator` finds the code an issue is about;
 `test_runner` runs tests on a throwaway copy and proves a fix), the bug-fix orchestrator (plan, award, patch, check,
-review, repair, escalate), and the bundle exporter. Not yet built: the Streamlit app.
+review, repair, escalate), the bundle exporter, and the Streamlit app. Not yet done: a live run against ARC.
 
 ## Setup
 
@@ -23,7 +23,14 @@ python -m venv .venv
 .venv/bin/pytest -q                    # no network, no keys needed
 ```
 
-Fix a bug end to end (asks before any paid call; the bundle lands in `exports/`):
+Open the web app (agent activity, approval cards for paid calls, bundle download):
+
+```bash
+pip install -e ".[ui]"
+streamlit run app.py
+```
+
+Or fix a bug from the terminal (asks before any paid call; the bundle lands in `exports/`):
 
 ```bash
 python -m factory fix --repo path/to/repo --issue "parse_date swaps month and day"
@@ -46,6 +53,8 @@ paste one into a chat. The ARC gateway (`https://llm-api.arc.vt.edu/api`) may ne
 | `factory/tools/` | Plain-code agents: locate code from an issue (`repo.py`), run tests and prove a fix (`sandbox.py`) |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/export.py` | Writes the bundle: patch, workflow, evidence, provenance, and a model-free `rerun.py` |
+| `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
+| `app.py` | The Streamlit page |
 | `registry/agents/` | One YAML spec per agent |
 
 ## Rules the code enforces
