@@ -1,0 +1,23 @@
+# secrets: keys live in .env (see .env.example) and never in the repo
+.env
+.env.*
+!.env.example
+keys/
+*_key
+*.key
+
+# python
+.venv*/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# run outputs: logs, caches, spend ledger
+runs/
+workspace/
+registry/scores.json
+
+# misc
+.DS_Store
+*.log
