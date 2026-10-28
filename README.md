@@ -12,8 +12,8 @@ Built for ADS 5984 (Agentic AI in Practice), fall 2026. Planning doc:
 
 Phase 1 (coding MVP) in progress. In place: the model adapter, spend gate and credit ledger, agent loop, provenance
 log, the agent registry, and the first plain-code agents (`code_navigator` finds the code an issue is about;
-`test_runner` runs tests on a throwaway copy and proves a fix). Not yet built: the orchestrator, the bundle exporter,
-and the Streamlit app.
+`test_runner` runs tests on a throwaway copy and proves a fix), the bug-fix orchestrator (plan, award, patch, check,
+review, repair, escalate), and the bundle exporter. Not yet built: the Streamlit app.
 
 ## Setup
 
@@ -21,6 +21,12 @@ and the Streamlit app.
 python -m venv .venv
 .venv/bin/pip install -e ".[dev]"      # Windows: .venv\Scripts\pip install -e ".[dev]"
 .venv/bin/pytest -q                    # no network, no keys needed
+```
+
+Fix a bug end to end (asks before any paid call; the bundle lands in `exports/`):
+
+```bash
+python -m factory fix --repo path/to/repo --issue "parse_date swaps month and day"
 ```
 
 Keys go in a `.env` file at the project root (copy `.env.example`). `.env` is git-ignored; never commit a key or
@@ -38,6 +44,8 @@ paste one into a chat. The ARC gateway (`https://llm-api.arc.vt.edu/api`) may ne
 | `factory/records.py` | Provenance: sources by content hash, append-only `provenance.jsonl` per run |
 | `factory/net/http.py` | Cached, throttled, budgeted HTTP client for outside APIs |
 | `factory/tools/` | Plain-code agents: locate code from an issue (`repo.py`), run tests and prove a fix (`sandbox.py`) |
+| `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
+| `factory/export.py` | Writes the bundle: patch, workflow, evidence, provenance, and a model-free `rerun.py` |
 | `registry/agents/` | One YAML spec per agent |
 
 ## Rules the code enforces

@@ -21,3 +21,6 @@ registry/scores.json
 # misc
 .DS_Store
 *.log
+
+# exported bundles
+exports/
