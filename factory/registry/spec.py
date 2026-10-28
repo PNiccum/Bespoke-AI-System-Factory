@@ -6,6 +6,8 @@ exist so a step that does not need a model never gets one: when both kinds can d
 
 from __future__ import annotations
 
+import importlib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Literal
 
@@ -35,6 +37,11 @@ class AgentSpec(BaseModel):
         if self.kind == "tool" and (self.role or not self.entrypoint):
             raise ValueError(f"agent {self.name!r}: a tool agent has an entrypoint and no role")
         return self
+
+    def function(self) -> Callable:
+        """The plain-code function behind a tool agent."""
+        module, _, name = self.entrypoint.partition(":")
+        return getattr(importlib.import_module(module), name)
 
     @classmethod
     def load(cls, path: Path) -> AgentSpec:

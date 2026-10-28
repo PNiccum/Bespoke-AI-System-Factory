@@ -22,4 +22,5 @@ include = ["factory*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--ignore=tests/fixtures"  # fixture repos have their own (deliberately failing) tests
 pythonpath = ["."]
