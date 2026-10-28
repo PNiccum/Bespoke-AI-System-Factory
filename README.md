@@ -10,9 +10,10 @@ Built for ADS 5984 (Agentic AI in Practice), fall 2026. Planning doc:
 
 ## Status
 
-Phase 0 (foundations). In place: the model adapter, spend gate and credit ledger, agent loop, provenance log, and
-the agent registry. Not yet built: the orchestrator, the phase 1 tools (`code_navigator`, `test_runner`), the bundle
-compiler, and the Streamlit app.
+Phase 1 (coding MVP) in progress. In place: the model adapter, spend gate and credit ledger, agent loop, provenance
+log, the agent registry, and the first plain-code agents (`code_navigator` finds the code an issue is about;
+`test_runner` runs tests on a throwaway copy and proves a fix). Not yet built: the orchestrator, the bundle exporter,
+and the Streamlit app.
 
 ## Setup
 
@@ -36,6 +37,7 @@ paste one into a chat. The ARC gateway (`https://llm-api.arc.vt.edu/api`) may ne
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |
 | `factory/records.py` | Provenance: sources by content hash, append-only `provenance.jsonl` per run |
 | `factory/net/http.py` | Cached, throttled, budgeted HTTP client for outside APIs |
+| `factory/tools/` | Plain-code agents: locate code from an issue (`repo.py`), run tests and prove a fix (`sandbox.py`) |
 | `registry/agents/` | One YAML spec per agent |
 
 ## Rules the code enforces

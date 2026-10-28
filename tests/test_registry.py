@@ -72,3 +72,9 @@ def test_specs_are_validated(cfg, tmp_path):
         Registry([spec("x", kind="llm", role="nobody", entrypoint=None)], cfg, ScoreBook(tmp_path / "s.json"))
     with pytest.raises(ValueError, match="duplicate"):
         Registry([spec("x"), spec("x")], cfg, ScoreBook(tmp_path / "s.json"))
+
+
+def test_every_shipped_tool_agent_points_at_a_real_function(registry):
+    for agent in registry.agents.values():
+        if agent.kind == "tool":
+            assert callable(agent.function()), agent.name
