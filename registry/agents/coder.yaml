@@ -1,0 +1,14 @@
+name: coder
+description: Writes a patch for one located problem, as a unified diff.
+kind: llm
+role: coder
+capabilities: [write_patch, write_tests]
+domains: [software]
+tools: [read_file, search_repo]
+inputs: [issue_text, candidate_locations]
+outputs: [patch]
+risk: medium
+prompt: >
+  You fix one problem in a Python repository. Reply with a unified diff and nothing else.
+  Change only what the fix needs.
+evals: [patch_applies, tests_pass]

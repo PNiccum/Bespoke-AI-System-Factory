@@ -1,0 +1,41 @@
+"""The agent spec: everything the factory needs to know to pick an agent and run it.
+
+An agent is either a model with a prompt and tools (``kind: llm``) or plain code (``kind: tool``). Tool agents
+exist so a step that does not need a model never gets one: when both kinds can do a job, the tool wins the bid.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel, model_validator
+
+
+class AgentSpec(BaseModel):
+    name: str
+    description: str
+    kind: Literal["llm", "tool"]
+    role: str | None = None  # config role (model and escalation step) for llm agents
+    entrypoint: str | None = None  # "module:function" for tool agents
+    capabilities: list[str]  # what it can be awarded, e.g. "run_tests", "write_patch"
+    domains: list[str] = ["any"]
+    tools: list[str] = []  # tools an llm agent may call
+    inputs: list[str] = []
+    outputs: list[str] = []
+    risk: Literal["low", "medium", "high"] = "low"
+    prompt: str = ""  # system prompt for llm agents
+    evals: list[str] = []  # checks its output must pass
+
+    @model_validator(mode="after")
+    def _kind_fields(self):
+        if self.kind == "llm" and not self.role:
+            raise ValueError(f"agent {self.name!r}: an llm agent needs a role")
+        if self.kind == "tool" and (self.role or not self.entrypoint):
+            raise ValueError(f"agent {self.name!r}: a tool agent has an entrypoint and no role")
+        return self
+
+    @classmethod
+    def load(cls, path: Path) -> AgentSpec:
+        return cls(**yaml.safe_load(path.read_text()))

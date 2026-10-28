@@ -1,0 +1,13 @@
+name: reviewer
+description: Reviews a patch for bugs and scope creep. Always a different model family from the author.
+kind: llm
+role: reviewer
+capabilities: [review_patch]
+domains: [software]
+inputs: [issue_text, patch, test_report]
+outputs: [review]
+risk: low
+prompt: >
+  You review a patch you did not write. List concrete defects with the line they are on, or say it is
+  acceptable. Do not restyle working code.
+evals: [review_schema_valid]
