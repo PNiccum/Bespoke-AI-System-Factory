@@ -124,7 +124,8 @@ CODER_PROMPT = """Fix this issue.
 ## Files
 {files}
 {feedback}
-Reply with one unified diff (--- a/path, +++ b/path, @@ hunks) inside a ```diff block and nothing else."""
+Reply with one unified diff (--- a/path, +++ b/path, @@ hunks) inside a ```diff block and nothing else. Write it
+against the files exactly as shown under Files: earlier patches were not applied, so never diff on top of one."""
 
 REVIEW_PROMPT = """Review this patch for the issue below. You did not write it.
 
@@ -255,7 +256,7 @@ class Orchestrator:
                        else "the tests timed out" if check.timed_out
                        else f"still failing: {still}; newly failing: {new}\n{check.output_tail}")
                 self.emit(result, "check", checker.agent.name, "failed", why[:300])
-                feedback = f"\n## Your previous patch failed\n```diff\n{patch}```\n{why[-3000:]}\n"
+                feedback = f"\n## Your previous patch failed (not applied)\n```diff\n{patch}```\n{why[-3000:]}\n"
                 continue
             self.emit(result, "check", checker.agent.name, "done", f"{len(check.passed)} tests pass")
 
@@ -277,7 +278,7 @@ class Orchestrator:
             if review.verdict == "reject":
                 problems = "\n".join(f"- {d.line}: {d.problem}" for d in review.defects) or "- (no detail given)"
                 self.emit(result, "review", reviewer.name, "failed", problems[:300])
-                feedback = f"\n## Your previous patch was rejected in review\n```diff\n{patch}```\n{problems}\n"
+                feedback = f"\n## Your previous patch was rejected in review (not applied)\n```diff\n{patch}```\n{problems}\n"
                 continue
             self.emit(result, "review", reviewer.name, "done", "accepted")
             # Proven only when there were failing tests to turn green; otherwise accepted but unproven.

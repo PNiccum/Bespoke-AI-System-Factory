@@ -98,7 +98,8 @@ def test_a_patch_that_breaks_a_passing_test_is_not_accepted(cfg, tmp_path):
 def test_a_rejected_review_sends_the_defects_back_to_the_coder(cfg, tmp_path):
     result, p, _, _ = run(cfg, tmp_path, arc=[diff(GOOD), REJECT, diff(GOOD), ACCEPT])
     assert result.status == "fixed" and result.attempts == 2
-    assert "drops the day check" in p["arc"].requests[2].messages[0]["content"]
+    retry = p["arc"].requests[2].messages[0]["content"]
+    assert "drops the day check" in retry and "(not applied)" in retry and "never diff on top of one" in retry
 
 
 def test_the_last_attempt_escalates_and_waits_on_the_spend_gate(cfg, tmp_path):
