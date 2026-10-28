@@ -64,9 +64,27 @@ def scrubbed_env() -> dict[str, str]:
 
 
 def apply_patch(work: Path, patch: str) -> tuple[bool, str]:
-    r = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], cwd=work, input=patch, text=True,
-                       capture_output=True)
-    return r.returncode == 0, r.stderr
+    """Apply a unified diff. Models often get hunk line counts wrong, so a diff that fails as written is tried once
+    more with the counts recomputed (``--recount``, which only suits single-file diffs: it would read the next
+    file's ``---`` header as a removed line)."""
+    errors = ""
+    for extra in ([], ["--recount"]):
+        r = subprocess.run(["git", "apply", *extra, "--whitespace=nowarn", "-"], cwd=work, input=patch, text=True,
+                           capture_output=True)
+        if r.returncode == 0:
+            return True, ""
+        errors = r.stderr
+    return False, errors
+
+
+def node_id(case: ET.Element) -> str:
+    """pytest's own id for a test (``tests/test_x.py::TestC::test_y``), rebuilt from a JUnit testcase."""
+    file, classname, name = case.get("file"), case.get("classname", ""), case.get("name", "")
+    if not file:
+        return f"{classname}::{name}"
+    module = file[:-3].replace("/", ".").replace("\\", ".")
+    rest = classname[len(module) + 1:] if classname.startswith(module) else ""
+    return "::".join(p for p in (file.replace("\\", "/"), rest, name) if p)
 
 
 def read_junit(path: Path) -> tuple[list[str], list[str], list[str], int]:
@@ -74,7 +92,7 @@ def read_junit(path: Path) -> tuple[list[str], list[str], list[str], int]:
     if not path.exists():
         return passed, failed, errors, skipped
     for case in ET.parse(path).getroot().iter("testcase"):
-        node = f"{case.get('classname', '')}::{case.get('name', '')}"
+        node = node_id(case)
         if case.find("failure") is not None:
             failed.append(node)
         elif case.find("error") is not None:
@@ -98,7 +116,8 @@ def run_tests(inp: RunTestsIn) -> TestReport:
                 return TestReport(patch_applied=False, exit_code=-1, seconds=round(time.monotonic() - t0, 2),
                                   output_tail=why[-2000:])
         junit = Path(tmp) / "junit.xml"
-        cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={junit}", *inp.tests]
+        cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={junit}",
+               "-o", "junit_family=xunit1", *inp.tests]  # xunit1 records each test's file
         try:
             r = subprocess.run(cmd, cwd=work, env=scrubbed_env(), capture_output=True, text=True,
                                timeout=inp.timeout_s)
