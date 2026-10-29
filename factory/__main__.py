@@ -5,6 +5,7 @@
     python -m factory review --repo PATH --patch-file change.diff [--description "text"]
     python -m factory ask --repo PATH --request "any request in plain words" [--patch-file change.diff]
     python -m factory interview --request "what you want built"
+    python -m factory plan --project workspace/factory/projects/<id>
 
 Runs the task end to end, asks on the terminal before any paid call, and writes the bundle to ./exports/.
 """
@@ -59,8 +60,25 @@ def run_interview(args) -> int:
         answer = input("\nType 'approve', or say what to change: ").strip()
         if answer.lower() == "approve" and not turn.data["problems"]:
             print(f"Approved. Task written to {interview.approve()}")
+            print(f"Next: python -m factory plan --project {project.root}")
             return 0
         turn = interview.reply(answer)
+
+
+def run_planning(args) -> int:
+    """The planning loop on an approved project: critique, Plan B, pros and cons, edits, vote."""
+    from factory.pipeline.blackboard import Project
+    from factory.pipeline.planning import PlanningLoop
+
+    cfg = load_config(args.config)
+    project = Project.open(Path(args.project))
+    llm = LLM(cfg, new_run_dir(cfg, "planning"), approver=ask_on_terminal)
+    outcome = PlanningLoop(llm, Registry.load(cfg), project).run()
+    print(f"Plan {outcome.winner} won: {outcome.votes}")
+    for problem in outcome.problems:
+        print(f"  problem left: {problem}")
+    print(f"Refined plan: {project.root / 'plan.json'}  Cost: {llm.ledger.summary()}")
+    return 0 if not outcome.problems else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,12 +104,17 @@ def main(argv: list[str] | None = None) -> int:
     interview = sub.add_parser("interview", help="talk through a request until there is a plan you approve")
     interview.add_argument("--request", required=True)
     interview.add_argument("--config", default="configs/factory.yaml")
+    plan = sub.add_parser("plan", help="run the planning loop on a project whose Plan A is approved")
+    plan.add_argument("--project", required=True, help="the project folder the Interviewer created")
+    plan.add_argument("--config", default="configs/factory.yaml")
     for p in (fix, tests, review, ask):
         p.add_argument("--config", default="configs/factory.yaml")
         p.add_argument("--out", default="exports")
     args = ap.parse_args(argv)
     if args.command == "interview":
         return run_interview(args)
+    if args.command == "plan":
+        return run_planning(args)
 
     if args.command == "fix":
         issue = Path(args.issue_file).read_text() if args.issue_file else args.issue

@@ -1,0 +1,10 @@
+name: plan_editor
+description: Edits both project plans using their pros and cons, keeping each plan's own approach.
+kind: llm
+role: planner
+capabilities: [edit_plans]
+inputs: [project_plan, project_plan, pros_and_cons]
+outputs: [project_plan, project_plan]
+risk: low
+prompt: >
+  You edit project plans. Fix what the cons point out, keep what the pros praise, and keep every task checkable.

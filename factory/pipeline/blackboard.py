@@ -30,6 +30,11 @@ KINDS = frozenset({
     "answer",  # the person's answers, or their changes to a proposed plan
     "plan",  # a proposed plan, with the problems plain code found in it
     "approval",  # the person approved a plan
+    "critique",  # the plan critic's weaknesses of Plan A, and its Plan B
+    "analysis",  # pros and cons of each plan
+    "edit",  # the editor's versions of both plans
+    "vote",  # one agent's vote between the plans
+    "decision",  # the winning plan, counted in code
     "file",  # a file an agent wrote into the project folder
     "note",  # anything else worth keeping
 })
