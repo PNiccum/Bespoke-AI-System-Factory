@@ -3,6 +3,7 @@
     python -m factory fix --repo PATH --issue "text" [--issue-file FILE] [--test NODE ...]
     python -m factory tests --repo PATH --request "Write tests for parse_date in calc/dates.py"
     python -m factory review --repo PATH --patch-file change.diff [--description "text"]
+    python -m factory ask --repo PATH --request "any request in plain words" [--patch-file change.diff]
 
 Runs the task end to end, asks on the terminal before any paid call, and writes the bundle to ./exports/.
 """
@@ -18,6 +19,7 @@ from factory.export import EXPORTABLE, export_bundle
 from factory.llm import LLM, new_run_dir
 from factory.llm.gate import SpendRequest
 from factory.orchestrator import Event, Orchestrator, Task
+from factory.planner import route
 from factory.registry import Registry
 
 
@@ -47,7 +49,11 @@ def main(argv: list[str] | None = None) -> int:
     review.add_argument("--repo", required=True, help="the repository the diff applies to")
     review.add_argument("--patch-file", required=True, help="the diff, as git diff prints it")
     review.add_argument("--description", default="", help="the pull request's description")
-    for p in (fix, tests, review):
+    ask = sub.add_parser("ask", help="say what you want in plain words; SIMPLE picks the workflow")
+    ask.add_argument("--repo", required=True)
+    ask.add_argument("--request", required=True)
+    ask.add_argument("--patch-file", help="a diff, when the request is about one")
+    for p in (fix, tests, review, ask):
         p.add_argument("--config", default="configs/factory.yaml")
         p.add_argument("--out", default="exports")
     args = ap.parse_args(argv)
@@ -60,13 +66,25 @@ def main(argv: list[str] | None = None) -> int:
                     allow_test_edits=args.allow_test_edits)
     elif args.command == "tests":
         task = Task(description=args.request, repo_path=args.repo, task_type="test_gen")
-    else:
+    elif args.command == "review":
         task = Task(description=args.description or "(no description)", repo_path=args.repo, task_type="pr_review",
                     patch=Path(args.patch_file).read_text())
     cfg = load_config(args.config)
     run_dir = new_run_dir(cfg, args.command)
     llm = LLM(cfg, run_dir, approver=ask_on_terminal)
-    result = Orchestrator(llm, Registry.load(cfg), on_event=show).run(task)
+    registry = Registry.load(cfg)
+    if args.command == "ask":
+        routed = route(args.request, args.repo, llm, registry,
+                       patch=Path(args.patch_file).read_text() if args.patch_file else "",
+                       gaps=cfg.work_dir / "gaps.jsonl")
+        print(f"Routed by {routed.routed_by}: {routed.intake.task_type} ({routed.intake.why})")
+        for p in routed.problems:
+            print(f"  note: {p}")
+        if routed.task is None:
+            print(f"SIMPLE has no workflow for this yet; recorded in {cfg.work_dir / 'gaps.jsonl'}.")
+            return 2
+        task = routed.task
+    result = Orchestrator(llm, registry, on_event=show).run(task)
     print(f"\nResult: {result.status}" + (f" ({result.stop_reason})" if result.stop_reason else ""))
     print(f"Cost: {llm.ledger.summary()}")
     if result.status in EXPORTABLE:
