@@ -39,6 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     fix.add_argument("--issue", help="the bug report")
     fix.add_argument("--issue-file", help="read the bug report from a file")
     fix.add_argument("--test", action="append", default=[], help="a test the fix must turn green (repeatable)")
+    fix.add_argument("--allow-test-edits", action="store_true", help="let the fix change test files (off by default)")
     tests = sub.add_parser("tests", help="write tests for existing code, scored by the planted bugs they catch")
     tests.add_argument("--repo", required=True)
     tests.add_argument("--request", required=True, help="what to test, naming the file or function")
@@ -55,7 +56,8 @@ def main(argv: list[str] | None = None) -> int:
         issue = Path(args.issue_file).read_text() if args.issue_file else args.issue
         if not issue:
             ap.error("give --issue or --issue-file")
-        task = Task(description=issue, repo_path=args.repo, failing_tests=args.test)
+        task = Task(description=issue, repo_path=args.repo, failing_tests=args.test,
+                    allow_test_edits=args.allow_test_edits)
     elif args.command == "tests":
         task = Task(description=args.request, repo_path=args.repo, task_type="test_gen")
     else:

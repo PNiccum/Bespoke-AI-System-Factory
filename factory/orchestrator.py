@@ -34,7 +34,7 @@ from factory.llm.gate import SpendDenied
 from factory.mcp import McpTools, mcp_function
 from factory.records import ProvenanceEvent, ProvenanceLog
 from factory.registry import Announcement, Bid, Registry
-from factory.tools.repo import LocateIn, Locations
+from factory.tools.repo import LocateIn, Locations, is_test_file
 from factory.tools.sandbox import RunTestsIn, TestReport
 
 
@@ -45,6 +45,9 @@ class Task(BaseModel):
     domain: str = "software"
     failing_tests: list[str] = []  # tests the fix must turn green; the baseline's failures when empty
     patch: str = ""  # the change under review, for pr_review
+    # A bug fix may not change tests or pytest's configuration unless the person allows it: deleting or skipping the
+    # failing test would otherwise "pass" the check.
+    allow_test_edits: bool = False
 
 
 class Step(BaseModel):
@@ -159,6 +162,16 @@ def extract_diff(text: str) -> str:
     return body.strip("\n") + "\n" if body.strip() else ""
 
 
+TEST_CONFIG = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml")
+
+
+def touched_tests(patch: str) -> list[str]:
+    """Test files and pytest configuration a diff changes, creates or deletes."""
+    paths = {line[4:].split("\t")[0].strip().removeprefix("a/").removeprefix("b/")
+             for line in patch.splitlines() if line.startswith(("--- ", "+++ "))}
+    return sorted(p for p in paths - {"/dev/null"} if is_test_file(p) or p.rsplit("/", 1)[-1] in TEST_CONFIG)
+
+
 def sha12(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()[:12]
 
@@ -259,6 +272,12 @@ class Orchestrator:
                 feedback = "\n## Your previous reply had no diff\nReply with a ```diff block.\n"
                 self.emit(result, "patch", coder.name, "failed", "no diff in the reply")
                 continue
+            if not task.allow_test_edits and (tests_touched := touched_tests(patch)):
+                feedback = (f"\n## Your previous patch changed tests (not applied)\n```diff\n{patch}```\n"
+                            f"It touched {', '.join(tests_touched)}. Fix the code, not the tests or pytest's "
+                            "configuration.\n")
+                self.emit(result, "patch", coder.name, "failed", f"changes tests: {', '.join(tests_touched)}")
+                continue
             self.emit(result, "patch", coder.name, "done", f"{patch.count(chr(10))} diff lines", model=reply.model)
 
             checker = bids["check"]
@@ -268,9 +287,11 @@ class Orchestrator:
             broken_after = set(check.failed + check.errors)
             still = sorted(set(failing) & broken_after)
             new = sorted(broken_after - broken_before)
-            if check.patch_applied is False or check.timed_out or still or new:
+            unrun = sorted(set(failing) - set(check.passed) - broken_after)  # deleted, renamed or skipped
+            if check.patch_applied is False or check.timed_out or still or new or unrun:
                 why = ("the patch did not apply:\n" + check.output_tail if check.patch_applied is False
                        else "the tests timed out" if check.timed_out
+                       else f"target tests did not run (deleted or skipped?): {unrun}" if unrun and not still
                        else f"still failing: {still}; newly failing: {new}\n{check.output_tail}")
                 self.emit(result, "check", checker.agent.name, "failed", why[:300])
                 feedback = f"\n## Your previous patch failed (not applied)\n```diff\n{patch}```\n{why[-3000:]}\n"

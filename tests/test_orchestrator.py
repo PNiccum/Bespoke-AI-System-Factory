@@ -9,7 +9,7 @@ from factory.config import load_config
 from factory.llm import LLM, Usage
 from factory.llm.gate import approve_all, deny_all
 from factory.llm.providers import RawResult
-from factory.orchestrator import Orchestrator, Task, extract_diff, plan_for
+from factory.orchestrator import Orchestrator, Task, extract_diff, plan_for, touched_tests
 from factory.records import ProvenanceLog
 from factory.registry import Registry, ScoreBook
 
@@ -94,6 +94,50 @@ def test_a_patch_that_breaks_a_passing_test_is_not_accepted(cfg, tmp_path):
     result, p, _, _ = run(cfg, tmp_path, arc=[diff(BREAKS_MONEY), diff(GOOD), ACCEPT])
     assert result.status == "fixed" and result.attempts == 2
     assert "newly failing: ['tests/test_money.py::test_add_tax']" in p["arc"].requests[1].messages[0]["content"]
+
+
+SKIPS_TEST = """--- a/tests/test_dates.py
++++ b/tests/test_dates.py
+@@ -1,5 +1,7 @@
++import pytest
+ from calc.dates import parse_date
+ 
+ 
++@pytest.mark.skip
+ def test_parse_date_order():
+     assert parse_date("2026-10-28") == (2026, 10, 28)
+"""
+IGNORES_TEST = """--- /dev/null
++++ b/conftest.py
+@@ -0,0 +1 @@
++collect_ignore = ["tests/test_dates.py"]
+"""
+
+
+@pytest.mark.parametrize("cheat", [SKIPS_TEST, IGNORES_TEST], ids=["skip-marker", "conftest-ignore"])
+def test_a_patch_that_touches_tests_is_refused_before_it_runs(cfg, tmp_path, cheat):
+    result, p, events, _ = run(cfg, tmp_path, arc=[diff(cheat), diff(GOOD), ACCEPT])
+    assert result.status == "fixed" and result.attempts == 2
+    assert any(e.step == "patch" and e.status == "failed" and "changes tests" in e.detail for e in events)
+    assert "Fix the code, not the tests" in p["arc"].requests[1].messages[0]["content"]
+
+
+def test_with_test_edits_allowed_a_skipped_target_still_fails_the_check(cfg, tmp_path):
+    providers = {"arc": Scripted(diff(SKIPS_TEST), diff(GOOD), ACCEPT), "openai": Scripted(), "claude": Scripted()}
+    llm = LLM(cfg, tmp_path, use_cache=False, providers=providers, approver=approve_all)
+    registry = Registry.load(cfg, ROOT / "registry")
+    registry.scores = ScoreBook(tmp_path / "scores.json")
+    events = []
+    task = Task(description=ISSUE, repo_path=str(REPO), allow_test_edits=True)
+    result = Orchestrator(llm, registry, on_event=events.append).run(task)
+    assert result.status == "fixed" and result.attempts == 2
+    assert any(e.step == "check" and "did not run" in e.detail for e in events)
+
+
+def test_touched_tests_names_test_files_and_pytest_config():
+    assert touched_tests(SKIPS_TEST) == ["tests/test_dates.py"]
+    assert touched_tests(IGNORES_TEST) == ["conftest.py"]
+    assert touched_tests(GOOD) == []
 
 
 def test_a_rejected_review_sends_the_defects_back_to_the_coder(cfg, tmp_path):
