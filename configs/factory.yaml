@@ -37,6 +37,13 @@ tier: economy
 # Plain-code agents (code_navigator, test_runner) run in the factory's MCP server (python -m factory.mcp), a
 # separate process with no keys in its environment. "direct" calls them in-process instead.
 tool_transport: mcp
+
+# Where generated code's tests run. "process" works everywhere; "docker"/"podman" (build sandbox/Dockerfile as
+# simple-sandbox) adds no network, no keys, a read-only root and resource caps; "apptainer" takes a .sif image on ARC.
+# SIMPLE_SANDBOX=docker in the environment overrides this for one run.
+sandbox:
+  runner: process
+  image: simple-sandbox
 role_tiers: {}
 
 roles:

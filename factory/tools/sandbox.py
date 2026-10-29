@@ -1,8 +1,15 @@
 """Run a repository's tests on a throwaway copy, optionally with a patch applied. No model.
 
-Isolation here is a fresh copy of the repository in a temporary directory, an environment with every key and token
-removed, and a time limit; the original checkout is never written to. It is not a container: generated code still
-runs as the current user, which is why the factory only runs code from tasks a person submitted.
+Every run uses a fresh copy of the repository in a temporary directory and a time limit; the original checkout is
+never written to. Where the tests run is set by ``SIMPLE_SANDBOX`` (from ``sandbox:`` in the config):
+
+- ``process`` (default): a child process with every key and token removed from its environment. Generated code still
+  runs as the current user, with the network.
+- ``docker`` or ``podman``: a container from ``SIMPLE_SANDBOX_IMAGE`` (``sandbox/Dockerfile``) with no network, an
+  empty environment, a read-only root, no capabilities, and caps on memory, CPU and processes.
+- ``apptainer``: the same image as a ``.sif`` file, for clusters such as ARC, with ``--containall --cleanenv``. Its
+  network is isolated only where the site lets users run ``--net --network none``; set
+  ``SIMPLE_SANDBOX_APPTAINER_NET=1`` there.
 
 ``prove_fix`` is the bug-fix check: the named tests must fail without the patch and pass with it.
 """
@@ -23,6 +30,59 @@ from pydantic import BaseModel, Field
 COPY_IGNORE = shutil.ignore_patterns(".git", ".venv*", "venv", "__pycache__", "*.pyc", ".pytest_cache", "node_modules",
                                      ".env", ".env.*")
 SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
+
+
+RUNNERS = ("process", "docker", "podman", "apptainer")
+
+
+class SandboxError(RuntimeError):
+    """The configured sandbox cannot run: an unknown runner, or its program is not installed."""
+
+
+def sandbox_runner() -> str:
+    runner = os.environ.get("SIMPLE_SANDBOX", "process")
+    if runner not in RUNNERS:
+        raise SandboxError(f"SIMPLE_SANDBOX={runner!r}; use one of {', '.join(RUNNERS)}")
+    if runner != "process" and not shutil.which(runner):
+        raise SandboxError(f"SIMPLE_SANDBOX={runner} but {runner} is not installed; install it or use process")
+    return runner
+
+
+def pytest_command(tmp: Path, pytest_args: list[str]) -> tuple[list[str], dict | None, str | None]:
+    """The command that runs pytest in ``work``, its environment, and the container's name (to stop it on a
+    timeout). ``tmp`` holds the repository copy and receives the junit report."""
+    runner = sandbox_runner()
+    if runner == "process":
+        return [sys.executable, "-m", "pytest", f"--junitxml={tmp / 'junit.xml'}", *pytest_args], scrubbed_env(), None
+    image = os.environ.get("SIMPLE_SANDBOX_IMAGE", "simple-sandbox")
+    # env -i: start from an empty environment; base images set variables of their own (python's sets GPG_KEY).
+    inner = ["env", "-i", "HOME=/tmp", "PATH=/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1",
+             "python", "-m", "pytest", "--junitxml=/work/junit.xml", *pytest_args]
+    if runner == "apptainer":
+        net = ["--net", "--network", "none"] if os.environ.get("SIMPLE_SANDBOX_APPTAINER_NET") == "1" else []
+        return ["apptainer", "exec", "--containall", "--cleanenv", "--no-home", *net, "--bind", f"{tmp}:/work",
+                "--pwd", "/work/repo", image, *inner], None, None
+    name = f"simple-sandbox-{tmp.name}"
+    user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
+    limits = os.environ.get("SIMPLE_SANDBOX_LIMITS", "2g,2,256").split(",")  # memory, CPUs, processes
+    return [runner, "run", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp",  # noqa: S108  # nosec B108 (inside the container)
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", limits[0], "--cpus", limits[1],
+            "--pids-limit", limits[2], *user, "-v", f"{tmp}:/work", "-w", "/work/repo", image, *inner], None, name
+
+
+def run_pytest(tmp: Path, pytest_args: list[str], timeout_s: float) -> tuple[int, str, bool]:
+    """Run pytest on ``tmp/repo`` in the configured sandbox: (exit code, output, timed out). The junit report lands
+    at ``tmp/junit.xml``."""
+    cmd, env, container = pytest_command(tmp, pytest_args)
+    if env is not None:
+        env = env | {"PYTHONDONTWRITEBYTECODE": "1"}  # a same-size rewrite in the same second would hit a stale .pyc
+    try:
+        r = subprocess.run(cmd, cwd=tmp / "repo", env=env, capture_output=True, text=True, timeout=timeout_s)
+        return r.returncode, r.stdout + r.stderr, False
+    except subprocess.TimeoutExpired as e:
+        if container:  # stopping the client leaves the container running
+            subprocess.run([cmd[0], "rm", "-f", container], capture_output=True)
+        return -1, (e.stdout or "") if isinstance(e.stdout, str) else "", True
 
 
 class RunTestsIn(BaseModel):
@@ -121,14 +181,9 @@ def run_tests(inp: RunTestsIn) -> TestReport:
                 return TestReport(patch_applied=False, exit_code=-1, seconds=round(time.monotonic() - t0, 2),
                                   output_tail=why[-2000:])
         junit = Path(tmp) / "junit.xml"
-        cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={junit}",
-               "-o", "junit_family=xunit1", *inp.tests]  # xunit1 records each test's file
-        try:
-            r = subprocess.run(cmd, cwd=work, env=scrubbed_env(), capture_output=True, text=True,
-                               timeout=inp.timeout_s)
-            code, out, timed_out = r.returncode, r.stdout + r.stderr, False
-        except subprocess.TimeoutExpired as e:
-            code, out, timed_out = -1, (e.stdout or "") if isinstance(e.stdout, str) else "", True
+        # xunit1 records each test's file
+        code, out, timed_out = run_pytest(Path(tmp), ["-q", "-p", "no:cacheprovider", "-o", "junit_family=xunit1",
+                                                      *inp.tests], inp.timeout_s)
         passed, failed, errors, skipped = read_junit(junit)
         return TestReport(patch_applied=applied, exit_code=code, passed=passed, failed=failed, errors=errors,
                           skipped=skipped, seconds=round(time.monotonic() - t0, 2), timed_out=timed_out,

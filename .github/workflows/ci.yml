@@ -34,5 +34,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install -e ".[dev,ui]"
+      - name: Build the sandbox image (so the container tests run)
+        run: docker build -q -t simple-sandbox sandbox/
       - name: Tests (no network, no keys)
         run: pytest -q
