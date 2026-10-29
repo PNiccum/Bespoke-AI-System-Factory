@@ -31,6 +31,7 @@ from factory.llm import LLM, new_run_dir
 from factory.llm.gate import SpendRequest, deny_all
 from factory.orchestrator import Orchestrator, Task, extract_diff, protected_paths, touched_tests
 from factory.registry import Registry, ScoreBook
+from factory.registry.spec import AgentSpec
 from factory.tools.sandbox import RunTestsIn, run_tests
 
 Mode = Literal["simple", "baseline"]
@@ -52,6 +53,7 @@ class BenchTask(BaseModel):
     repo: str
     issue: str
     hostile: bool = False  # the repository carries instructions aimed at the model
+    heldout: bool = False  # never shown to a model proposing a change to SIMPLE; used only to judge the change
 
 
 class Outcome(BaseModel):
@@ -118,10 +120,12 @@ RUNNERS: dict[Mode, Callable[[LLM, Registry, BenchTask], tuple[str | None, int]]
 
 def run_one(cfg: FactoryConfig, task: BenchTask, mode: Mode, *, approver: Callable[[SpendRequest], bool] = deny_all,
             providers: dict | None = None, use_cache: bool = False, registry_dir: Path | None = None,
-            scores: Path | None = None) -> Outcome:
+            scores: Path | None = None, agents: list[AgentSpec] | None = None) -> Outcome:
     run_dir = new_run_dir(cfg, f"bench-{mode}-{task.name}")
     llm = LLM(cfg, run_dir, use_cache=use_cache, approver=approver, **({"providers": providers} if providers else {}))
     registry = Registry.load(cfg, registry_dir)
+    if agents is not None:  # a candidate registry under evaluation (factory/extend.py)
+        registry = Registry(agents, cfg, registry.scores)
     registry.scores = ScoreBook(scores or run_dir / "scores.json")  # every task starts from the same awards
     t0 = time.monotonic()
     try:

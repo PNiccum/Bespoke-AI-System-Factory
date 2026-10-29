@@ -103,9 +103,15 @@ def model_unavailable(e: Exception) -> bool:
 
 def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    path = cfg.root / cfg.runs_dir / (f"{stamp}-{label}" if label else stamp)
-    path.mkdir(parents=True, exist_ok=False)
-    return path
+    base = cfg.root / cfg.runs_dir / (f"{stamp}-{label}" if label else stamp)
+    for n in range(1, 100):  # two runs with the same label in the same second get -2, -3, ...
+        path = base if n == 1 else base.with_name(f"{base.name}-{n}")
+        try:
+            path.mkdir(parents=True, exist_ok=False)
+            return path
+        except FileExistsError:
+            continue
+    raise FileExistsError(f"too many runs named {base.name}")
 
 
 class LLM:
