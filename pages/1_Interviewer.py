@@ -13,7 +13,9 @@ from factory.llm import LLM, new_run_dir
 from factory.llm.gate import deny_all
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import MAX_QUESTIONS, Interview
+from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
 from factory.pipeline.planning import PlanningLoop
+from factory.pipeline.wiki import Wiki
 from factory.registry import Registry
 
 ROOT = Path(__file__).parent.parent
@@ -95,6 +97,25 @@ if iv.board.latest("approval"):
         for problem in decision.data["problems"]:
             st.error(f"Left in the winning plan: {problem}")
         st.code((iv.project.root / "plan.json").read_text(), language="json")
+        knowledge = iv.board.latest("knowledge")
+        if knowledge is None and st.button("Run the knowledge loop", type="primary"):
+            cfg = config()
+            with st.spinner("Finding what the plan needs, searching OpenAlex, Europe PMC and NCBI, writing the "
+                            "wiki..."):
+                KnowledgeLoop(iv.llm, Registry.load(cfg), iv.project, Wiki(cfg.work_dir / "wiki"),
+                              default_searchers(cfg.work_dir / "research-cache")).run()
+            st.rerun()
+        if knowledge is not None:
+            st.subheader("Knowledge loop: " + ("approved" if knowledge.data["ok"] else "incomplete"))
+            wiki = Wiki(config().work_dir / "wiki")
+            for topic, slug in knowledge.data["covered"].items():
+                with st.expander(f"Wiki: {topic}"):
+                    page = wiki.get(topic)
+                    st.markdown(page.markdown() if page else f"(page {slug} not found)")
+            for topic in knowledge.data["missing"]:
+                st.warning(f"Still missing: {topic}")
+            st.caption(f"{len(iv.board.entries('source'))} sources approved, "
+                       f"{len(iv.board.entries('query'))} searches run.")
     with st.expander("Blackboard"):
         st.code("\n".join(json.dumps(e.model_dump()) for e in iv.board.entries()), language="json")
     if st.button("New request"):

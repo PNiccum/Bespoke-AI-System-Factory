@@ -108,6 +108,21 @@ cons of each; the editor (GLM) edits both; the critic and the analyst vote, and 
 split goes to the plan with fewer problems, then to Plan A. The editor never votes on its own edits. Code checks every plan, drops an edit that breaks one,
 counts the votes, and never lets a plan with problems win. The winner, with tasks and subtasks, is `plan.json`.
 
+Then the knowledge loop makes sure the wiki holds what the plan needs:
+
+```bash
+python -m factory research --project workspace/factory/projects/<id>
+```
+
+The knowledge evaluator (gpt-oss) lists the topics the work depends on. The librarian checks the shared wiki
+(`workspace/<name>/wiki/`) in plain code: a topic is covered by a verified page with at least two sources. For each
+missing topic the research orchestrator writes searches, plain-code connectors run them against OpenAlex, Europe PMC
+and NCBI Gene, and the orchestrator approves or rejects each document. The librarian writes a page citing a document
+for every claim; code checks the citations and the wiki verifier (DeepSeek) checks the claims against the documents.
+The evaluator then looks again with the new pages and either approves or names what is still missing (at most three
+looks, two research passes). Every document carries a license tag, and a page built from an ARC-only source never
+goes to a paid model.
+
 **Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
 | Task type | Bundle holds | `rerun.py` checks |

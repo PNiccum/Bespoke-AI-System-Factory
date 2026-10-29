@@ -35,6 +35,13 @@ KINDS = frozenset({
     "edit",  # the editor's versions of both plans
     "vote",  # one agent's vote between the plans
     "decision",  # the winning plan, counted in code
+    "topics",  # what the knowledge evaluator says the work needs
+    "coverage",  # which of those topics the wiki already covers
+    "query",  # one search the research orchestrator ran, and what it found
+    "source",  # a document the research orchestrator approved
+    "wiki_check",  # the wiki verifier's check of a page
+    "wiki_page",  # a page the librarian wrote or updated
+    "knowledge",  # the knowledge loop's result
     "file",  # a file an agent wrote into the project folder
     "note",  # anything else worth keeping
 })
