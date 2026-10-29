@@ -1,5 +1,5 @@
 name: plan_editor
-description: Edits both project plans using their pros and cons, keeping each plan's own approach. Votes between them.
+description: Edits both project plans using their pros and cons, keeping each plan's own approach.
 kind: llm
 role: planner
 capabilities: [edit_plans]

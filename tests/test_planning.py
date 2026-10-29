@@ -53,20 +53,20 @@ def loop(cfg, tmp_path, *replies):
 
 
 def test_three_families_critique_weigh_edit_and_vote(cfg, tmp_path):
-    pl, arc, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), vote("B"), vote("B"), vote("A"))
+    pl, arc, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), vote("B"), vote("B"))
     out = pl.run()
-    assert out.winner == "B" and out.votes == {"plan_critic": "B", "plan_analyst": "B", "plan_editor": "A"}
+    assert out.winner == "B" and out.votes == {"plan_critic": "B", "plan_analyst": "B"}  # the editor never votes
     assert json.loads((project.root / "plan.json").read_text())["tasks"][0]["subtasks"][0]["id"] == "T1.1"
     families = {cfg.model_info(r.model).family for r in arc.requests[:3]}
     assert families == {"deepseek", "openai", "glm"}  # critic, analyst, editor
-    kinds = [e.kind for e in project.board.entries()][-8:]
-    assert kinds == ["critique", "analysis", "edit", "vote", "vote", "vote", "decision", "file"]
+    kinds = [e.kind for e in project.board.entries()][-7:]
+    assert kinds == ["critique", "analysis", "edit", "vote", "vote", "decision", "file"]
     with pytest.raises(RuntimeError, match="already ran"):
         pl.run()
 
 
 def test_an_edit_that_breaks_a_plan_is_dropped(cfg, tmp_path):
-    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(b=BROKEN), vote("B"), vote("B"), vote("B"))
+    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(b=BROKEN), vote("B"), vote("B"))
     out = pl.run()
     assert out.winner == "B" and out.plan.title == PLAN_B["title"]
     assert project.board.latest("edit").data["dropped"] == ["B"]
@@ -74,10 +74,14 @@ def test_an_edit_that_breaks_a_plan_is_dropped(cfg, tmp_path):
 
 def test_a_plan_with_problems_cannot_win(cfg, tmp_path):
     # Plan B stays broken after its one fix, so votes for it are spoiled and A wins.
-    pl, _, _ = loop(cfg, tmp_path, critique(BROKEN), critique(BROKEN), ANALYSIS, edit(b=BROKEN),
-                    vote("B"), vote("B"), vote("A"))
+    pl, _, _ = loop(cfg, tmp_path, critique(BROKEN), critique(BROKEN), ANALYSIS, edit(b=BROKEN), vote("B"), vote("A"))
     out = pl.run()
     assert out.winner == "A" and out.votes["plan_critic"] == "spoiled" and out.problems == []
+
+
+def test_a_split_vote_goes_to_plan_a(cfg, tmp_path):
+    pl, _, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), vote("B"), vote("A"))
+    assert pl.run().winner == "A"
 
 
 def test_the_loop_needs_an_approved_plan(cfg, tmp_path):
@@ -89,9 +93,10 @@ def test_the_loop_needs_an_approved_plan(cfg, tmp_path):
 
 
 @pytest.mark.parametrize("votes,problems,expected", [
-    ({"x": "A", "y": "B", "z": "B"}, {"A": [], "B": []}, "B"),
-    ({"x": "A", "y": "B", "z": "spoiled"}, {"A": [], "B": []}, "A"),  # tie: the person's plan
-    ({"x": "A", "y": "B", "z": "spoiled"}, {"A": ["p"], "B": []}, "B"),  # tie: fewer problems
+    ({"x": "B", "y": "B"}, {"A": [], "B": []}, "B"),
+    ({"x": "B", "y": "spoiled"}, {"A": [], "B": []}, "B"),
+    ({"x": "A", "y": "B"}, {"A": [], "B": []}, "A"),  # split: the person's plan
+    ({"x": "A", "y": "B"}, {"A": ["p"], "B": []}, "B"),  # split: fewer problems
 ])
 def test_votes_are_counted_in_code(votes, problems, expected):
     assert decide(votes, problems) == expected

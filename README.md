@@ -104,7 +104,8 @@ python -m factory plan --project workspace/factory/projects/<id>
 ```
 
 The plan critic (DeepSeek) lists Plan A's weaknesses and writes Plan B; the plan analyst (gpt-oss) lists pros and
-cons of each; the editor (GLM) edits both; all three vote. Code checks every plan, drops an edit that breaks one,
+cons of each; the editor (GLM) edits both; the critic and the analyst vote, and a
+split goes to the plan with fewer problems, then to Plan A. The editor never votes on its own edits. Code checks every plan, drops an edit that breaks one,
 counts the votes, and never lets a plan with problems win. The winner, with tasks and subtasks, is `plan.json`.
 
 **Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.

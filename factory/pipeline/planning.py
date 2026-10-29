@@ -3,12 +3,13 @@
 1. The plan critic (DeepSeek) critiques Plan A and writes an alternative, Plan B.
 2. The plan analyst (gpt-oss) lists pros and cons for each plan.
 3. The editor (GLM, the planner role) edits both plans using those pros and cons.
-4. The three vote. Each vote names a plan and says why.
+4. The critic and the analyst vote; each vote names a plan and says why. The editor does not vote: it has just
+   edited both plans, so it would be judging its own work.
 
 Code does the parts that need no model. Every plan is checked (acceptance checks, unique ids, no task depending on a
 later one); a plan that fails gets one chance to be fixed, and an edit that breaks a plan is thrown away, keeping the
-plan as it was before the edit. A plan with problems cannot win. Votes are counted in code; a tie (possible only when
-a vote is spoiled) goes to the plan with fewer problems, then to Plan A, which the person approved. The loop runs once,
+plan as it was before the edit. A plan with problems cannot win. Votes are counted in code; a split vote goes to the
+plan with fewer problems, then to Plan A, which the person approved. The loop runs once,
 plus one repair round when the winner fails its checks.
 
 Every step is a blackboard entry, and the result is ``plan.json``: the refined plan with tasks and subtasks that the
@@ -28,7 +29,7 @@ from factory.pipeline.interview import ProjectPlan, check_plan
 from factory.registry import Registry
 
 CRITIC, ANALYST, EDITOR = "plan_critic", "plan_analyst", "plan_editor"
-VOTERS = (CRITIC, ANALYST, EDITOR)
+VOTERS = (CRITIC, ANALYST)  # the editor edits and does not vote
 
 
 class Critique(BaseModel):
@@ -140,7 +141,7 @@ def show(plan: ProjectPlan) -> str:
 class PlanningLoop:
     def __init__(self, llm: LLM, registry: Registry, project: Project):
         self.llm, self.project, self.board = llm, project, project.board
-        self.agents = {name: registry.agents[name] for name in VOTERS}
+        self.agents = {name: registry.agents[name] for name in (CRITIC, ANALYST, EDITOR)}
         self.data = "public" if llm.cfg.data_public else "private"
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str):
