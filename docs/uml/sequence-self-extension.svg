@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1765" height="1032" viewBox="0 0 1765 1032">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<defs>
+<marker id="open" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" orient="auto">
+  <path d="M1,1 L11,6 L1,11" fill="none" stroke="#52606d" stroke-width="1.4"/></marker>
+<marker id="solid" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+  <path d="M1,1 L11,6 L1,11 z" fill="#1f2933"/></marker>
+<marker id="comp" viewBox="0 0 20 12" refX="1" refY="6" markerWidth="18" markerHeight="11" orient="auto">
+  <path d="M1,6 L10,1 L19,6 L10,11 z" fill="#52606d"/></marker>
+<marker id="agg" viewBox="0 0 20 12" refX="1" refY="6" markerWidth="18" markerHeight="11" orient="auto">
+  <path d="M1,6 L10,1 L19,6 L10,11 z" fill="#ffffff" stroke="#52606d"/></marker>
+</defs>
+<text x="40.0" y="34.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="18" font-weight="bold" fill="#1f2933" text-anchor="start">SIMPLE: sequence diagram, self-extension dry run</text>
+<line x1="130" y1="106" x2="130" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="70.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="130.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Person</text>
+<rect x="70.0" y="956" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="130.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Person</text>
+<line x1="345" y1="106" x2="345" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="283.2" y="70" width="123.60000000000001" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="345.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">factory.extend</text>
+<rect x="283.2" y="956" width="123.60000000000001" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="345.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">factory.extend</text>
+<line x1="560" y1="106" x2="560" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="500.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="560.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Registry</text>
+<rect x="500.0" y="956" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="560.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Registry</text>
+<line x1="775" y1="106" x2="775" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="683.6" y="70" width="182.8" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="775.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">bench (run_one, judge)</text>
+<rect x="683.6" y="956" width="182.8" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="775.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">bench (run_one, judge)</text>
+<line x1="990" y1="106" x2="990" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="913.4" y="70" width="153.20000000000002" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="990.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (GLM proposer)</text>
+<rect x="913.4" y="956" width="153.20000000000002" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="990.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (GLM proposer)</text>
+<line x1="1205" y1="106" x2="1205" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1121.0" y="70" width="168.0" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1205.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (DeepSeek panel)</text>
+<rect x="1121.0" y="956" width="168.0" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1205.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (DeepSeek panel)</text>
+<line x1="1420" y1="106" x2="1420" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1360.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1420.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">SpendGate</text>
+<rect x="1360.0" y="956" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1420.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">SpendGate</text>
+<line x1="1635" y1="106" x2="1635" y2="992" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1575.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1635.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">proposals/</text>
+<rect x="1575.0" y="956" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1635.0" y="979.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">proposals/</text>
+<line x1="130" y1="130" x2="345" y2="130" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="103.4" y="112.0" width="268.2" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="237.5" y="124.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">python -m factory.extend --agent coder</text>
+<line x1="345" y1="164" x2="560" y2="164" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="352.9" y="146.0" width="199.2" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="452.5" y="158.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">load(): incumbent coder spec</text>
+<line x1="560" y1="198" x2="345" y2="198" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="294.2" y="180.0" width="316.5" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="452.5" y="192.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">AgentSpec (role, tools, capabilities, prompt)</text>
+<line x1="345" y1="232" x2="775" y2="232" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="450.1" y="214.0" width="219.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="560.0" y="226.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">development tasks only (5 of 8)</text>
+<line x1="775" y1="266" x2="345" y2="266" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="453.5" y="248.0" width="213.0" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="560.0" y="260.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">Outcomes: which failed and why</text>
+<line x1="345" y1="300" x2="990" y2="300" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="533.4" y="282.0" width="268.2" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="667.5" y="294.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">propose: spec + dev failures + archive</text>
+<line x1="990" y1="334" x2="345" y2="334" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="543.8" y="316.0" width="247.5" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="667.5" y="328.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">Proposal: name, description, prompt</text>
+<path d="M345,368 h40 v18 h-40" fill="none" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="391.0" y="370.0" width="378.6" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="393.0" y="381.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">gate 1, scope: prompt only, same role/tools, no secret</text>
+<line x1="345" y1="442" x2="775" y2="442" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="401.8" y="424.0" width="316.5" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="560.0" y="436.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">held-out tasks (3), incumbent, then candidate</text>
+<line x1="775" y1="476" x2="345" y2="476" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="467.3" y="458.0" width="185.4" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="560.0" y="470.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">solved and tokens for each</text>
+<path d="M345,510 h40 v18 h-40" fill="none" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="391.0" y="512.0" width="302.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="393.0" y="523.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">gate 2: solves &gt;= incumbent, tokens &lt;= 1.5x</text>
+<line x1="345" y1="584" x2="1205" y2="584" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="644.4" y="566.0" width="261.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="578.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">gate 3: old spec, new spec, benchmark</text>
+<line x1="1205" y1="618" x2="345" y2="618" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="682.3" y="600.0" width="185.4" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="612.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">accept | reject + concerns</text>
+<line x1="1205" y1="686" x2="1420" y2="686" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="1226.7" y="668.0" width="171.6" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1312.5" y="680.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">check(claude-sonnet-5-5)</text>
+<line x1="1420" y1="720" x2="130" y2="720" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="682.3" y="702.0" width="185.4" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="714.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">approve the paid reviewer?</text>
+<line x1="130" y1="754" x2="1420" y2="754" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="658.1" y="736.0" width="233.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="748.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">yes / no (no = proposal rejected)</text>
+<rect x="274" y="652" width="1217" height="142" fill="none" stroke="#52606d" stroke-width="1.2"/>
+<path d="M274,652 h50 v14 l-8,8 h-42 z" fill="#f1f3f5" stroke="#52606d"/>
+<text x="282.0" y="668.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">alt</text>
+<text x="334.0" y="668.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">[--paid-panel]</text>
+<rect x="262" y="550" width="1241" height="266" fill="none" stroke="#52606d" stroke-width="1.2"/>
+<path d="M262,550 h50 v14 l-8,8 h-42 z" fill="#f1f3f5" stroke="#52606d"/>
+<text x="270.0" y="566.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">alt</text>
+<text x="322.0" y="566.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">[benchmark passed]</text>
+<rect x="250" y="408" width="1265" height="430" fill="none" stroke="#52606d" stroke-width="1.2"/>
+<path d="M250,408 h50 v14 l-8,8 h-42 z" fill="#f1f3f5" stroke="#52606d"/>
+<text x="258.0" y="424.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">alt</text>
+<text x="310.0" y="424.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">[scope passed]</text>
+<line x1="345" y1="854" x2="1635" y2="854" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="845.5" y="836.0" width="288.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="990.0" y="848.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">report.md, spec .yaml, archive.jsonl line</text>
+<line x1="345" y1="888" x2="130" y2="888" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="103.4" y="870.0" width="268.2" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="237.5" y="882.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">awaiting a person | rejected at &lt;gate&gt;</text>
+<path d="M130,922 h40 v18 h-40" fill="none" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="176.0" y="924.0" width="406.2" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="178.0" y="935.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">adopt: open a pull request (SIMPLE never writes registry/)</text>
+</svg>
