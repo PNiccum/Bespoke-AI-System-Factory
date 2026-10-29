@@ -120,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     review.add_argument("--repo", required=True, help="the repository the diff applies to")
     review.add_argument("--patch-file", required=True, help="the diff, as git diff prints it")
     review.add_argument("--description", default="", help="the pull request's description")
-    ask = sub.add_parser("ask", help="say what you want in plain words; SIMPLE picks the workflow")
+    ask = sub.add_parser("ask", help="say what you want in plain words; ASPIRE picks the workflow")
     ask.add_argument("--repo", required=True)
     ask.add_argument("--request", required=True)
     ask.add_argument("--patch-file", help="a diff, when the request is about one")
@@ -167,7 +167,7 @@ def main(argv: list[str] | None = None) -> int:
         for p in routed.problems:
             print(f"  note: {p}")
         if routed.task is None:
-            print(f"SIMPLE has no workflow for this yet; recorded in {cfg.work_dir / 'gaps.jsonl'}.")
+            print(f"ASPIRE has no workflow for this yet; recorded in {cfg.work_dir / 'gaps.jsonl'}.")
             return 2
         task = routed.task
     result = Orchestrator(llm, registry, on_event=show).run(task)

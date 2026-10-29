@@ -1,4 +1,4 @@
-"""Guards from the risk register: secrets kept out of bundles, the registry version in every bundle, SIMPLE's own
+"""Guards from the risk register: secrets kept out of bundles, the registry version in every bundle, ASPIRE's own
 safety code protected from patches, and tests that may not quietly disappear."""
 
 import json
@@ -9,7 +9,7 @@ import pytest
 from factory.export import export_bundle
 from factory.llm import LLM
 from factory.llm.gate import approve_all
-from factory.orchestrator import SIMPLE_ROOT, Orchestrator, Task, protected_paths
+from factory.orchestrator import ASPIRE_ROOT, Orchestrator, Task, protected_paths
 from factory.registry import Registry, ScoreBook
 from factory.secrets import SecretFound, guard_bundle, scan_text
 from tests.test_orchestrator import ACCEPT, GOOD, ISSUE, REPO, ROOT, Scripted, cfg, diff, run  # noqa: F401
@@ -69,7 +69,7 @@ GATE_PATCH = """--- a/factory/llm/gate.py
 
 
 def test_simple_may_not_patch_its_own_safety_code():
-    assert protected_paths(GATE_PATCH, str(SIMPLE_ROOT)) == ["factory/llm/gate.py"]
+    assert protected_paths(GATE_PATCH, str(ASPIRE_ROOT)) == ["factory/llm/gate.py"]
     assert protected_paths(GATE_PATCH, str(REPO)) == []  # another repo's factory/ folder is ordinary code
     env_patch = "--- /dev/null\n+++ b/.env\n@@ -0,0 +1 @@\n+K=v\n"
     assert protected_paths(env_patch, str(REPO)) == [".env"]

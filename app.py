@@ -1,4 +1,4 @@
-"""SIMPLE (the Bespoke AI System Factory), web front end: streamlit run app.py
+"""ASPIRE (the Bespoke AI System Factory), web front end: streamlit run app.py
 
 Pick a task (fix a bug, write tests, review a pull request), watch each agent work, approve or refuse paid model
 calls, and download the bundle.
@@ -19,7 +19,7 @@ from factory.workflows import TASK_TYPES
 ROOT = Path(__file__).parent
 STATUS_ICON = {"started": "🔄", "done": "✅", "failed": "❌", "waiting": "⏳"}
 
-st.set_page_config(page_title="SIMPLE", layout="wide")
+st.set_page_config(page_title="ASPIRE", layout="wide")
 
 
 def usd(x: float) -> str:
@@ -36,8 +36,8 @@ if "session" not in st.session_state:
     st.session_state.session = RunSession(config())
 session: RunSession = st.session_state.session
 
-st.title("SIMPLE")
-st.caption("Solution In Minutes from Plain Language Executable. "
+st.title("ASPIRE")
+st.caption("Agentic System Producing Intelligent Runnable Executables. "
            "Give it a bug, code to test, or a pull request; it returns the result as a bundle you can recheck "
            "without any model. Free ARC models do the work; paid models wait for your approval.")
 FIXTURE = ROOT / "tests" / "fixtures"

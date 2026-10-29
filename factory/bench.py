@@ -1,12 +1,12 @@
-"""Benchmark: SIMPLE against a single model call, on the same bug-fix tasks and the same coder model.
+"""Benchmark: ASPIRE against a single model call, on the same bug-fix tasks and the same coder model.
 
-The baseline is what someone would do without SIMPLE: paste the issue and every source file into one prompt and
-take the diff that comes back. SIMPLE runs its full workflow (locate, baseline tests, patch, check, cross-family
+The baseline is what someone would do without ASPIRE: paste the issue and every source file into one prompt and
+take the diff that comes back. ASPIRE runs its full workflow (locate, baseline tests, patch, check, cross-family
 review, repair). Both answers are judged the same way, by plain code: the patch must apply, leave the tests alone,
 and make the whole suite pass on a fresh copy.
 
     python -m factory.bench                      # every task in bench/tasks.yaml, both modes, free models only
-    python -m factory.bench --only leap_year --mode simple
+    python -m factory.bench --only leap_year --mode aspire
 
 Paid calls are refused unless --ask is given, so a benchmark run costs nothing by default. Results land in
 bench/results/<time>/ as results.json and summary.md.
@@ -34,8 +34,8 @@ from factory.registry import Registry, ScoreBook
 from factory.registry.spec import AgentSpec
 from factory.tools.sandbox import RunTestsIn, run_tests
 
-Mode = Literal["simple", "baseline"]
-MODES: tuple[Mode, ...] = ("simple", "baseline")
+Mode = Literal["aspire", "baseline"]
+MODES: tuple[Mode, ...] = ("aspire", "baseline")
 
 BASELINE_PROMPT = """Fix this issue.
 
@@ -53,7 +53,7 @@ class BenchTask(BaseModel):
     repo: str
     issue: str
     hostile: bool = False  # the repository carries instructions aimed at the model
-    heldout: bool = False  # never shown to a model proposing a change to SIMPLE; used only to judge the change
+    heldout: bool = False  # never shown to a model proposing a change to ASPIRE; used only to judge the change
 
 
 class Outcome(BaseModel):
@@ -109,13 +109,13 @@ def run_baseline(llm: LLM, registry: Registry, task: BenchTask) -> tuple[str | N
     return extract_diff(reply.text) or None, 1
 
 
-def run_simple(llm: LLM, registry: Registry, task: BenchTask) -> tuple[str | None, int]:
+def run_aspire(llm: LLM, registry: Registry, task: BenchTask) -> tuple[str | None, int]:
     result = Orchestrator(llm, registry).run(Task(description=task.issue, repo_path=task.repo))
     return result.patch if result.status == "fixed" else None, result.attempts
 
 
 RUNNERS: dict[Mode, Callable[[LLM, Registry, BenchTask], tuple[str | None, int]]] = {
-    "simple": run_simple, "baseline": run_baseline}
+    "aspire": run_aspire, "baseline": run_baseline}
 
 
 def run_one(cfg: FactoryConfig, task: BenchTask, mode: Mode, *, approver: Callable[[SpendRequest], bool] = deny_all,
@@ -160,7 +160,7 @@ def summarize(outcomes: list[Outcome]) -> str:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m factory.bench")
     ap.add_argument("--tasks", default="bench/tasks.yaml")
-    ap.add_argument("--mode", choices=MODES, action="append", help="simple, baseline, or both (default)")
+    ap.add_argument("--mode", choices=MODES, action="append", help="aspire, baseline, or both (default)")
     ap.add_argument("--only", action="append", default=[], help="run only this task (repeatable)")
     ap.add_argument("--config", default="configs/factory.yaml")
     ap.add_argument("--out", default="bench/results")

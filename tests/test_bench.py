@@ -32,7 +32,7 @@ def test_a_patch_that_deletes_the_failing_test_does_not_count():
     assert judge(task.repo, cheat) == (False, "changes tests/test_years.py")
 
 
-@pytest.mark.parametrize("mode,replies,calls", [("baseline", 1, 1), ("simple", 2, 2)])
+@pytest.mark.parametrize("mode,replies,calls", [("baseline", 1, 1), ("aspire", 2, 2)])
 def test_both_modes_run_on_the_same_coder_and_are_judged_alike(cfg, mode, replies, calls):
     task = next(t for t in TASKS if t.name == "leap_year")
     arc = Scripted(*[diff(golden("leap_year")), ACCEPT][:replies])

@@ -24,6 +24,6 @@ const body = pages.map(({ svg, w, h }) =>
   `<div style="page-break-after:always;width:16.4in;height:10.4in;display:flex;align-items:center;justify-content:center">
      <div style="width:100%;height:100%">${svg.replace(/width="\d+" height="\d+"/, 'width="100%" height="100%"')}</div></div>`).join("");
 await page.setContent(`<html><body style="margin:0">${body}</body></html>`);
-await page.pdf({ path: join(here, "SIMPLE-UML.pdf"), width: "17in", height: "11in", margin: { top: "0.3in", bottom: "0.3in", left: "0.3in", right: "0.3in" }, printBackground: true });
+await page.pdf({ path: join(here, "ASPIRE-UML.pdf"), width: "17in", height: "11in", margin: { top: "0.3in", bottom: "0.3in", left: "0.3in", right: "0.3in" }, printBackground: true });
 await browser.close();
-console.log("wrote PNGs and SIMPLE-UML.pdf in", here);
+console.log("wrote PNGs and ASPIRE-UML.pdf in", here);

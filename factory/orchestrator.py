@@ -171,13 +171,13 @@ def touched_tests(patch: str) -> list[str]:
     return sorted(p for p in patched_paths(patch) if is_test_file(p) or p.rsplit("/", 1)[-1] in TEST_CONFIG)
 
 
-# SIMPLE's own safety machinery. When the repository being fixed is SIMPLE itself, a patch may not touch these: a
+# ASPIRE's own safety machinery. When the repository being fixed is ASPIRE itself, a patch may not touch these: a
 # model should never make its task pass by loosening the gate, the config, the sandbox or the checks that judge it.
 PROTECTED = ("factory/llm/", "factory/config.py", "configs/", "factory/tools/sandbox.py", "factory/mcp/",
              "factory/orchestrator.py", "factory/registry/", "factory/workflows/", "factory/secrets.py",
              "factory/planner.py", "factory/bench.py", "factory/extend.py", "factory/pipeline/", "bench/", "registry/",
              ".env")
-SIMPLE_ROOT = Path(__file__).resolve().parents[1]
+ASPIRE_ROOT = Path(__file__).resolve().parents[1]
 
 
 def patched_paths(patch: str) -> set[str]:
@@ -186,8 +186,8 @@ def patched_paths(patch: str) -> set[str]:
 
 
 def protected_paths(patch: str, repo_path: str) -> list[str]:
-    """Paths a patch may not change: .env files anywhere, and SIMPLE's safety code when fixing SIMPLE itself."""
-    own = Path(repo_path).resolve() == SIMPLE_ROOT
+    """Paths a patch may not change: .env files anywhere, and ASPIRE's safety code when fixing ASPIRE itself."""
+    own = Path(repo_path).resolve() == ASPIRE_ROOT
     return sorted(p for p in patched_paths(patch)
                   if p.rsplit("/", 1)[-1].startswith(".env") or (own and p.startswith(PROTECTED)))
 

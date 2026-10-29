@@ -73,5 +73,5 @@ def test_the_page_renders_before_any_run():
     testing = pytest.importorskip("streamlit.testing.v1")
     at = testing.AppTest.from_file(str(ROOT / "app.py"), default_timeout=30).run()
     assert not at.exception
-    assert at.title[0].value == "SIMPLE"
+    assert at.title[0].value == "ASPIRE"
     assert any("Submit a task" in i.value for i in at.info)

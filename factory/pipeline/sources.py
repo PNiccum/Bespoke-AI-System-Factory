@@ -111,7 +111,7 @@ CONNECTORS = ("openalex", "europepmc", "ncbi_gene")
 def connectors(cache_dir: Path, calls_per_round: int = 60) -> dict[str, Searcher]:
     """The live connectors, sharing one call budget per research round."""
     budget = CallBudget("research", calls_per_round)
-    contact = os.environ.get("SIMPLE_CONTACT_EMAIL", "")
+    contact = os.environ.get("ASPIRE_CONTACT_EMAIL", "")
     openalex_auth = {"api_key": os.environ["OPENALEX_API_KEY"]} if os.environ.get("OPENALEX_API_KEY") else {}
     ncbi_auth = {"api_key": os.environ["NCBI_API_KEY"]} if os.environ.get("NCBI_API_KEY") else {}
     return {

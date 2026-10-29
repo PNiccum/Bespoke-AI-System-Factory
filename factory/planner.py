@@ -1,4 +1,4 @@
-"""Intake: turn a request written in plain language into a task SIMPLE can run, using a model only when rules can't.
+"""Intake: turn a request written in plain language into a task ASPIRE can run, using a model only when rules can't.
 
 Plain rules route the clear cases (a diff to review, "write tests for ..."). Only an ambiguous request goes to the
 planner model, which picks a task type and lays out the steps as a sequence of building blocks from a fixed catalog.
@@ -6,7 +6,7 @@ Code then checks the plan: every block must exist, and every block's inputs must
 never decides whether a step needs a model: that is a property of the block, fixed here.
 
 A request no workflow covers is not run. Its checked plan is recorded as a gap (``gaps.jsonl``): the list of things
-users asked for that SIMPLE could not yet do, and the starting point for proposing a new agent or workflow.
+users asked for that ASPIRE could not yet do, and the starting point for proposing a new agent or workflow.
 """
 
 from __future__ import annotations

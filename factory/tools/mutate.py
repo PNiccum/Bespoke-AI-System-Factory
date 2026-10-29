@@ -19,7 +19,7 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-try:  # present inside SIMPLE; absent in an exported bundle, which carries this file alone
+try:  # present inside ASPIRE; absent in an exported bundle, which carries this file alone
     from factory.tools.sandbox import run_pytest
 except ImportError:
     run_pytest = None
@@ -150,7 +150,7 @@ def _git_apply(work: Path, patch: str) -> bool:
 
 
 def _passes(work: Path, tests: list[str], timeout_s: float) -> bool:
-    """Whether the tests pass on ``work`` (a ``repo`` folder). Inside SIMPLE they run in the configured sandbox
+    """Whether the tests pass on ``work`` (a ``repo`` folder). Inside ASPIRE they run in the configured sandbox
     (factory/tools/sandbox.py), like every other test run; a bundle's standalone copy runs them as a child process.
     A timeout (an infinite loop) counts as a caught mutant."""
     args = ["-q", "-x", "-p", "no:cacheprovider", *tests]

@@ -24,7 +24,7 @@ from factory.llm import LLM, new_run_dir
 from factory.llm.cache import ResponseCache
 from factory.llm.gate import deny_all
 from factory.llm.providers import TransientHTTPError
-from factory.orchestrator import SIMPLE_ROOT, Orchestrator, RunResult, Task
+from factory.orchestrator import ASPIRE_ROOT, Orchestrator, RunResult, Task
 from factory.records import ProvenanceLog
 from factory.registry import Registry
 from factory.secrets import SecretFound, scan_text
@@ -46,8 +46,8 @@ def record(run_dir: Path, out: Path, cfg: FactoryConfig) -> dict:
     first = next(e for e in ProvenanceLog(run_dir).events() if e.kind == "source")
     task = dict(first.detail["task"])
     repo = Path(task["repo_path"]).resolve()
-    if repo.is_relative_to(SIMPLE_ROOT):  # a fixture inside SIMPLE: replayable from any checkout of it
-        task["repo_path"] = repo.relative_to(SIMPLE_ROOT).as_posix()
+    if repo.is_relative_to(ASPIRE_ROOT):  # a fixture inside ASPIRE: replayable from any checkout of it
+        task["repo_path"] = repo.relative_to(ASPIRE_ROOT).as_posix()
     calls = [json.loads(line) for line in (run_dir / "llm_calls.jsonl").read_text().splitlines() if line.strip()]
     cache = ResponseCache(cfg.work_dir / "cache.sqlite")
     replies = {c["prompt_sha256"]: cache.get(c["prompt_sha256"]) for c in calls if c.get("prompt_sha256")}
@@ -80,7 +80,7 @@ def replay_llm(cfg: FactoryConfig, run_dir: Path, recording: dict) -> LLM:
 def recorded_task(recording: dict) -> Task:
     task = Task(**recording["task"])
     if not os.path.isabs(task.repo_path):
-        task.repo_path = str(SIMPLE_ROOT / task.repo_path)
+        task.repo_path = str(ASPIRE_ROOT / task.repo_path)
     return task
 
 

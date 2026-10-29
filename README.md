@@ -1,6 +1,6 @@
-# SIMPLE: Solution In Minutes from Plain Language Executable
+# ASPIRE: Agentic System Producing Intelligent Runnable Executables
 
-SIMPLE (the Bespoke AI System Factory) takes a task written in plain language and returns a reproducible workflow,
+ASPIRE (the Bespoke AI System Factory) takes a task written in plain language and returns a reproducible workflow,
 exported as a code bundle that runs on its own. Plain code does every step it can, and a language model appears
 only at the steps that need one. Open models on Virginia Tech's ARC do the model work by default. Claude and OpenAI
 models are used only when an ARC model's output fails its check, or to review work, and never without a person
@@ -11,7 +11,7 @@ Built for ADS 5984 (Agentic AI in Practice), fall 2026. Planning doc:
 
 ## Status
 
-Phase 1 (bug fixing) works end to end. On 2026-10-28 SIMPLE fixed the example bug against ARC on its first attempt
+Phase 1 (bug fixing) works end to end. On 2026-10-28 ASPIRE fixed the example bug against ARC on its first attempt
 using free models only (GLM wrote the patch, DeepSeek reviewed it; 815 tokens, $0), and the exported bundle's
 `rerun.py` re-proved the fix without any model. In place: the model adapter, spend gate and credit ledger, agent
 registry with contract-net selection, the plain-code agents and their MCP server, the bug-fix orchestrator (plan,
@@ -73,7 +73,7 @@ python -m factory review --repo tests/fixtures/buggy_repo --patch-file tests/fix
   --description "Fix parse_date swapping month and day"
 ```
 
-Or just say what you want; SIMPLE picks the workflow:
+Or just say what you want; ASPIRE picks the workflow:
 
 ```bash
 python -m factory ask --repo tests/fixtures/buggy_repo --request "parse_date gets month and day backwards"
@@ -123,7 +123,7 @@ The evaluator then looks again with the new pages and either approves or names w
 looks, two research passes). Every document carries a license tag, and a page built from an ARC-only source never
 goes to a paid model.
 
-**Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
+**Check a bundle without ASPIRE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
 | Task type | Bundle holds | `rerun.py` checks |
 |---|---|---|
@@ -131,19 +131,19 @@ goes to a paid model.
 | Write tests (`tests`) | `tests.patch`, `mutate.py` | The new tests pass and catch as many planted bugs as recorded |
 | Review a PR (`review`) | `review.md`, `review.json`, `change.patch`, `diff_inspect.py` | The rule findings and the test delta match the review |
 
-**Benchmark** (SIMPLE against one model call on the same tasks and the same coder model, free models only):
+**Benchmark** (ASPIRE against one model call on the same tasks and the same coder model, free models only):
 
 ```bash
 python -m factory.bench                         # 8 bug-fix tasks in bench/tasks.yaml, both modes
 python -m factory.bench --only leap_year --mode baseline
 ```
 
-The baseline pastes the issue and every file into one prompt and takes the diff back; SIMPLE runs its full
+The baseline pastes the issue and every file into one prompt and takes the diff back; ASPIRE runs its full
 workflow. Plain code judges both the same way: the patch applies, changes no tests, and the whole suite passes on a
 fresh copy. One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go
 to `bench/results/<time>/summary.md`.
 
-**Self-extension, dry run** (SIMPLE proposes a better prompt for one of its model agents and stops for you):
+**Self-extension, dry run** (ASPIRE proposes a better prompt for one of its model agents and stops for you):
 
 ```bash
 python -m factory.extend --agent coder                # free models only
@@ -175,7 +175,7 @@ secret-scanned before they are written.
 python -m factory.mcp --root path/to/repos
 ```
 
-See [docs/mcp.md](docs/mcp.md) for the tools, why SIMPLE uses MCP, and a client config.
+See [docs/mcp.md](docs/mcp.md) for the tools, why ASPIRE uses MCP, and a client config.
 
 ## Demo walkthrough
 
@@ -191,7 +191,7 @@ See [docs/mcp.md](docs/mcp.md) for the tools, why SIMPLE uses MCP, and a client 
 
 ## How it fits together
 
-Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `SIMPLE-UML.pdf` has both).
+Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` has both).
 
 | Path | What it does |
 |---|---|
@@ -241,7 +241,7 @@ Both folders are git-ignored.
   (deleted, renamed or skipped). `--allow-test-edits` lifts the first rule; the second always holds.
 - **No secrets leave in a bundle.** Before a bundle is zipped, every file is scanned for key and token shapes and
   for the exact values of the keys in `.env`; on a hit the bundle is deleted and the run says which file held what.
-- **SIMPLE cannot loosen its own checks.** A fix to SIMPLE's own repository may not touch the spend gate, config,
+- **ASPIRE cannot loosen its own checks.** A fix to ASPIRE's own repository may not touch the spend gate, config,
   sandbox, MCP server, orchestrator, registry, workflows, planner, benchmark or self-extension code; no fix anywhere may touch a `.env` file. A check also
   fails when fewer tests run, or more are skipped, than before the patch.
 - **Repository text is data, not instructions.** Every model agent's system prompt ends with a rule, added in code
@@ -253,8 +253,8 @@ Both folders are git-ignored.
 - **Keys never reach the code under test.** Tests run on a throwaway copy, in the MCP server's process, with every
   key, token and git auth setting removed from the environment.
 - **Generated code can run in a container.** With `sandbox: runner: docker` (or `podman`) in `configs/factory.yaml`,
-  or `SIMPLE_SANDBOX=docker` for one run, every test run and every mutant runs in the `simple-sandbox` image
-  (`docker build -t simple-sandbox sandbox/`): no network, an empty environment, a read-only root, no Linux
+  or `ASPIRE_SANDBOX=docker` for one run, every test run and every mutant runs in the `aspire-sandbox` image
+  (`docker build -t aspire-sandbox sandbox/`): no network, an empty environment, a read-only root, no Linux
   capabilities, and 2 GB / 2 CPUs / 256 processes. A timeout removes the container. On ARC, `runner: apptainer` takes
   the same image as a `.sif` file. `tests/test_container.py` runs a hostile repository that tries to reach the
   network, read keys and write outside its folder.

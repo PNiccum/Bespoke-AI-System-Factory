@@ -20,7 +20,7 @@ from factory.registry import Registry
 
 ROOT = Path(__file__).parent.parent
 
-st.set_page_config(page_title="SIMPLE: Interviewer", layout="wide")
+st.set_page_config(page_title="ASPIRE: Interviewer", layout="wide")
 
 
 @st.cache_resource
