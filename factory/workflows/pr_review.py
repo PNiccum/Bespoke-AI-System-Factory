@@ -131,11 +131,11 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
                                       tests=test_text, feedback=feedback)
         try:
             if escalate:  # one paid try, no parse retries: each would be another paid call
-                reply = orch.llm.complete(reviewer.role, prompt, system=reviewer.prompt, tag=f"pr-review-{attempt}",
+                reply = orch.llm.complete(reviewer.role, prompt, system=reviewer.system, tag=f"pr-review-{attempt}",
                                           data=orch.data, escalate=True)
                 candidate = PRReview.model_validate(reply.json())
             else:
-                candidate, reply, _ = complete_validated(orch.llm, reviewer.role, prompt, reviewer.prompt, PRReview,
+                candidate, reply, _ = complete_validated(orch.llm, reviewer.role, prompt, reviewer.system, PRReview,
                                                          tag=f"pr-review-{attempt}", data=orch.data)
         except (SpendDenied, BudgetExceeded) as e:
             if review is not None:  # keep the grounded part of the last free review
