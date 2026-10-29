@@ -33,6 +33,10 @@ providers:
 # Family separation: authors use GLM, then OpenAI; reviewers use DeepSeek, then Claude. No reviewer can ever share a
 # family with an author, in either tier.
 tier: economy
+
+# Plain-code agents (code_navigator, test_runner) run in the factory's MCP server (python -m factory.mcp), a
+# separate process with no keys in its environment. "direct" calls them in-process instead.
+tool_transport: mcp
 role_tiers: {}
 
 roles:
