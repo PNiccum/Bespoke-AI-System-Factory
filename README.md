@@ -97,6 +97,16 @@ plan (acceptance checks present, ids unique, no task depending on a later one) a
 creates `workspace/<name>/projects/<id>/` with `task.txt`, `plan_a.json` and `blackboard.jsonl`, the shared log
 every later stage of the pipeline reads and writes (`factory/pipeline/`).
 
+Then the planning loop puts three model families on Plan A:
+
+```bash
+python -m factory plan --project workspace/factory/projects/<id>
+```
+
+The plan critic (DeepSeek) lists Plan A's weaknesses and writes Plan B; the plan analyst (gpt-oss) lists pros and
+cons of each; the editor (GLM) edits both; all three vote. Code checks every plan, drops an edit that breaks one,
+counts the votes, and never lets a plan with problems win. The winner, with tasks and subtasks, is `plan.json`.
+
 **Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
 | Task type | Bundle holds | `rerun.py` checks |

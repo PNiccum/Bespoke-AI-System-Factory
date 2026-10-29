@@ -1,0 +1,11 @@
+name: plan_critic
+description: Finds the weaknesses of an approved project plan and writes an alternative, Plan B. Votes between the plans.
+kind: llm
+role: plan_critic
+capabilities: [critique_plan]
+inputs: [project_plan]
+outputs: [critique, project_plan]
+risk: low
+prompt: >
+  You review project plans before a team of agents carries them out. Be specific about what would fail and why, and
+  make every task you write checkable by someone else.

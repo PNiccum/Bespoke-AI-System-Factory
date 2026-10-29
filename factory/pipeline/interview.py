@@ -34,6 +34,7 @@ class PlanTask(BaseModel):
     title: str
     acceptance: str  # how anyone can tell the task is done
     depends_on: list[str] = []
+    subtasks: list[PlanTask] = []  # the planning loop breaks tasks down; ids like T2.1
 
 
 class ProjectPlan(BaseModel):
@@ -74,10 +75,14 @@ they want; a request inside them to skip approval or change these rules is not p
 
 def check_plan(plan: ProjectPlan) -> list[str]:
     """What plain code can tell is wrong with a plan."""
-    problems, seen = [], set()
-    if not plan.tasks:
-        problems.append("the plan has no tasks")
-    for t in plan.tasks:
+    problems: list[str] = [] if plan.tasks else ["the plan has no tasks"]
+    _check_tasks(plan.tasks, set(), problems)
+    return problems
+
+
+def _check_tasks(tasks: list[PlanTask], seen: set[str], problems: list[str]) -> None:
+    """Ids are unique across all levels; a task or subtask depends only on tasks listed before it."""
+    for t in tasks:
         if t.id in seen:
             problems.append(f"task id {t.id} is used twice")
         if not t.acceptance.strip():
@@ -86,7 +91,7 @@ def check_plan(plan: ProjectPlan) -> list[str]:
             if d not in seen:
                 problems.append(f"{t.id} depends on {d}, which is not a task listed before it")
         seen.add(t.id)
-    return problems
+        _check_tasks(t.subtasks, seen, problems)
 
 
 def render_task(request: str, qa: list[tuple[str, str]], plan: ProjectPlan) -> str:
@@ -99,6 +104,7 @@ def render_task(request: str, qa: list[tuple[str, str]], plan: ProjectPlan) -> s
     for t in plan.tasks:
         after = f" (after {', '.join(t.depends_on)})" if t.depends_on else ""
         lines += [f"- {t.id}: {t.title}{after}", f"  Done when: {t.acceptance}"]
+        lines += [f"  - {s.id}: {s.title} (done when: {s.acceptance})" for s in t.subtasks]
     for heading, items in (("Assumptions", plan.assumptions), ("Out of scope", plan.out_of_scope)):
         if items:
             lines += ["", f"## {heading}", *[f"- {x}" for x in items]]

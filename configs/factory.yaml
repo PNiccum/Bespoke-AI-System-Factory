@@ -52,6 +52,11 @@ roles:
   # separation like any other model the role can use.
   planner:  {provider: arc, model: GLM-5.3-thinking-high, kind: author, fallbacks: [GLM-5.3, gpt-oss-120b-thinking-high]}
   agent:    {provider: arc, model: GLM-5.3-thinking-high, kind: author, fallbacks: [GLM-5.3, gpt-oss-120b-thinking-high]}
+  # The planning loop (factory/pipeline/planning.py) puts three families on one plan: the planner (GLM) wrote Plan A
+  # and edits, plan_critic (DeepSeek) critiques it and writes Plan B, plan_analyst (gpt-oss) weighs the two. Their
+  # fallbacks stay inside their own family, so the three never collapse into one.
+  plan_critic:  {provider: arc, model: DeepSeek-V4.1-Flash-thinking-max, fallbacks: [DeepSeek-V4.1-Flash-thinking-low, DeepSeek-V4.1-Flash]}
+  plan_analyst: {provider: arc, model: gpt-oss-120b-thinking-high, fallbacks: [gpt-oss-120b-thinking-low, gpt-oss-120b]}
   coder:
     provider: arc
     model: GLM-5.3-thinking-high
