@@ -2,7 +2,7 @@ name: coder
 description: Writes a patch for one located problem, as a unified diff.
 kind: llm
 role: coder
-capabilities: [write_patch, write_tests]
+capabilities: [write_patch]
 domains: [software]
 tools: [read_file, search_repo]
 inputs: [issue_text, candidate_locations]

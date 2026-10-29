@@ -17,6 +17,8 @@ from pathlib import Path
 
 from factory.orchestrator import RunResult, Task
 
+EXPORTABLE = {"fixed", "tested", "reviewed", "unproven"}  # run statuses that leave something to hand over
+
 RERUN = '''"""Re-check this fix without the factory: python rerun.py /path/to/repo
 
 Copies the repository to a temporary directory, applies fix.patch, and runs the target tests and then the whole
@@ -58,6 +60,10 @@ if __name__ == "__main__":
 
 def export_bundle(result: RunResult, task: Task, run_dir: Path, out_dir: Path) -> Path:
     """Write the bundle to ``out_dir/<run name>/`` and zip it next to that folder; returns the zip's path."""
+    if task.task_type != "bug_fix":
+        from factory.workflows.export import export_workflow_bundle
+
+        return export_workflow_bundle(result, task, run_dir, out_dir)
     if result.patch is None:
         raise ValueError(f"nothing to export: the run ended {result.status} ({result.stop_reason})")
     bundle = out_dir / f"bundle-{run_dir.name}"

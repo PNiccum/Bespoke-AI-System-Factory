@@ -1,0 +1,9 @@
+name: mutation_tester
+description: Scores tests by the small code changes (mutants) they catch, on a throwaway copy. No model.
+kind: tool
+entrypoint: factory.tools.mutate:score_tests
+capabilities: [score_tests]
+domains: [software]
+inputs: [repo_path, target_files, test_patch]
+outputs: [mutation_score]
+risk: low

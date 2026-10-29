@@ -1,0 +1,13 @@
+name: test_writer
+description: Writes pytest tests for existing code, as a unified diff that adds or changes test files only.
+kind: llm
+role: coder
+capabilities: [write_tests]
+domains: [software]
+inputs: [request_text, candidate_locations]
+outputs: [test_patch]
+risk: low
+prompt: >
+  You write pytest tests for existing Python code. Test what the code does now, through its public functions,
+  with exact expected values. Reply with a unified diff that adds or changes test files only.
+evals: [patch_applies, tests_pass, mutation_score]

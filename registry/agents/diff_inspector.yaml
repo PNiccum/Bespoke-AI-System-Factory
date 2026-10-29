@@ -1,0 +1,9 @@
+name: diff_inspector
+description: Parses a pull request's diff and flags what fixed rules can find (debug calls, secrets, syntax). No model.
+kind: tool
+entrypoint: factory.tools.diff_inspect:inspect_diff
+capabilities: [inspect_diff]
+domains: [software]
+inputs: [patch, repo_path]
+outputs: [diff_facts]
+risk: low

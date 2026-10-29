@@ -1,8 +1,8 @@
 """The orchestrator: plan a task, award each step by contract net, run it, check it, repair it.
 
 A plan is a short graph of steps, each naming the capability it needs and whether it needs a model. For task types
-the factory knows (phase 1: ``bug_fix``), the plan comes from a template, so planning costs nothing; a model-written
-plan is for task types no template covers (phase 2).
+the factory knows (``bug_fix`` here; ``test_gen`` and ``pr_review`` in ``factory.workflows``), the plan comes from a
+template, so planning costs nothing; a model-written plan is for task types no template covers (phase 2).
 
 For a bug fix the run is:
 
@@ -44,6 +44,7 @@ class Task(BaseModel):
     task_type: str = "bug_fix"
     domain: str = "software"
     failing_tests: list[str] = []  # tests the fix must turn green; the baseline's failures when empty
+    patch: str = ""  # the change under review, for pr_review
 
 
 class Step(BaseModel):
@@ -75,6 +76,10 @@ TEMPLATES: dict[str, list[Step]] = {
 
 
 def plan_for(task: Task) -> Plan:
+    from factory.workflows import TEMPLATES as more  # test_gen, pr_review; imported here to avoid a cycle
+
+    if task.task_type in more:
+        return Plan(task_type=task.task_type, steps=more[task.task_type])
     if task.task_type not in TEMPLATES:
         raise NotImplementedError(f"no template for task type {task.task_type!r} yet (model-written plans: phase 2)")
     return Plan(task_type=task.task_type, steps=TEMPLATES[task.task_type])
@@ -101,7 +106,7 @@ class Event:
 
 @dataclass
 class RunResult:
-    status: Literal["fixed", "unproven", "failed", "stopped"]
+    status: Literal["fixed", "tested", "reviewed", "unproven", "failed", "stopped"]
     plan: Plan
     patch: str | None = None
     check: TestReport | None = None
@@ -109,6 +114,7 @@ class RunResult:
     attempts: int = 0
     stop_reason: str = ""
     events: list[Event] = field(default_factory=list)
+    report: dict = field(default_factory=dict)  # what a task type adds: a mutation score, rule findings, ...
 
 
 CODER_PROMPT = """Fix this issue.
@@ -200,6 +206,10 @@ class Orchestrator:
     # -- the run -------------------------------------------------------------------------------------------------
 
     def run(self, task: Task) -> RunResult:
+        from factory.workflows import WORKFLOWS
+
+        if task.task_type in WORKFLOWS:
+            return WORKFLOWS[task.task_type](self, task)
         plan = plan_for(task)
         result = RunResult(status="failed", plan=plan)
         self.mcp = McpTools([task.repo_path]) if self.llm.cfg.tool_transport == "mcp" else None
