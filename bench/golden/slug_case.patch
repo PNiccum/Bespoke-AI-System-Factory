@@ -1,0 +1,8 @@
+--- a/text/slug.py
++++ b/text/slug.py
+@@ -4,4 +4,4 @@
+ def slugify(title):
+     """URL slug: lower case, words joined by single hyphens, punctuation dropped."""
+     words = re.findall(r"[A-Za-z0-9]+", title)
+-    return "-".join(words)
++    return "-".join(words).lower()

@@ -1,0 +1,11 @@
+--- a/calc/dates.py	2026-10-28 22:44:49.183783028 +0000
++++ b/calc/dates.py	2026-10-28 22:44:49.186163608 +0000
+@@ -1,7 +1,7 @@
+ def parse_date(text):
+     """Parse 'YYYY-MM-DD' into (year, month, day)."""
+     year, month, day = text.split("-")
+-    return int(year), int(day), int(month)  # bug: month and day swapped
++    return int(year), int(month), int(day)
+ 
+ 
+ def days_in_month(month):

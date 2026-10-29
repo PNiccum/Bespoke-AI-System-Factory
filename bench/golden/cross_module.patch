@@ -1,0 +1,6 @@
+--- a/billing/rates.py
++++ b/billing/rates.py
+@@ -1,2 +1,2 @@
+ # Sales tax as a fraction of the price.
+-TAX_RATE = 6
++TAX_RATE = 0.06

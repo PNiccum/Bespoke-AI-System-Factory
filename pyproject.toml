@@ -30,7 +30,7 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-extend-exclude = ["tests/fixtures"]
+extend-exclude = ["tests/fixtures", "bench/repos"]  # deliberately buggy code
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S"]
