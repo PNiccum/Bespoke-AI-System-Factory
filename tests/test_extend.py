@@ -127,3 +127,69 @@ def test_the_candidate_really_replaces_the_incumbent_in_an_evaluation_run(cfg, r
                                                                      "claude": Scripted()},
                           registry_dir=ROOT / "registry")
     assert o.solved and arc.requests[0].system.startswith("You fix one problem in a Python repository. Read the")
+
+
+@pytest.fixture
+def own_registry(tmp_path):
+    """A copy of the registry that adoption may write to."""
+    import shutil
+    shutil.copytree(ROOT / "registry", tmp_path / "registry")
+    return tmp_path / "registry"
+
+
+def adopt_run(cfg, monkeypatch, own, agent, replies, **kw):
+    """propose() for ``agent`` with adoption on, the benchmark stubbed to pass, and the scripted panel replies."""
+    monkeypatch.setattr(extend, "evaluate", lambda cfg, tasks, agents, **_: [outcome(t.name, True, 800) for t in tasks])
+    arc = Scripted(GOOD.model_copy(update={"name": f"{agent}_v2"}).model_dump_json(), *replies)
+    return propose(cfg, agent, providers={"arc": arc, "openai": Scripted(), "claude": Scripted()}, registry_dir=own,
+                   tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], adopt_if_passed=True, **kw)
+
+
+def test_a_passed_prompt_change_is_adopted_logged_and_can_be_rolled_back(cfg, monkeypatch, own_registry):
+    before = (own_registry / "agents" / "coder.yaml").read_text()
+    result = adopt_run(cfg, monkeypatch, own_registry, "coder", [ACCEPT])
+    assert result.status == "adopted" and "--rollback coder" in (result.folder / "report.md").read_text()
+    spec = Registry.load(cfg, own_registry).agents["coder"]
+    assert spec.name == "coder" and spec.prompt == GOOD.prompt and spec.role == "coder"  # same name: the pipeline uses it
+    assert "adopted a new prompt for `coder`" in (own_registry / "history" / "changelog.md").read_text()
+    extend.rollback(cfg, "coder", own_registry)
+    assert (own_registry / "agents" / "coder.yaml").read_text() == before
+    assert "rolled back `coder`" in (own_registry / "history" / "changelog.md").read_text()
+
+
+def test_the_guidance_reaches_the_proposer(cfg, monkeypatch, own_registry):
+    monkeypatch.setattr(extend, "evaluate", lambda cfg, tasks, agents, **_: [outcome(t.name, True, 800) for t in tasks])
+    arc = Scripted(GOOD.model_dump_json(), ACCEPT)
+    propose(cfg, "coder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()}, registry_dir=own_registry,
+            tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], guidance="cite the wiki page")
+    assert "cite the wiki page" in arc.requests[0].messages[0]["content"]
+
+
+def test_an_agent_the_benchmark_cannot_judge_gets_two_panel_families(cfg, monkeypatch, own_registry):
+    monkeypatch.setattr(extend, "evaluate", lambda *a, **k: pytest.fail("the benchmark does not exercise the builder"))
+    arc = Scripted(GOOD.model_copy(update={"name": "builder_v2"}).model_dump_json(), ACCEPT, ACCEPT)
+    result = propose(cfg, "builder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()},
+                     registry_dir=own_registry, tasks_file=ROOT / "bench" / "tasks.yaml", adopt_if_passed=True)
+    assert result.status == "adopted" and "not exercised" in result.gates[1].detail
+    families = [cfg.model_info(r.model).family for r in arc.requests[1:]]
+    assert families == ["deepseek", "openai"]  # DeepSeek, then gpt-oss
+
+
+def test_a_judges_prompt_is_never_adopted_without_a_person(cfg, monkeypatch, own_registry):
+    before = (own_registry / "agents" / "reviewer.yaml").read_text()
+    result = adopt_run(cfg, monkeypatch, own_registry, "reviewer", [ACCEPT])
+    assert result.status == "awaiting a person" and "structural" in result.gates[-1].detail
+    assert (own_registry / "agents" / "reviewer.yaml").read_text() == before
+
+
+def test_adoptions_stop_at_the_weekly_limit(cfg, monkeypatch, own_registry):
+    for n in range(extend.MAX_ADOPTIONS_PER_WEEK):
+        (own_registry / "history" / f"a{n}").mkdir(parents=True)
+        (own_registry / "history" / f"a{n}" / "x.yaml").write_text("x")
+    result = adopt_run(cfg, monkeypatch, own_registry, "coder", [ACCEPT])
+    assert result.status == "awaiting a person" and "this week" in result.gates[-1].detail
+
+
+def test_a_person_can_adopt_past_the_limits(cfg, monkeypatch, own_registry):
+    result = adopt_run(cfg, monkeypatch, own_registry, "reviewer", [ACCEPT], by_person=True)
+    assert result.status == "adopted"

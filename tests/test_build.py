@@ -165,7 +165,7 @@ def test_failed_qa_twice_leads_to_redesign_and_the_debate_waits_for_a_person(cfg
     assert result.status == "redesign" and result.rounds == 2
     assert result.redesign.stopped.startswith("paid call not made")
     report = (project.root / "redesign" / "report.md").read_text()
-    assert "Nothing has changed" in report and "add Primer3 tool" in report
+    assert "No change was applied" in report and "add Primer3 tool" in report
     assert "acceptance not met: T2" in project.board.entries("final")[0].data["issues"][0]
 
 
@@ -185,3 +185,38 @@ def test_production_needs_the_knowledge_loop(cfg, tmp_path):
     llm, project = planned(cfg, tmp_path)
     with pytest.raises(RuntimeError, match="knowledge loop"):
         Production(llm, Registry.load(cfg, ROOT / "registry"), project, Wiki(tmp_path / "w")).run()
+
+
+def redesign_with(cfg, tmp_path, prompt_changes, debate_last=None):
+    """Re-design with scripted auditors and a recording improver in place of factory.extend."""
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    llm.providers["arc"] = Scripted(json.dumps({"failures": ["T2 unmet"]}), json.dumps({"suggestions": []}),
+                                    json.dumps({"problems": ["primers unchecked"], "fixes": ["add Primer3 tool"],
+                                                "prompt_changes": prompt_changes}), "summary")
+    tried = []
+
+    def improver(agent, change):
+        tried.append(agent)
+        return "adopted", "scope: ok"
+    result = Redesign(llm, Registry.load(cfg, ROOT / "registry"), project, improver=improver).run()
+    return result, tried, (project.root / "redesign" / "report.md").read_text()
+
+
+def test_prompt_changes_are_applied_and_structural_fixes_wait(cfg, tmp_path):
+    result, tried, report = redesign_with(cfg, tmp_path, [
+        {"agent": "builder", "change": "check primer GC content"},
+        {"agent": "final_evaluator", "change": "be less strict"},  # a judge: structural
+        {"agent": "test_runner", "change": "run faster"},  # a tool agent: structural
+        {"agent": "nobody", "change": "x"}])
+    assert tried == ["builder"]
+    status = {a.agent: a.status for a in result.prompt_changes}
+    assert status == {"builder": "adopted", "final_evaluator": "awaiting a person"}
+    assert "test_runner: run faster" in result.fixes and "add Primer3 tool" in result.fixes
+    assert "1 prompt change(s) passed every gate and were applied" in report and "--rollback" in report
+
+
+def test_prompt_changes_stop_at_the_limit(cfg, tmp_path):
+    result, tried, _ = redesign_with(cfg, tmp_path, [{"agent": a, "change": "x"} for a in
+                                                      ("builder", "librarian", "summarizer")])
+    assert tried == ["builder", "librarian"]
+    assert result.prompt_changes[-1].status.startswith("not tried")

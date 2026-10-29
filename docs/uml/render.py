@@ -498,7 +498,7 @@ EXTEND = [
     ("frame-end",),
     ("frame-end",),
     ("factory.extend", "proposals/", "report.md, spec .yaml, archive.jsonl line", "call"),
-    ("factory.extend", "Person", "awaiting a person | rejected at <gate>", "reply"),
+    ("factory.extend", "Person", "adopted | awaiting a person | rejected at <gate>", "reply"),
     ("Person", "Person", "adopt: open a pull request (ASPIRE never writes registry/)", "self"),
 ]
 
