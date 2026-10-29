@@ -9,6 +9,8 @@ agents, the steps that need no model, as MCP tools.
 | `read_file` | Returns a slice of one file in the repository | MCP clients browsing a repo |
 | `run_tests` | Runs pytest on a throwaway copy, optionally with a unified diff applied | `test_runner` (baseline and check) |
 | `prove_fix` | Checks that the named tests fail without a patch and pass with it | MCP clients, exported-bundle checks |
+| `score_tests` | Plants small bugs in target code one at a time and counts how many the tests catch | `mutation_tester` (test_gen) |
+| `inspect_diff` | Parses a diff and rule-checks the lines it adds (debug calls, credentials, syntax); checks it applies | `diff_inspector` (pr_review) |
 
 ## Why MCP here
 

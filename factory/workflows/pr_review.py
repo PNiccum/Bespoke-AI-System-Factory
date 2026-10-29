@@ -21,7 +21,8 @@ from factory.llm import BudgetExceeded, TruncatedError, complete_validated
 from factory.llm.gate import SpendDenied
 from factory.orchestrator import Orchestrator, RunResult, Step, Task, sha12
 from factory.records import ProvenanceEvent
-from factory.tools.diff_inspect import InspectIn, parse_diff
+from factory.tools.diff_inspect import parse_diff
+from factory.tools.quality import InspectDiffIn
 from factory.workflows.common import begin, finish
 
 TEMPLATE = [
@@ -82,7 +83,7 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
     result.patch = task.patch
 
     inspector = bids["inspect"].agent
-    facts = inspector.function()(InspectIn(patch=task.patch, repo_path=task.repo_path))
+    facts = orch.tool(inspector)(InspectDiffIn(patch=task.patch, repo_path=task.repo_path)).model_dump()
     orch.provenance.record(ProvenanceEvent(kind="tool_call", actor=inspector.name, inputs=[sha12(task.patch)],
                                            detail=facts))
     if not facts["files"]:

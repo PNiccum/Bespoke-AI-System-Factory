@@ -272,3 +272,15 @@ def test_inspect_flags_a_patch_that_breaks_syntax():
     facts = inspect(broken, str(REPO))
     assert facts["applied"] and any(f["rule"] == "syntax" for f in facts["findings"])
     assert inspect("--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n", str(REPO))["applied"] is False
+
+
+@pytest.mark.parametrize("task_type", ["test_gen", "pr_review"])
+def test_the_new_task_types_can_route_their_tool_agents_through_mcp(cfg, tmp_path, task_type):
+    cfg.tool_transport = "mcp"
+    if task_type == "test_gen":
+        result, _, _ = gen(cfg, tmp_path, diff(STRONG), ACCEPT)
+        assert result.status == "tested" and result.report["mutation"]["killed"] == 11
+    else:
+        result, _, _ = pr(cfg, tmp_path, LEAKY, review_json())
+        assert result.status == "reviewed"
+        assert {f["rule"] for f in result.report["facts"]["findings"]} >= {"secret", "debug_print"}

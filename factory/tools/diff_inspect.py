@@ -137,17 +137,6 @@ def inspect(patch: str, repo_path: str | None = None) -> dict:
     }
 
 
-@dataclass
-class InspectIn:
-    patch: str
-    repo_path: str | None = None  # given, the patch is applied to a copy and changed files are parsed
-
-
-def inspect_diff(inp: InspectIn) -> dict:
-    """The registry entrypoint for the diff_inspector agent."""
-    return inspect(inp.patch, inp.repo_path)
-
-
 if __name__ == "__main__":  # python diff_inspect.py change.patch [REPO]
     import json
 

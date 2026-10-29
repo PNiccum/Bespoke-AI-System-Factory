@@ -23,7 +23,7 @@ from factory.llm.gate import SpendDenied
 from factory.orchestrator import Orchestrator, Review, RunResult, Step, Task, extract_diff, sha12
 from factory.records import ProvenanceEvent
 from factory.tools.diff_inspect import is_test_file, parse_diff
-from factory.tools.mutate import MutationScore, ScoreIn
+from factory.tools.quality import MutationReport, ScoreTestsIn
 from factory.tools.repo import LocateIn, Locations, python_files
 from factory.workflows.common import begin, finish
 
@@ -103,7 +103,7 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
     root = Path(task.repo_path)
 
     nav = bids["locate"].agent
-    locations: Locations = nav.function()(LocateIn(repo_path=task.repo_path, issue_text=task.description))
+    locations: Locations = orch.tool(nav)(LocateIn(repo_path=task.repo_path, issue_text=task.description))
     files, functions = targets_of(locations)
     if not files:
         result.stop_reason = "found no source code the request points at; name the file or function"
@@ -172,11 +172,11 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
         orch.emit(result, "check", checker.agent.name, "done", f"{len(new)} new tests pass", new_tests=new)
 
         orch.emit(result, "score", scorer.name, "started", "planting small bugs to see if the tests catch them")
-        score: MutationScore = scorer.function()(ScoreIn(repo_path=task.repo_path, files=files, tests=new,
-                                                         functions=functions, patch=patch))
+        score: MutationReport = orch.tool(scorer)(ScoreTestsIn(repo_path=task.repo_path, files=files, tests=new,
+                                                               functions=functions, patch=patch))
         orch.provenance.record(ProvenanceEvent(kind="tool_call", actor=scorer.name, inputs=[sha12(patch)],
-                                               detail=score.to_dict()))
-        result.report = {"targets": files, "functions": functions, "new_tests": new, "mutation": score.to_dict(),
+                                               detail=score.model_dump()))
+        result.report = {"targets": files, "functions": functions, "new_tests": new, "mutation": score.model_dump(),
                          "min_score": MIN_SCORE}
         if score.error or (score.total and score.score < MIN_SCORE):
             missed = "\n".join(f"- {s['path']}:{s['line']}: {s['change']}" for s in score.survivors)
@@ -188,7 +188,7 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
                         "Add assertions that would fail if those changes were made.\n")
             continue
         orch.emit(result, "score", scorer.name, "done", f"caught {score.killed} of {score.total} planted bugs",
-                  mutation=score.to_dict())
+                  mutation=score.model_dump())
 
         orch.emit(result, "review", reviewer.name, "started", "reading the tests")
         survivors = ", ".join(f"{s['path']}:{s['line']} {s['change']}" for s in score.survivors) or "none"
@@ -224,7 +224,7 @@ def keep_best(orch, task, result, bids, best, ended: RunResult) -> RunResult:
     if best is not None:
         patch, check, score, new = best
         result.patch, result.check, result.review = patch, check, None
-        result.report = {**result.report, "new_tests": new, "mutation": score.to_dict()}
+        result.report = {**result.report, "new_tests": new, "mutation": score.model_dump()}
         result.status = "unproven"
         result.stop_reason = (ended.stop_reason + "; " if ended.stop_reason else "") + \
             f"kept the strongest passing tests (caught {score.killed} of {score.total} planted bugs)"

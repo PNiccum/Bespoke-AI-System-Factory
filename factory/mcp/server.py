@@ -21,14 +21,16 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
-from factory.tools import repo, sandbox
+from factory.tools import quality, repo, sandbox
 from factory.tools.repo import LocateIn, Locations
+from factory.tools.quality import DiffFacts, InspectDiffIn, MutationReport, ScoreTestsIn
 from factory.tools.sandbox import FixProof, RunTestsIn, TestReport
 
 INSTRUCTIONS = """Plain-code tools from the Bespoke AI System Factory. None of them calls a model.
 locate finds the files an issue is about; read_file shows part of one; run_tests runs pytest on a throwaway copy,
-optionally with a unified diff applied; prove_fix checks that tests fail without a patch and pass with it.
-The original repository is never written to."""
+optionally with a unified diff applied; prove_fix checks that tests fail without a patch and pass with it;
+score_tests plants small bugs in code and counts how many a set of tests catches; inspect_diff parses a diff and runs
+rule checks (debug calls, credentials, syntax) over the lines it adds. The original repository is never written to."""
 
 
 class FileSlice(BaseModel):
@@ -86,5 +88,18 @@ def build_server(roots: list[str] | None = None) -> MCPServer:
         """Check a fix: the tests must fail without the patch and pass with it."""
         inside(repo_path)
         return sandbox.prove_fix(repo_path, patch, tests, timeout_s)
+
+    @server.tool()
+    def score_tests(inp: ScoreTestsIn) -> MutationReport:
+        """Plant small bugs in the target code one at a time and count how many the tests catch (mutation testing)."""
+        inside(inp.repo_path)
+        return quality.score_tests(inp)
+
+    @server.tool()
+    def inspect_diff(inp: InspectDiffIn) -> DiffFacts:
+        """Parse a unified diff and run rule checks over the lines it adds; with repo_path, also check it applies."""
+        if inp.repo_path:
+            inside(inp.repo_path)
+        return quality.inspect_diff(inp)
 
     return server

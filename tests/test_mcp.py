@@ -27,7 +27,8 @@ def test_the_server_offers_the_plain_code_tools():
     async def go():
         async with Client(build_server([str(FIXTURES)])) as client:
             return [t.name for t in (await client.list_tools()).tools]
-    assert sorted(asyncio.run(go())) == ["locate", "prove_fix", "read_file", "run_tests"]
+    assert sorted(asyncio.run(go())) == ["inspect_diff", "locate", "prove_fix", "read_file", "run_tests",
+                                         "score_tests"]
 
 
 def test_locate_over_mcp_matches_the_in_process_answer():

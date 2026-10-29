@@ -208,11 +208,11 @@ class Orchestrator:
     def run(self, task: Task) -> RunResult:
         from factory.workflows import WORKFLOWS
 
+        self.mcp = McpTools([task.repo_path]) if self.llm.cfg.tool_transport == "mcp" else None
         if task.task_type in WORKFLOWS:
             return WORKFLOWS[task.task_type](self, task)
         plan = plan_for(task)
         result = RunResult(status="failed", plan=plan)
-        self.mcp = McpTools([task.repo_path]) if self.llm.cfg.tool_transport == "mcp" else None
         steps = {s.id: s for s in plan.steps}
         bids = {s.id: self.award(task, s) for s in plan.steps}
         self.provenance.record(ProvenanceEvent(kind="source", actor="intake", outputs=[sha12(task.description)],
