@@ -2,8 +2,10 @@
 
 Every call is priced, including calls to free ARC models, which borrow the
 price of the Claude model named in their ``shadow_of`` entry. The ledger keeps
-two totals: ``priced`` (what the run would cost if every model were paid; the
-budget applies to this) and ``real`` (what was actually spent).
+two totals: ``priced`` (what the run would cost if every model were paid) and
+``real`` (what was actually spent). The dollar cap applies to ``real`` only, so a
+run on free models is never stopped by a cost that does not exist; ``priced`` and
+the shadow cost are reported, never enforced (see ``Budget`` in factory/config.py).
 """
 
 from __future__ import annotations
