@@ -128,6 +128,9 @@ class FactoryConfig(BaseModel):
     # Per-role exceptions to the tier, e.g. {reviewer: quality}.
     role_tiers: dict[str, Literal["economy", "quality"]] = {}
     agent_caps: AgentCaps = Field(default_factory=AgentCaps)
+    # How plain-code agents are called: "direct" in-process, or "mcp" through the factory's MCP server
+    # (factory/mcp), a separate process started without keys in its environment.
+    tool_transport: Literal["direct", "mcp"] = "direct"
 
     root: Path = Path(".")  # project root, set at load time
     models: dict[str, ModelInfo] = {}  # loaded from models_file

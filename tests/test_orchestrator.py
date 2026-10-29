@@ -48,6 +48,7 @@ def diff(patch):
 def cfg(tmp_path):
     cfg = load_config(ROOT / "configs" / "factory.yaml")
     cfg.root = tmp_path
+    cfg.tool_transport = "direct"  # tests/test_mcp.py covers the MCP route
     return cfg
 
 

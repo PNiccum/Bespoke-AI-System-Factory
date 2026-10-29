@@ -59,8 +59,11 @@ class FixProof(BaseModel):
 
 
 def scrubbed_env() -> dict[str, str]:
-    """The current environment without anything that looks like a credential."""
-    return {k: v for k, v in os.environ.items() if not any(m in k.upper() for m in SECRET_MARKERS)}
+    """The current environment without anything that looks like a credential. Git's environment config
+    (GIT_CONFIG_COUNT, GIT_CONFIG_KEY_n, GIT_CONFIG_VALUE_n) goes as a whole: its values can hold auth headers, and
+    dropping only the KEY_n entries leaves a count git refuses to run with."""
+    return {k: v for k, v in os.environ.items()
+            if not any(m in k.upper() for m in SECRET_MARKERS) and not k.upper().startswith("GIT_CONFIG_")}
 
 
 def apply_patch(work: Path, patch: str) -> tuple[bool, str]:

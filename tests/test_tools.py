@@ -74,6 +74,13 @@ def test_keys_never_reach_the_code_under_test(monkeypatch):
     assert "ANTHROPIC_API_KEY" not in env and "GITHUB_TOKEN" not in env and "PATH" in env
 
 
+def test_git_environment_config_is_dropped_whole(monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "http.extraHeader")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "Authorization: Bearer t")
+    assert not any(k.startswith("GIT_CONFIG_") for k in scrubbed_env())
+
+
 def test_results_use_pytest_node_ids_including_classes(tmp_path):
     (tmp_path / "tests").mkdir()
     (tmp_path / "tests" / "test_k.py").write_text("class TestK:\n    def test_a(self):\n        assert False\n")

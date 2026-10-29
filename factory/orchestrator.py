@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from factory.llm import LLM, BudgetExceeded, TruncatedError, complete_validated
 from factory.llm.gate import SpendDenied
+from factory.mcp import McpTools, mcp_function
 from factory.records import ProvenanceEvent, ProvenanceLog
 from factory.registry import Announcement, Bid, Registry
 from factory.tools.repo import LocateIn, Locations
@@ -166,6 +167,7 @@ class Orchestrator:
         self.max_file_lines = max_file_lines
         self.provenance = ProvenanceLog(llm.run_dir)
         self.data = "public" if llm.cfg.data_public else "private"
+        self.mcp: McpTools | None = None  # set per run when the config routes tool agents through MCP
 
     # -- plumbing ------------------------------------------------------------------------------------------------
 
@@ -183,8 +185,12 @@ class Orchestrator:
             raise ValueError(f"step {step.id!r} needs no model, but only {bid.agent.name!r} (a model) bid for it")
         return bid
 
+    def tool(self, agent) -> Callable:
+        """A tool agent's function, called in-process or through the MCP server, per the config."""
+        return mcp_function(agent.function(), self.mcp) if self.mcp else agent.function()
+
     def run_tests(self, bid: Bid, task: Task, patch: str | None, tests: list[str]) -> TestReport:
-        report = bid.agent.function()(RunTestsIn(repo_path=task.repo_path, patch=patch, tests=tests))
+        report = self.tool(bid.agent)(RunTestsIn(repo_path=task.repo_path, patch=patch, tests=tests))
         self.provenance.record(ProvenanceEvent(kind="tool_call", actor=bid.agent.name,
                                                inputs=[sha12(patch)] if patch else [],
                                                detail={"tests": tests, "passed": len(report.passed),
@@ -196,6 +202,7 @@ class Orchestrator:
     def run(self, task: Task) -> RunResult:
         plan = plan_for(task)
         result = RunResult(status="failed", plan=plan)
+        self.mcp = McpTools([task.repo_path]) if self.llm.cfg.tool_transport == "mcp" else None
         steps = {s.id: s for s in plan.steps}
         bids = {s.id: self.award(task, s) for s in plan.steps}
         self.provenance.record(ProvenanceEvent(kind="source", actor="intake", outputs=[sha12(task.description)],
@@ -206,7 +213,7 @@ class Orchestrator:
                       f"awarded with bid {bid.score}", parts=bid.parts)
 
         loc_agent = bids["locate"].agent
-        locations: Locations = loc_agent.function()(LocateIn(repo_path=task.repo_path, issue_text=task.description))
+        locations: Locations = self.tool(loc_agent)(LocateIn(repo_path=task.repo_path, issue_text=task.description))
         self.emit(result, "locate", loc_agent.name, "done",
                   f"{len(locations.hits)} candidate files", hits=[h.model_dump() for h in locations.hits[:5]])
 

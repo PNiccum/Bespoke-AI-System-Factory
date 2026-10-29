@@ -53,6 +53,7 @@ paste one into a chat. The ARC gateway (`https://llm-api.arc.vt.edu/api`) may ne
 | `factory/tools/` | Plain-code agents: locate code from an issue (`repo.py`), run tests and prove a fix (`sandbox.py`) |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/export.py` | Writes the bundle: patch, workflow, evidence, provenance, and a model-free `rerun.py` |
+| `factory/mcp/` | The plain-code agents as an MCP server, and the client the orchestrator calls them through ([docs/mcp.md](docs/mcp.md)) |
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
 | `app.py` | The Streamlit page |
 | `registry/agents/` | One YAML spec per agent |
