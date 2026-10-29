@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factory.orchestrator import RunResult, Task
+from factory.secrets import guard_bundle
 
 EXPORTABLE = {"fixed", "tested", "reviewed", "unproven"}  # run statuses that leave something to hand over
 
@@ -90,10 +91,12 @@ def export_bundle(result: RunResult, task: Task, run_dir: Path, out_dir: Path) -
         "review": result.review.model_dump() if result.review else None,
         "events": [asdict(e) for e in result.events],
     }, indent=2, default=str))
-    for name in ("provenance.jsonl", "llm_calls.jsonl", "cost_summary.json", "run_info.json"):
+    for name in ("provenance.jsonl", "llm_calls.jsonl", "cost_summary.json", "run_info.json", "registry.json"):
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, bundle / name)
     (bundle / "README.md").write_text(readme(task, result, targets, models))
+
+    guard_bundle(bundle)  # nothing that looks like a key leaves in a bundle
 
     zip_path = bundle.with_suffix(".zip")
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:

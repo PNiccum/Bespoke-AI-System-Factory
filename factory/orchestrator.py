@@ -21,6 +21,7 @@ Streamlit app can show what each agent is doing, and recorded in the run's prove
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -167,9 +168,27 @@ TEST_CONFIG = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.t
 
 def touched_tests(patch: str) -> list[str]:
     """Test files and pytest configuration a diff changes, creates or deletes."""
-    paths = {line[4:].split("\t")[0].strip().removeprefix("a/").removeprefix("b/")
-             for line in patch.splitlines() if line.startswith(("--- ", "+++ "))}
-    return sorted(p for p in paths - {"/dev/null"} if is_test_file(p) or p.rsplit("/", 1)[-1] in TEST_CONFIG)
+    return sorted(p for p in patched_paths(patch) if is_test_file(p) or p.rsplit("/", 1)[-1] in TEST_CONFIG)
+
+
+# SIMPLE's own safety machinery. When the repository being fixed is SIMPLE itself, a patch may not touch these: a
+# model should never make its task pass by loosening the gate, the config, the sandbox or the checks that judge it.
+PROTECTED = ("factory/llm/", "factory/config.py", "configs/", "factory/tools/sandbox.py", "factory/mcp/",
+             "factory/orchestrator.py", "factory/registry/", "factory/workflows/", "factory/secrets.py",
+             "registry/", ".env")
+SIMPLE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def patched_paths(patch: str) -> set[str]:
+    return {line[4:].split("\t")[0].strip().removeprefix("a/").removeprefix("b/")
+            for line in patch.splitlines() if line.startswith(("--- ", "+++ "))} - {"/dev/null"}
+
+
+def protected_paths(patch: str, repo_path: str) -> list[str]:
+    """Paths a patch may not change: .env files anywhere, and SIMPLE's safety code when fixing SIMPLE itself."""
+    own = Path(repo_path).resolve() == SIMPLE_ROOT
+    return sorted(p for p in patched_paths(patch)
+                  if p.rsplit("/", 1)[-1].startswith(".env") or (own and p.startswith(PROTECTED)))
 
 
 def sha12(text: str) -> str:
@@ -222,6 +241,8 @@ class Orchestrator:
         from factory.workflows import WORKFLOWS
 
         self.mcp = McpTools([task.repo_path]) if self.llm.cfg.tool_transport == "mcp" else None
+        # The registry as it stood when this run's steps were awarded; exporters copy it into the bundle.
+        (self.llm.run_dir / "registry.json").write_text(json.dumps(self.registry.version(), indent=1))
         if task.task_type in WORKFLOWS:
             return WORKFLOWS[task.task_type](self, task)
         plan = plan_for(task)
@@ -272,6 +293,11 @@ class Orchestrator:
                 feedback = "\n## Your previous reply had no diff\nReply with a ```diff block.\n"
                 self.emit(result, "patch", coder.name, "failed", "no diff in the reply")
                 continue
+            if blocked := protected_paths(patch, task.repo_path):
+                feedback = (f"\n## Your previous patch changed protected files (not applied)\n```diff\n{patch}```\n"
+                            f"It touched {', '.join(blocked)}, which no fix may change.\n")
+                self.emit(result, "patch", coder.name, "failed", f"changes protected files: {', '.join(blocked)}")
+                continue
             if not task.allow_test_edits and (tests_touched := touched_tests(patch)):
                 feedback = (f"\n## Your previous patch changed tests (not applied)\n```diff\n{patch}```\n"
                             f"It touched {', '.join(tests_touched)}. Fix the code, not the tests or pytest's "
@@ -288,10 +314,17 @@ class Orchestrator:
             still = sorted(set(failing) & broken_after)
             new = sorted(broken_after - broken_before)
             unrun = sorted(set(failing) - set(check.passed) - broken_after)  # deleted, renamed or skipped
-            if check.patch_applied is False or check.timed_out or still or new or unrun:
+            # Fewer tests collected, or more skipped, than before the patch: tests were removed or switched off.
+            count_before = len(base.passed) + len(broken_before)
+            count_after = len(check.passed) + len(broken_after)
+            shrank = (check.patch_applied is not False and not check.timed_out
+                      and (count_after < count_before or check.skipped > base.skipped))
+            if check.patch_applied is False or check.timed_out or still or new or unrun or shrank:
                 why = ("the patch did not apply:\n" + check.output_tail if check.patch_applied is False
                        else "the tests timed out" if check.timed_out
                        else f"target tests did not run (deleted or skipped?): {unrun}" if unrun and not still
+                       else (f"fewer tests ran ({count_after} vs {count_before}) or more were skipped "
+                             f"({check.skipped} vs {base.skipped})") if shrank and not (still or new)
                        else f"still failing: {still}; newly failing: {new}\n{check.output_tail}")
                 self.emit(result, "check", checker.agent.name, "failed", why[:300])
                 feedback = f"\n## Your previous patch failed (not applied)\n```diff\n{patch}```\n{why[-3000:]}\n"
