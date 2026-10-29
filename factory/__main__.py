@@ -6,6 +6,7 @@
     python -m factory ask --repo PATH --request "any request in plain words" [--patch-file change.diff]
     python -m factory interview --request "what you want built"
     python -m factory plan --project workspace/factory/projects/<id>
+    python -m factory research --project workspace/factory/projects/<id>
 
 Runs the task end to end, asks on the terminal before any paid call, and writes the bundle to ./exports/.
 """
@@ -78,7 +79,29 @@ def run_planning(args) -> int:
     for problem in outcome.problems:
         print(f"  problem left: {problem}")
     print(f"Refined plan: {project.root / 'plan.json'}  Cost: {llm.ledger.summary()}")
+    print(f"Next: python -m factory research --project {project.root}")
     return 0 if not outcome.problems else 1
+
+
+def run_research(args) -> int:
+    """The knowledge loop: topics the plan needs, wiki coverage, research, cited and verified wiki pages."""
+    from factory.pipeline.blackboard import Project
+    from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+    from factory.pipeline.wiki import Wiki
+
+    cfg = load_config(args.config)
+    project = Project.open(Path(args.project))
+    llm = LLM(cfg, new_run_dir(cfg, "research"), approver=ask_on_terminal)
+    loop = KnowledgeLoop(llm, Registry.load(cfg), project, Wiki(cfg.work_dir / "wiki"),
+                         default_searchers(cfg.work_dir / "research-cache"))
+    result = loop.run()
+    for topic, slug in result.covered.items():
+        print(f"  covered: {topic} ({cfg.work_dir / 'wiki' / slug}.md)")
+    for topic in result.missing:
+        print(f"  missing: {topic}")
+    print(f"{'Knowledge approved' if result.ok else 'Knowledge incomplete'} after {result.rounds} round(s). "
+          f"Cost: {llm.ledger.summary()}")
+    return 0 if result.ok else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     plan = sub.add_parser("plan", help="run the planning loop on a project whose Plan A is approved")
     plan.add_argument("--project", required=True, help="the project folder the Interviewer created")
     plan.add_argument("--config", default="configs/factory.yaml")
+    research = sub.add_parser("research", help="run the knowledge loop on a project whose plan is decided")
+    research.add_argument("--project", required=True)
+    research.add_argument("--config", default="configs/factory.yaml")
     for p in (fix, tests, review, ask):
         p.add_argument("--config", default="configs/factory.yaml")
         p.add_argument("--out", default="exports")
@@ -115,6 +141,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_interview(args)
     if args.command == "plan":
         return run_planning(args)
+    if args.command == "research":
+        return run_research(args)
 
     if args.command == "fix":
         issue = Path(args.issue_file).read_text() if args.issue_file else args.issue

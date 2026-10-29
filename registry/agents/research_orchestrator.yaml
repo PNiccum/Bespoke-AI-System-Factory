@@ -1,0 +1,9 @@
+name: research_orchestrator
+description: Writes searches for a topic, runs them through the plain-code connectors, and approves or rejects each document found.
+kind: llm
+role: planner
+capabilities: [orchestrate_research]
+domains: [any]
+risk: low
+prompt: >
+  You direct literature and database searches. Write precise searches, and approve a document only when it is reliable and on topic.
