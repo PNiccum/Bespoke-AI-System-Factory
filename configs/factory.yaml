@@ -41,17 +41,21 @@ role_tiers: {}
 
 roles:
   # GLM was the only ARC model to finish Bespoke_LLM's agent-driver probe.
-  planner:  {provider: arc, model: GLM-5.3-thinking-high, kind: author}
-  agent:    {provider: arc, model: GLM-5.3-thinking-high, kind: author}
+  # fallbacks: free models on ARC tried in order when the first is down or renamed; they count toward family
+  # separation like any other model the role can use.
+  planner:  {provider: arc, model: GLM-5.3-thinking-high, kind: author, fallbacks: [GLM-5.3, gpt-oss-120b-thinking-high]}
+  agent:    {provider: arc, model: GLM-5.3-thinking-high, kind: author, fallbacks: [GLM-5.3, gpt-oss-120b-thinking-high]}
   coder:
     provider: arc
     model: GLM-5.3-thinking-high
     kind: author
+    fallbacks: [GLM-5.3, gpt-oss-120b-thinking-high]
     quality: {provider: openai, model: gpt-6.1-sol, max_tokens: 16000}
   reviewer:
     provider: arc
     model: DeepSeek-V4.1-Flash-thinking-max
     kind: reviewer
+    fallbacks: [DeepSeek-V4.1-Flash-thinking-low, DeepSeek-V4.1-Flash]
     max_tokens: 64000
     quality: {provider: claude, model: claude-sonnet-5-5, max_tokens: 16000}
 
