@@ -81,6 +81,18 @@ python -m factory review --repo tests/fixtures/buggy_repo --patch-file tests/fix
 | Write tests (`tests`) | `tests.patch`, `mutate.py` | The new tests pass and catch as many planted bugs as recorded |
 | Review a PR (`review`) | `review.md`, `review.json`, `change.patch`, `diff_inspect.py` | The rule findings and the test delta match the review |
 
+**Benchmark** (SIMPLE against one model call on the same tasks and the same coder model, free models only):
+
+```bash
+python -m factory.bench                         # 8 bug-fix tasks in bench/tasks.yaml, both modes
+python -m factory.bench --only leap_year --mode baseline
+```
+
+The baseline pastes the issue and every file into one prompt and takes the diff back; SIMPLE runs its full
+workflow. Plain code judges both the same way: the patch applies, changes no tests, and the whole suite passes on a
+fresh copy. One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go
+to `bench/results/<time>/summary.md`.
+
 **MCP server** (the plain-code tools for any MCP client, such as Claude Desktop or Claude Code):
 
 ```bash
@@ -119,6 +131,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `SIMPLE-UML.pdf` 
 | `factory/llm/` | The one way to call a model: cache, retries, pricing, logging, spend gate (`gate.py`) |
 | `factory/agents/` | Typed tools, per-agent allow-lists, the capped tool-calling loop, replay |
 | `factory/records.py` | Provenance: sources by content hash, append-only `provenance.jsonl` per run |
+| `factory/bench.py`, `bench/` | The benchmark: tasks, known-good fixes (to check the tasks themselves), runner and judge |
 | `factory/export.py` | Writes the bundle: patch, workflow, evidence, provenance, and a model-free `rerun.py` |
 | `factory/net/http.py` | Cached, throttled, budgeted HTTP client for outside APIs |
 | `configs/factory.yaml` | Providers, which model plays each role, the paid escalation step per role, budgets, credit |
