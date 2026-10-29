@@ -17,6 +17,7 @@ never written to. Where the tests run is set by ``SIMPLE_SANDBOX`` (from ``sandb
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -169,6 +170,14 @@ def read_junit(path: Path) -> tuple[list[str], list[str], list[str], int]:
     return passed, failed, errors, skipped
 
 
+def steady_output(out: str, tmp: Path) -> str:
+    """pytest's output without what changes from run to run (the temporary folder, timings), so the same failure
+    gives the same text: a model prompt built from it is then the same request, which the response cache and a
+    recorded replay depend on."""
+    out = out.replace(str(tmp), "<sandbox>").replace("/work/", "<sandbox>/")
+    return re.sub(r" in \d+(\.\d+)?s( \(\d+:\d\d:\d\d\))?", "", out)
+
+
 def run_tests(inp: RunTestsIn) -> TestReport:
     t0 = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="factory-tests-") as tmp:
@@ -187,7 +196,7 @@ def run_tests(inp: RunTestsIn) -> TestReport:
         passed, failed, errors, skipped = read_junit(junit)
         return TestReport(patch_applied=applied, exit_code=code, passed=passed, failed=failed, errors=errors,
                           skipped=skipped, seconds=round(time.monotonic() - t0, 2), timed_out=timed_out,
-                          output_tail="\n".join(out.splitlines()[-40:]))
+                          output_tail="\n".join(steady_output(out, Path(tmp)).splitlines()[-40:]))
 
 
 def prove_fix(repo_path: str, patch: str, tests: list[str], timeout_s: float = 300) -> FixProof:

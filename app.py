@@ -4,11 +4,13 @@ Pick a task (fix a bug, write tests, review a pull request), watch each agent wo
 calls, and download the bundle.
 """
 
+import json
 from pathlib import Path
 
 import streamlit as st
 
 from factory.config import load_config
+from factory.demo import recorded_task
 from factory.llm.gate import SpendLedger
 from factory.orchestrator import Task, plan_for
 from factory.ui.session import RunSession
@@ -61,6 +63,16 @@ with st.sidebar:
     if submitted:
         session.start(Task(description=text, repo_path=repo, task_type=task_type, patch=patch,
                            failing_tests=[t.strip() for t in tests.split(",") if t.strip()]))
+    recordings = sorted((ROOT / "demos").glob("*.json"))
+    if recordings:
+        st.header("Recorded runs")
+        st.caption("Replays a real run offline: tests, checks and the bundle run again; the model replies come "
+                   "from the recording.")
+        chosen = st.selectbox("Recording", recordings, format_func=lambda p: p.stem)
+        if st.button("Replay", disabled=session.running):
+            recording = json.loads(chosen.read_text())
+            st.session_state.replayed = recording
+            session.start(recorded_task(recording), recording=recording)
     cfg = config()
     st.header("Budget")
     st.write(f"Soft limit per run: {usd(cfg.budget.approve_above_usd)}, hard stop {usd(cfg.budget.max_real_usd)}")
@@ -97,6 +109,11 @@ def live():
     elif not session.running:
         st.info("Submit a task to start.")
 
+    if (recording := st.session_state.get("replayed")) and session.llm and "replay" in session.llm.run_dir.name:
+        original = recording.get("original_cost", {})
+        st.info(f"Replay of a run recorded {recording['recorded_at'][:10]} with {', '.join(recording['models'])}. "
+                f"That run made {original.get('calls', '?')} model calls and spent "
+                f"{usd(original.get('real_usd', 0.0))}; this replay calls no model.")
     if session.llm:
         cost = session.llm.ledger.summary()
         a, b, c = st.columns(3)

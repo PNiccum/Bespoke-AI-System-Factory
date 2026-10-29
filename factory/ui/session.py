@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from factory.config import FactoryConfig
+from factory.demo import replay_llm
 from factory.export import EXPORTABLE, export_bundle
 from factory.llm import LLM, new_run_dir
 from factory.llm.gate import SpendRequest
@@ -47,12 +48,16 @@ class RunSession:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def start(self, task: Task) -> None:
+    def start(self, task: Task, recording: dict | None = None) -> None:
+        """Run a task; with a recording (factory/demo.py), its model replies come from the recording, offline."""
         if self.running:
             raise RuntimeError("a run is already in progress")
         self.events, self.result, self.bundle, self.error, self.pending = [], None, None, None, None
-        run_dir = new_run_dir(self.cfg, "ui")
-        self.llm = LLM(self.cfg, run_dir, providers=self.providers, approver=self._ask)
+        run_dir = new_run_dir(self.cfg, "replay" if recording else "ui")
+        if recording:
+            self.llm = replay_llm(self.cfg, run_dir, recording)
+        else:
+            self.llm = LLM(self.cfg, run_dir, providers=self.providers, approver=self._ask)
         self._thread = threading.Thread(target=self._run, args=(task, run_dir), daemon=True)
         self._thread.start()
 
