@@ -137,6 +137,9 @@ Both folders are git-ignored.
   catch at least 60% of small bugs planted in the target code before a reviewer sees them.
 - **Facts outrank a reviewer.** A pull request that does not apply, breaks a test, or adds a credential is never
   approved, whatever the model says, and a review comment on a line the diff does not change is dropped.
+- **A fix may not change the tests.** A bug-fix patch that touches a test file or pytest's configuration
+  (`conftest.py`, `pytest.ini`, ...) is refused before it runs, and the check fails if a target test did not run
+  (deleted, renamed or skipped). `--allow-test-edits` lifts the first rule; the second always holds.
 - **Keys never reach the code under test.** Tests run on a throwaway copy, in the MCP server's process, with every
   key, token and git auth setting removed from the environment.
 
