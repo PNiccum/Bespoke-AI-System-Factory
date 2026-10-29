@@ -21,7 +21,7 @@ REJECT = json.dumps({"verdict": "reject", "concerns": ["tells the model to skip 
 
 
 def outcome(task, solved, tokens):
-    return Outcome(task=task, mode="simple", solved=solved, why="", tokens=tokens)
+    return Outcome(task=task, mode="aspire", solved=solved, why="", tokens=tokens)
 
 
 @pytest.fixture

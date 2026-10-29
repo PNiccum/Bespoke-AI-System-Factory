@@ -77,18 +77,18 @@ class RoleConfig(BaseModel):
 
 
 class SandboxConfig(BaseModel):
-    """Where generated code's tests run (factory/tools/sandbox.py). Exported as SIMPLE_SANDBOX* environment variables,
+    """Where generated code's tests run (factory/tools/sandbox.py). Exported as ASPIRE_SANDBOX* environment variables,
     which the MCP server's process inherits; a variable already set in the environment wins, for one-off runs."""
     runner: Literal["process", "docker", "podman", "apptainer"] = "process"
-    image: str = "simple-sandbox"  # a .sif path for apptainer
+    image: str = "aspire-sandbox"  # a .sif path for apptainer
     memory: str = "2g"
     cpus: str = "2"
     pids: str = "256"
 
     def export(self) -> None:
-        os.environ.setdefault("SIMPLE_SANDBOX", self.runner)
-        os.environ.setdefault("SIMPLE_SANDBOX_IMAGE", self.image)
-        os.environ.setdefault("SIMPLE_SANDBOX_LIMITS", f"{self.memory},{self.cpus},{self.pids}")
+        os.environ.setdefault("ASPIRE_SANDBOX", self.runner)
+        os.environ.setdefault("ASPIRE_SANDBOX_IMAGE", self.image)
+        os.environ.setdefault("ASPIRE_SANDBOX_LIMITS", f"{self.memory},{self.cpus},{self.pids}")
 
 
 class Budget(BaseModel):

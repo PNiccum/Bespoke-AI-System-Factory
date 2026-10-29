@@ -1,8 +1,8 @@
-"""Self-extension, dry run: SIMPLE proposes a better version of one of its own model agents, judges it on tasks the
+"""Self-extension, dry run: ASPIRE proposes a better version of one of its own model agents, judges it on tasks the
 proposer never saw, and stops for a person. It never writes to the registry.
 
 A proposal is a new agent spec only: a prompt and a description for an existing role and capability. It cannot add
-code, tools, roles or capabilities, so it cannot change what SIMPLE is able to touch, only how a model is asked.
+code, tools, roles or capabilities, so it cannot change what ASPIRE is able to touch, only how a model is asked.
 
     python -m factory.extend --agent coder                  # free models only
     python -m factory.extend --agent coder --paid-panel     # also asks a paid reviewer, after your approval
@@ -47,7 +47,7 @@ from factory.secrets import scan_text
 MAX_PROMPT = 3000
 TOKEN_RATIO = 1.5
 
-PROPOSE_PROMPT = """Propose an improved version of one of SIMPLE's model agents. Only its prompt and description may
+PROPOSE_PROMPT = """Propose an improved version of one of ASPIRE's model agents. Only its prompt and description may
 change; the model, tools and capabilities stay as they are.
 
 ## Current agent ({name})
@@ -146,7 +146,7 @@ def check_scope(proposal: Proposal, incumbent: AgentSpec, registry: Registry) ->
 
 def evaluate(cfg: FactoryConfig, tasks: list[BenchTask], agents: list[AgentSpec], *,
              providers: dict | None = None, registry_dir: Path | None = None) -> list[Outcome]:
-    return [run_one(cfg, t, "simple", agents=agents, providers=providers, registry_dir=registry_dir) for t in tasks]
+    return [run_one(cfg, t, "aspire", agents=agents, providers=providers, registry_dir=registry_dir) for t in tasks]
 
 
 def benchmark_gate(incumbent_runs: list[Outcome], candidate_runs: list[Outcome]) -> Gate:
@@ -253,7 +253,7 @@ def report(result: Result, incumbent: AgentSpec) -> str:
     if result.status == "awaiting a person":
         lines += ["", "## To adopt it", "", f"Copy `{result.candidate.name}.yaml` into `registry/agents/` in a pull "
                   "request. It will then bid against the current agent, and the contract net awards the step to "
-                  "whichever has the better record. SIMPLE never does this step itself."]
+                  "whichever has the better record. ASPIRE never does this step itself."]
     return "\n".join(lines) + "\n"
 
 

@@ -1,4 +1,4 @@
-"""Draw SIMPLE's UML class and sequence diagrams as SVG: python docs/uml/render.py
+"""Draw ASPIRE's UML class and sequence diagrams as SVG: python docs/uml/render.py
 
 The diagrams are data in this file (classes with their main fields and methods, relationships, and the messages of
 one bug-fix run), so they are reviewed and updated like code. Open the SVGs in any browser; print to PDF from there,
@@ -27,6 +27,7 @@ PKG = {
     "records": ("#f1f3f5", "#6b7785"),
     "workflows": ("#e8f8f7", "#2a9d8f"),
     "extension": ("#fdf2f8", "#b8478a"),
+    "pipeline": ("#fffbe6", "#a68a00"),
 }
 
 # name: (package, stereotype, x, y, fields, methods)
@@ -107,7 +108,7 @@ CLASSES = {
                 ["route(request, repo, llm, registry): Routed", "route_by_rules(request, patch)  # no model",
                  "check_steps(steps): problems"]),
     "bench": ("extension", "module · benchmark", 500, 1400, ["bench/tasks.yaml: 8 tasks, 3 held out",
-                                                              "modes: simple | baseline (one call)"],
+                                                              "modes: aspire | baseline (one call)"],
               ["run_one(cfg, task, mode, agents): Outcome", "judge(repo, patch)  # plain code"]),
     "extend": ("extension", "module · self-extension, dry run", 960, 1400,
                ["gates: scope, held-out benchmark,", "  review panel, then a person", "archive.jsonl"],
@@ -115,6 +116,26 @@ CLASSES = {
                 "panel(...)  # other family"]),
     "demo": ("extension", "module · recorded runs", 1420, 1400, ["demos/*.json: task + model replies"],
              ["record(run_dir, out)", "replay(cfg, recording)  # Offline provider", "replay_llm(cfg, run_dir, rec)"]),
+
+    "Project": ("pipeline", "blackboard · projects/<id>/", 60, 1640,
+                ["board: Blackboard  # blackboard.jsonl", "  typed, numbered, license-tagged", "task.txt, plan.json"],
+                ["create(base, title)", "write_file(rel, text, author)", "board.post(kind, author, data)",
+                 "board.for_paid(entries)  # no ARC-only"]),
+    "Interview": ("pipeline", "stage 1 · Interviewer (GLM)", 500, 1640,
+                  ["MAX_QUESTIONS: 6", "check_plan(plan)  # plain code"],
+                  ["start(request)", "reply(text)", "approve()  # person only"]),
+    "PlanningLoop": ("pipeline", "stage 2 · three families", 960, 1640,
+                     ["critic: DeepSeek  # Plan B", "analyst: gpt-oss  # pros, cons", "editor: GLM  # never votes"],
+                     ["run(): Outcome", "decide(votes, problems)  # code"]),
+    "KnowledgeLoop": ("pipeline", "stage 3 · knowledge and research", 1420, 1640,
+                      ["evaluator: gpt-oss", "orchestrator, librarian: GLM", "verifier: DeepSeek",
+                       "MAX_ROUNDS: 3"],
+                      ["run(): KnowledgeResult", "research(topic)", "write_page(topic, docs)"]),
+    "Wiki": ("pipeline", "shared · workspace/wiki/", 1880, 1640, ["MIN_SOURCES: 2", "pages: WikiPage (.json, .md)"],
+             ["covers(topic): WikiPage | None", "save(page)"]),
+    "sources": ("pipeline", "module · plain-code researchers", 1420, 1900,
+                ["OpenAlex, Europe PMC, NCBI Gene", "Doc(id, text, citation, license)"],
+                ["search(query, n): list[Doc]  # no model"]),
 
     "ProvenanceLog": ("records", "provenance.jsonl", 500, 1000, [], ["record(event)", "add_source(source)"]),
     "ProvenanceEvent": ("records", "", 820, 1000, ["kind: source|model_call|tool_call|approval", "actor: str",
@@ -167,6 +188,11 @@ RELATIONS = [
     ("pr_review", "PRReview", "comp", "1"),
     ("CLI", "planner", "dep", "ask", [(60, 375), (20, 375), (20, 1450), (60, 1450)]),
     ("extend", "bench", "dep", "held-out tasks"),
+    ("Interview", "Project", "assoc", "posts to"),
+    ("PlanningLoop", "Interview", "dep", "approved Plan A"),
+    ("KnowledgeLoop", "PlanningLoop", "dep", "plan.json"),
+    ("KnowledgeLoop", "Wiki", "assoc", "reads, writes"),
+    ("KnowledgeLoop", "sources", "assoc", "searches"),
 ]
 
 
@@ -190,7 +216,7 @@ def class_svg() -> str:
     for name, (pkg, stereo, _x, _y, fields, methods) in CLASSES.items():
         parts.append(class_box(name, pkg, stereo, fields, methods, *geo[name]))
     legend = legend_svg(40, height - 40)
-    return svg(width, height, "SIMPLE: UML class diagram", parts + [legend])
+    return svg(width, height, "ASPIRE: UML class diagram", parts + [legend])
 
 
 def class_box(name, pkg, stereo, fields, methods, x, y, w, h):
@@ -264,7 +290,8 @@ def legend_svg(x, y):
     items = [(name, PKG[key]) for key, name in
              [("ui", "User interface"), ("core", "Orchestration"), ("registry", "Agent selection"),
               ("llm", "Models and spend"), ("tools", "Plain-code tools and MCP"), ("records", "Records and export"),
-              ("workflows", "Task types"), ("extension", "Intake, benchmark, self-extension")]]
+              ("workflows", "Task types"), ("extension", "Intake, benchmark, self-extension"),
+              ("pipeline", "Multi-agent pipeline")]]
     out, cx = [], x
     for label, (fill, line) in items:
         out.append(f'<rect x="{cx}" y="{y - 11}" width="14" height="14" fill="{fill}" stroke="{line}"/>')
@@ -472,7 +499,7 @@ EXTEND = [
     ("frame-end",),
     ("factory.extend", "proposals/", "report.md, spec .yaml, archive.jsonl line", "call"),
     ("factory.extend", "Person", "awaiting a person | rejected at <gate>", "reply"),
-    ("Person", "Person", "adopt: open a pull request (SIMPLE never writes registry/)", "self"),
+    ("Person", "Person", "adopt: open a pull request (ASPIRE never writes registry/)", "self"),
 ]
 
 
@@ -504,11 +531,11 @@ def svg(width, height, title, parts) -> str:
 
 if __name__ == "__main__":
     (HERE / "class-diagram.svg").write_text(class_svg())
-    diagrams = {"sequence-bug-fix": ("SIMPLE: sequence diagram, one bug-fix run", LIFELINES, MESSAGES),
-                "sequence-test-gen": ("SIMPLE: sequence diagram, writing tests", TEST_GEN_LIFELINES, TEST_GEN),
-                "sequence-pr-review": ("SIMPLE: sequence diagram, reviewing a pull request", PR_REVIEW_LIFELINES,
+    diagrams = {"sequence-bug-fix": ("ASPIRE: sequence diagram, one bug-fix run", LIFELINES, MESSAGES),
+                "sequence-test-gen": ("ASPIRE: sequence diagram, writing tests", TEST_GEN_LIFELINES, TEST_GEN),
+                "sequence-pr-review": ("ASPIRE: sequence diagram, reviewing a pull request", PR_REVIEW_LIFELINES,
                                        PR_REVIEW),
-                "sequence-self-extension": ("SIMPLE: sequence diagram, self-extension dry run", EXTEND_LIFELINES,
+                "sequence-self-extension": ("ASPIRE: sequence diagram, self-extension dry run", EXTEND_LIFELINES,
                                             EXTEND)}
     for name, args in diagrams.items():
         (HERE / f"{name}.svg").write_text(sequence_svg(*args))

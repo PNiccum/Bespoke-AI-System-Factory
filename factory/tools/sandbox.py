@@ -1,15 +1,15 @@
 """Run a repository's tests on a throwaway copy, optionally with a patch applied. No model.
 
 Every run uses a fresh copy of the repository in a temporary directory and a time limit; the original checkout is
-never written to. Where the tests run is set by ``SIMPLE_SANDBOX`` (from ``sandbox:`` in the config):
+never written to. Where the tests run is set by ``ASPIRE_SANDBOX`` (from ``sandbox:`` in the config):
 
 - ``process`` (default): a child process with every key and token removed from its environment. Generated code still
   runs as the current user, with the network.
-- ``docker`` or ``podman``: a container from ``SIMPLE_SANDBOX_IMAGE`` (``sandbox/Dockerfile``) with no network, an
+- ``docker`` or ``podman``: a container from ``ASPIRE_SANDBOX_IMAGE`` (``sandbox/Dockerfile``) with no network, an
   empty environment, a read-only root, no capabilities, and caps on memory, CPU and processes.
 - ``apptainer``: the same image as a ``.sif`` file, for clusters such as ARC, with ``--containall --cleanenv``. Its
   network is isolated only where the site lets users run ``--net --network none``; set
-  ``SIMPLE_SANDBOX_APPTAINER_NET=1`` there.
+  ``ASPIRE_SANDBOX_APPTAINER_NET=1`` there.
 
 ``prove_fix`` is the bug-fix check: the named tests must fail without the patch and pass with it.
 """
@@ -41,11 +41,11 @@ class SandboxError(RuntimeError):
 
 
 def sandbox_runner() -> str:
-    runner = os.environ.get("SIMPLE_SANDBOX", "process")
+    runner = os.environ.get("ASPIRE_SANDBOX", "process")
     if runner not in RUNNERS:
-        raise SandboxError(f"SIMPLE_SANDBOX={runner!r}; use one of {', '.join(RUNNERS)}")
+        raise SandboxError(f"ASPIRE_SANDBOX={runner!r}; use one of {', '.join(RUNNERS)}")
     if runner != "process" and not shutil.which(runner):
-        raise SandboxError(f"SIMPLE_SANDBOX={runner} but {runner} is not installed; install it or use process")
+        raise SandboxError(f"ASPIRE_SANDBOX={runner} but {runner} is not installed; install it or use process")
     return runner
 
 
@@ -55,17 +55,17 @@ def pytest_command(tmp: Path, pytest_args: list[str]) -> tuple[list[str], dict |
     runner = sandbox_runner()
     if runner == "process":
         return [sys.executable, "-m", "pytest", f"--junitxml={tmp / 'junit.xml'}", *pytest_args], scrubbed_env(), None
-    image = os.environ.get("SIMPLE_SANDBOX_IMAGE", "simple-sandbox")
+    image = os.environ.get("ASPIRE_SANDBOX_IMAGE", "aspire-sandbox")
     # env -i: start from an empty environment; base images set variables of their own (python's sets GPG_KEY).
     inner = ["env", "-i", "HOME=/tmp", "PATH=/usr/local/bin:/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1",
              "python", "-m", "pytest", "--junitxml=/work/junit.xml", *pytest_args]
     if runner == "apptainer":
-        net = ["--net", "--network", "none"] if os.environ.get("SIMPLE_SANDBOX_APPTAINER_NET") == "1" else []
+        net = ["--net", "--network", "none"] if os.environ.get("ASPIRE_SANDBOX_APPTAINER_NET") == "1" else []
         return ["apptainer", "exec", "--containall", "--cleanenv", "--no-home", *net, "--bind", f"{tmp}:/work",
                 "--pwd", "/work/repo", image, *inner], None, None
-    name = f"simple-sandbox-{tmp.name}"
+    name = f"aspire-sandbox-{tmp.name}"
     user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
-    limits = os.environ.get("SIMPLE_SANDBOX_LIMITS", "2g,2,256").split(",")  # memory, CPUs, processes
+    limits = os.environ.get("ASPIRE_SANDBOX_LIMITS", "2g,2,256").split(",")  # memory, CPUs, processes
     return [runner, "run", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp",  # noqa: S108  # nosec B108 (inside the container)
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", limits[0], "--cpus", limits[1],
             "--pids-limit", limits[2], *user, "-v", f"{tmp}:/work", "-w", "/work/repo", image, *inner], None, name

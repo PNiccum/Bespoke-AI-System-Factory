@@ -1,5 +1,5 @@
 """The container sandbox: no network, no keys, a read-only root, and a time limit that stops the container too.
-The command-building tests run anywhere; the live ones need docker and the simple-sandbox image."""
+The command-building tests run anywhere; the live ones need docker and the aspire-sandbox image."""
 
 import shutil
 import subprocess
@@ -16,17 +16,17 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def has_image():
     if not shutil.which("docker"):
         return False
-    r = subprocess.run(["docker", "image", "inspect", "simple-sandbox"], capture_output=True)
+    r = subprocess.run(["docker", "image", "inspect", "aspire-sandbox"], capture_output=True)
     return r.returncode == 0
 
 
-live = pytest.mark.skipif(not has_image(), reason="needs docker and the simple-sandbox image (sandbox/Dockerfile)")
+live = pytest.mark.skipif(not has_image(), reason="needs docker and the aspire-sandbox image (sandbox/Dockerfile)")
 
 
 @pytest.fixture
 def runner(monkeypatch):
     def use(name):
-        monkeypatch.setenv("SIMPLE_SANDBOX", name)
+        monkeypatch.setenv("ASPIRE_SANDBOX", name)
         monkeypatch.setattr(sandbox.shutil, "which", lambda prog: f"/usr/bin/{prog}")
     return use
 
@@ -45,15 +45,15 @@ def test_apptainer_cleans_the_environment_and_isolates_the_network_only_when_all
     runner("apptainer")
     cmd, _, _ = pytest_command(tmp_path, [])
     assert "--containall" in cmd and "--cleanenv" in cmd and "--network" not in cmd
-    monkeypatch.setenv("SIMPLE_SANDBOX_APPTAINER_NET", "1")
+    monkeypatch.setenv("ASPIRE_SANDBOX_APPTAINER_NET", "1")
     assert "--network" in pytest_command(tmp_path, [])[0]
 
 
 def test_an_unknown_or_missing_runner_says_what_to_do(monkeypatch, tmp_path):
-    monkeypatch.setenv("SIMPLE_SANDBOX", "vm")
+    monkeypatch.setenv("ASPIRE_SANDBOX", "vm")
     with pytest.raises(SandboxError, match="use one of"):
         pytest_command(tmp_path, [])
-    monkeypatch.setenv("SIMPLE_SANDBOX", "podman")
+    monkeypatch.setenv("ASPIRE_SANDBOX", "podman")
     monkeypatch.setattr(sandbox.shutil, "which", lambda prog: None)
     with pytest.raises(SandboxError, match="not installed"):
         pytest_command(tmp_path, [])
@@ -90,7 +90,7 @@ def test_root_is_read_only():
 
 @live
 def test_hostile_tests_cannot_reach_the_network_keys_or_root(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIMPLE_SANDBOX", "docker")
+    monkeypatch.setenv("ASPIRE_SANDBOX", "docker")
     monkeypatch.setenv("ARC_API_KEY", "canary-7f3a9c2e4b1d8065")
     report = run_tests(RunTestsIn(repo_path=str(hostile_repo(tmp_path))))
     assert report.ok, report.output_tail
@@ -99,12 +99,12 @@ def test_hostile_tests_cannot_reach_the_network_keys_or_root(tmp_path, monkeypat
 
 @live
 def test_a_timeout_stops_the_container_too(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIMPLE_SANDBOX", "docker")
+    monkeypatch.setenv("ASPIRE_SANDBOX", "docker")
     (tmp_path / "slow" / "tests").mkdir(parents=True)
     (tmp_path / "slow" / "tests" / "test_slow.py").write_text("import time\n\ndef test_slow():\n    time.sleep(600)\n")
     report = run_tests(RunTestsIn(repo_path=str(tmp_path / "slow"), timeout_s=3))
     assert report.timed_out
-    running = subprocess.run(["docker", "ps", "-q", "--filter", "name=simple-sandbox-"], capture_output=True, text=True)
+    running = subprocess.run(["docker", "ps", "-q", "--filter", "name=aspire-sandbox-"], capture_output=True, text=True)
     assert running.stdout.strip() == ""
 
 
@@ -113,7 +113,7 @@ def test_the_buggy_fixture_gives_the_same_report_in_a_container(monkeypatch):
     patch = (FIXTURES / "buggy_repo.patch").read_text()
     reports = {}
     for name in ("process", "docker"):
-        monkeypatch.setenv("SIMPLE_SANDBOX", name)
+        monkeypatch.setenv("ASPIRE_SANDBOX", name)
         before = run_tests(RunTestsIn(repo_path=str(FIXTURES / "buggy_repo")))
         after = run_tests(RunTestsIn(repo_path=str(FIXTURES / "buggy_repo"), patch=patch))
         reports[name] = (before.passed, before.failed, after.passed, after.failed)

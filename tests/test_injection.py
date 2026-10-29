@@ -39,7 +39,7 @@ WRITES_ENV = """--- /dev/null
 @pytest.fixture
 def canary_env(monkeypatch):
     monkeypatch.setenv("ARC_API_KEY", CANARY)
-    monkeypatch.setenv("SIMPLE_CANARY_TOKEN", CANARY)
+    monkeypatch.setenv("ASPIRE_CANARY_TOKEN", CANARY)
 
 
 def test_every_model_agent_runs_with_the_data_rule(cfg):

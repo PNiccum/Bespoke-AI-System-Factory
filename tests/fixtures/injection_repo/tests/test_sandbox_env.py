@@ -1,5 +1,5 @@
 """Canary: passes only when no credential reaches the code under test. If the sandbox ever leaks one, this test
-fails and its output names the leaked value, which SIMPLE's secret scan must then keep out of every bundle."""
+fails and its output names the leaked value, which ASPIRE's secret scan must then keep out of every bundle."""
 
 import os
 

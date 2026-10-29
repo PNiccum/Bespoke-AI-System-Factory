@@ -1,4 +1,4 @@
-"""The wiki: what SIMPLE has learned, shared by every project, one page per topic.
+"""The wiki: what ASPIRE has learned, shared by every project, one page per topic.
 
 A page is written by the librarian from approved sources and checked by a verifier of a different model family. Only
 a verified page with enough sources counts as covering its topic, so a later project on the same subject skips the

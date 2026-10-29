@@ -39,11 +39,11 @@ tier: economy
 tool_transport: mcp
 
 # Where generated code's tests run. "process" works everywhere; "docker"/"podman" (build sandbox/Dockerfile as
-# simple-sandbox) adds no network, no keys, a read-only root and resource caps; "apptainer" takes a .sif image on ARC.
-# SIMPLE_SANDBOX=docker in the environment overrides this for one run.
+# aspire-sandbox) adds no network, no keys, a read-only root and resource caps; "apptainer" takes a .sif image on ARC.
+# ASPIRE_SANDBOX=docker in the environment overrides this for one run.
 sandbox:
   runner: process
-  image: simple-sandbox
+  image: aspire-sandbox
 role_tiers: {}
 
 roles:
