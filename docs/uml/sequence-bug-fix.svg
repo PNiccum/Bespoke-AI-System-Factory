@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1980" height="1276" viewBox="0 0 1980 1276">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<defs>
+<marker id="open" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" orient="auto">
+  <path d="M1,1 L11,6 L1,11" fill="none" stroke="#52606d" stroke-width="1.4"/></marker>
+<marker id="solid" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+  <path d="M1,1 L11,6 L1,11 z" fill="#1f2933"/></marker>
+<marker id="comp" viewBox="0 0 20 12" refX="1" refY="6" markerWidth="18" markerHeight="11" orient="auto">
+  <path d="M1,6 L10,1 L19,6 L10,11 z" fill="#52606d"/></marker>
+<marker id="agg" viewBox="0 0 20 12" refX="1" refY="6" markerWidth="18" markerHeight="11" orient="auto">
+  <path d="M1,6 L10,1 L19,6 L10,11 z" fill="#ffffff" stroke="#52606d"/></marker>
+</defs>
+<text x="40.0" y="34.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="18" font-weight="bold" fill="#1f2933" text-anchor="start">SIMPLE: sequence diagram, one bug-fix run</text>
+<line x1="130" y1="106" x2="130" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="70.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="130.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Person</text>
+<rect x="70.0" y="1200" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="130.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Person</text>
+<line x1="345" y1="106" x2="345" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="253.6" y="70" width="182.8" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="345.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Streamlit + RunSession</text>
+<rect x="253.6" y="1200" width="182.8" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="345.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Streamlit + RunSession</text>
+<line x1="560" y1="106" x2="560" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="500.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="560.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Orchestrator</text>
+<rect x="500.0" y="1200" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="560.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Orchestrator</text>
+<line x1="775" y1="106" x2="775" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="715.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="775.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Registry</text>
+<rect x="715.0" y="1200" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="775.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">Registry</text>
+<line x1="990" y1="106" x2="990" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="891.2" y="70" width="197.60000000000002" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="990.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">McpTools → factory-tools</text>
+<rect x="891.2" y="1200" width="197.60000000000002" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="990.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">McpTools → factory-tools</text>
+<line x1="1205" y1="106" x2="1205" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1139.5" y="70" width="131.0" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1205.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (GLM coder)</text>
+<rect x="1139.5" y="1200" width="131.0" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1205.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (GLM coder)</text>
+<line x1="1420" y1="106" x2="1420" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1324.9" y="70" width="190.20000000000002" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1420.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (DeepSeek reviewer)</text>
+<rect x="1324.9" y="1200" width="190.20000000000002" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1420.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">LLM (DeepSeek reviewer)</text>
+<line x1="1635" y1="106" x2="1635" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1575.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1635.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">SpendGate</text>
+<rect x="1575.0" y="1200" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1635.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">SpendGate</text>
+<line x1="1850" y1="106" x2="1850" y2="1236" stroke="#52606d" stroke-dasharray="3 4"/>
+<rect x="1790.0" y="70" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1850.0" y="93.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">export</text>
+<rect x="1790.0" y="1200" width="120" height="36" rx="4" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1850.0" y="1223.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="middle">export</text>
+<line x1="130" y1="130" x2="345" y2="130" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="168.9" y="112.0" width="137.1" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="237.5" y="124.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">submit issue + repo</text>
+<line x1="345" y1="164" x2="560" y2="164" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="346.0" y="146.0" width="213.0" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="452.5" y="158.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">run(task)  [background thread]</text>
+<path d="M560,198 h40 v18 h-40" fill="none" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="606.0" y="200.0" width="378.6" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="608.0" y="211.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">plan_for(task): locate, baseline, patch, check, review</text>
+<line x1="560" y1="238" x2="775" y2="238" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="564.5" y="220.0" width="206.1" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="667.5" y="232.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">award(announcement) × 5 steps</text>
+<line x1="775" y1="272" x2="560" y2="272" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="509.2" y="254.0" width="316.5" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="667.5" y="266.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">Bid per step (tool agents win no-model steps)</text>
+<line x1="560" y1="306" x2="990" y2="306" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="706.5" y="288.0" width="137.1" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="300.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">locate(repo, issue)</text>
+<line x1="990" y1="340" x2="560" y2="340" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="689.2" y="322.0" width="171.6" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="334.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">Locations (ranked files)</text>
+<line x1="560" y1="374" x2="990" y2="374" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="678.9" y="356.0" width="192.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="368.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">run_tests(repo)  # baseline</text>
+<line x1="990" y1="408" x2="560" y2="408" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="661.6" y="390.0" width="226.8" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="402.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">TestReport: which tests fail now</text>
+<line x1="560" y1="476" x2="1205" y2="476" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="738.0" y="458.0" width="288.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="882.5" y="470.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">complete(coder, issue + files + feedback)</text>
+<line x1="1205" y1="510" x2="1635" y2="510" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="1303.2" y="492.0" width="233.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1420.0" y="504.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">check(request)  # paid model only</text>
+<line x1="1635" y1="544" x2="1205" y2="544" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="1323.8" y="526.0" width="192.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1420.0" y="538.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">free ARC model: no question</text>
+<line x1="1205" y1="578" x2="560" y2="578" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="838.1" y="560.0" width="88.8" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="882.5" y="572.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">unified diff</text>
+<line x1="560" y1="612" x2="990" y2="612" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="665.0" y="594.0" width="219.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="606.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">run_tests(repo, patch)  # check</text>
+<line x1="990" y1="646" x2="560" y2="646" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="685.8" y="628.0" width="178.5" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="775.0" y="640.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">TestReport with the patch</text>
+<line x1="560" y1="680" x2="1420" y2="680" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="866.2" y="662.0" width="247.5" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="990.0" y="674.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">complete(reviewer, patch + results)</text>
+<line x1="1420" y1="714" x2="560" y2="714" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="873.1" y="696.0" width="233.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="990.0" y="708.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">Review: accept | reject + defects</text>
+<path d="M560,782 h40 v18 h-40" fill="none" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="606.0" y="784.0" width="233.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="608.0" y="795.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="start">feedback = defects or test output</text>
+<line x1="1205" y1="856" x2="1635" y2="856" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="1310.0" y="838.0" width="219.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1420.0" y="850.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">check(gpt-6.1-sol, up to $0.16)</text>
+<line x1="1635" y1="890" x2="345" y2="890" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="859.4" y="872.0" width="261.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="990.0" y="884.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">approver(request)  [run thread waits]</text>
+<line x1="345" y1="924" x2="130" y2="924" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="189.7" y="906.0" width="95.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="237.5" y="918.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">approval card</text>
+<line x1="130" y1="958" x2="345" y2="958" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="86.2" y="940.0" width="302.7" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="237.5" y="952.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">approve / decline (900 s timeout = decline)</text>
+<line x1="345" y1="992" x2="1635" y2="992" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="945.6" y="974.0" width="88.8" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="990.0" y="986.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">True / False</text>
+<rect x="262" y="748" width="1456" height="284" fill="none" stroke="#52606d" stroke-width="1.2"/>
+<path d="M262,748 h50 v14 l-8,8 h-42 z" fill="#f1f3f5" stroke="#52606d"/>
+<text x="270.0" y="764.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">alt</text>
+<text x="322.0" y="764.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">[reject or tests still fail: feedback to the coder, next attempt]</text>
+<line x1="262" y1="822" x2="1718" y2="822" stroke="#52606d" stroke-dasharray="6 4"/>
+<text x="270.0" y="838.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">[attempt 3 escalates the coder to the paid model]</text>
+<rect x="250" y="442" width="1480" height="612" fill="none" stroke="#52606d" stroke-width="1.2"/>
+<path d="M250,442 h58 v14 l-8,8 h-50 z" fill="#f1f3f5" stroke="#52606d"/>
+<text x="258.0" y="458.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="bold" fill="#1f2933" text-anchor="start">loop</text>
+<text x="318.0" y="458.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#52606d" text-anchor="start">[attempt 1..3]</text>
+<line x1="560" y1="1070" x2="345" y2="1070" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="356.4" y="1052.0" width="192.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="452.5" y="1064.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">RunResult (fixed | stopped)</text>
+<line x1="345" y1="1104" x2="1850" y2="1104" stroke="#1f2933" stroke-width="1.3" marker-end="url(#solid)"/>
+<rect x="1022.0" y="1086.0" width="150.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1097.5" y="1098.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">export_bundle(result)</text>
+<line x1="1850" y1="1138" x2="345" y2="1138" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="932.4" y="1120.0" width="330.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1097.5" y="1132.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">bundle .zip (patch, rerun.py, provenance, cost)</text>
+<line x1="345" y1="1172" x2="130" y2="1172" stroke="#1f2933" stroke-width="1.3" stroke-dasharray="6 4" marker-end="url(#open)"/>
+<rect x="131.0" y="1154.0" width="213.0" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="237.5" y="1166.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11.5" font-weight="normal" fill="#1f2933" text-anchor="middle">agent activity, cost, download</text>
+</svg>
