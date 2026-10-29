@@ -14,6 +14,7 @@ model's view of itself, which is poorly calibrated.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 from dataclasses import dataclass
@@ -78,6 +79,15 @@ class Registry:
         directory = directory or cfg.root / cfg.registry_dir
         specs = [AgentSpec.load(p) for p in sorted((directory / "agents").glob("*.yaml"))]
         return cls(specs, cfg, ScoreBook(directory / "scores.json"))
+
+    def version(self) -> dict:
+        """What the awards depend on: a hash of every agent spec and a snapshot of the track record. Written into
+        each run and bundle, so a run on another machine can be checked against the registry that made it."""
+        specs = json.dumps({n: a.model_dump(mode="json") for n, a in sorted(self.agents.items())}, sort_keys=True)
+        scores = json.dumps(self.scores.counts, sort_keys=True)
+        return {"specs_sha256": hashlib.sha256(specs.encode()).hexdigest(),
+                "scores_sha256": hashlib.sha256(scores.encode()).hexdigest(),
+                "agents": sorted(self.agents), "scores": json.loads(scores)}
 
     def is_free(self, agent: AgentSpec) -> bool:
         return agent.kind == "tool" or not self.cfg.model_info(self.cfg.roles[agent.role].model).real

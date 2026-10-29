@@ -140,6 +140,13 @@ Both folders are git-ignored.
 - **A fix may not change the tests.** A bug-fix patch that touches a test file or pytest's configuration
   (`conftest.py`, `pytest.ini`, ...) is refused before it runs, and the check fails if a target test did not run
   (deleted, renamed or skipped). `--allow-test-edits` lifts the first rule; the second always holds.
+- **No secrets leave in a bundle.** Before a bundle is zipped, every file is scanned for key and token shapes and
+  for the exact values of the keys in `.env`; on a hit the bundle is deleted and the run says which file held what.
+- **SIMPLE cannot loosen its own checks.** A fix to SIMPLE's own repository may not touch the spend gate, config,
+  sandbox, MCP server, orchestrator, registry or workflows; no fix anywhere may touch a `.env` file. A check also
+  fails when fewer tests run, or more are skipped, than before the patch.
+- **Every bundle names its registry.** `registry.json` in each run and bundle holds a hash of every agent spec and
+  the track record as it stood when the steps were awarded, so a run elsewhere can be checked against it.
 - **Keys never reach the code under test.** Tests run on a throwaway copy, in the MCP server's process, with every
   key, token and git auth setting removed from the environment.
 
