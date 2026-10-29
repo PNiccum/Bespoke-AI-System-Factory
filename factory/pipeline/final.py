@@ -66,7 +66,7 @@ class FinalEvaluator:
         self.agent = registry.agents[EVALUATOR]
 
     def run(self, shown_files: str) -> FinalResult:
-        plan = json.loads((self.project.root / "plan.json").read_text())
+        plan = json.loads((self.project.root / "plan.json").read_text(encoding="utf-8"))
         checks: Checks = self.production.check()
         tasks = "\n".join(f"- {t['id']} {t['title']}: done when {t['acceptance']}" for t in plan["tasks"])
         data = "public" if self.llm.cfg.data_public else "private"

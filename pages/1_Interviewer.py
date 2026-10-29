@@ -79,7 +79,7 @@ for e in iv.board.entries():
 
 if iv.board.latest("approval"):
     st.success(f"Plan A approved. Project folder: {iv.project.root}")
-    st.code((iv.project.root / "task.txt").read_text(), language="markdown")
+    st.code((iv.project.root / "task.txt").read_text(encoding="utf-8"), language="markdown")
     decision = iv.board.latest("decision")
     if decision is None and st.button("Run the planning loop", type="primary"):
         with st.spinner("Three model families are critiquing, weighing, editing and voting..."):
@@ -97,7 +97,7 @@ if iv.board.latest("approval"):
                          f"Cons: {'; '.join(analysis.data[key]['cons'])}")
         for problem in decision.data["problems"]:
             st.error(f"Left in the winning plan: {problem}")
-        st.code((iv.project.root / "plan.json").read_text(), language="json")
+        st.code((iv.project.root / "plan.json").read_text(encoding="utf-8"), language="json")
         knowledge = iv.board.latest("knowledge")
         if knowledge is None and st.button("Run the knowledge loop", type="primary"):
             cfg = config()
@@ -137,7 +137,7 @@ if iv.board.latest("approval"):
             elif redesign is not None:
                 st.warning("The project could not be finished. The re-design report is below; nothing changes until "
                            "you approve it.")
-                st.markdown(Path(redesign.data["report"]).read_text())
+                st.markdown(Path(redesign.data["report"]).read_text(encoding="utf-8"))
     with st.expander("Blackboard"):
         st.code("\n".join(json.dumps(e.model_dump()) for e in iv.board.entries()), language="json")
     if st.button("New request"):

@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         return run_build(args)
 
     if args.command == "fix":
-        issue = Path(args.issue_file).read_text() if args.issue_file else args.issue
+        issue = Path(args.issue_file).read_text(encoding="utf-8") if args.issue_file else args.issue
         if not issue:
             ap.error("give --issue or --issue-file")
         task = Task(description=issue, repo_path=args.repo, failing_tests=args.test,
@@ -182,14 +182,14 @@ def main(argv: list[str] | None = None) -> int:
         task = Task(description=args.request, repo_path=args.repo, task_type="test_gen")
     elif args.command == "review":
         task = Task(description=args.description or "(no description)", repo_path=args.repo, task_type="pr_review",
-                    patch=Path(args.patch_file).read_text())
+                    patch=Path(args.patch_file).read_text(encoding="utf-8"))
     cfg = load_config(args.config)
     run_dir = new_run_dir(cfg, args.command)
     llm = LLM(cfg, run_dir, approver=ask_on_terminal)
     registry = Registry.load(cfg)
     if args.command == "ask":
         routed = route(args.request, args.repo, llm, registry,
-                       patch=Path(args.patch_file).read_text() if args.patch_file else "",
+                       patch=Path(args.patch_file).read_text(encoding="utf-8") if args.patch_file else "",
                        gaps=cfg.work_dir / "gaps.jsonl")
         print(f"Routed by {routed.routed_by}: {routed.intake.task_type} ({routed.intake.why})")
         for p in routed.problems:

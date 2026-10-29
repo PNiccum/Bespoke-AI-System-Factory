@@ -243,7 +243,7 @@ class Orchestrator:
 
         self.mcp = McpTools([task.repo_path]) if self.llm.cfg.tool_transport == "mcp" else None
         # The registry as it stood when this run's steps were awarded; exporters copy it into the bundle.
-        (self.llm.run_dir / "registry.json").write_text(json.dumps(self.registry.version(), indent=1))
+        (self.llm.run_dir / "registry.json").write_text(json.dumps(self.registry.version(), indent=1), encoding="utf-8")
         if task.task_type in WORKFLOWS:
             return WORKFLOWS[task.task_type](self, task)
         plan = plan_for(task)
@@ -375,7 +375,7 @@ class Orchestrator:
         shown = [h for h in locations.hits if not h.is_test][:3] + [h for h in locations.hits if h.is_test][:1]
         files = []
         for h in shown:
-            lines = (root / h.path).read_text(errors="replace").splitlines()[:self.max_file_lines]
+            lines = (root / h.path).read_text(errors="replace", encoding="utf-8").splitlines()[:self.max_file_lines]
             files.append(f"### {h.path}\n```python\n" + "\n".join(lines) + "\n```")
         loc = "\n".join(f"- {h.path}:{h.line} ({'; '.join(h.why)})" for h in locations.hits[:8]) or "- none found"
         return CODER_PROMPT.format(issue=task.description, failing="\n".join(failing) or "none known",

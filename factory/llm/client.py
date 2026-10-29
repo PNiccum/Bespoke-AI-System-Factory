@@ -133,7 +133,7 @@ class LLM:
         if not info.exists():
             info.write_text(json.dumps({"tier": cfg.tier, "role_tiers": cfg.role_tiers, "roles": {
                 r: {"provider": rc.provider, "model": rc.model, "max_tokens": rc.max_tokens, "effort": rc.effort}
-                for r, rc in cfg.roles.items()}}, indent=1))
+                for r, rc in cfg.roles.items()}}, indent=1), encoding="utf-8")
 
     def complete(self, role: str, user: str, system: str | None = None, *, tag: str = "",
                  data: DataClass = "private", max_tokens: int | None = None, escalate: bool = False) -> Completion:
@@ -270,11 +270,11 @@ class LLM:
         batch_key = request_key({"provider": rc.provider, "keys": [keys[int(c[1:])] for c in sorted(reqs)]})
         pending = pending_dir / f"{batch_key[:24]}.json"
         if pending.exists():
-            batch_id = json.loads(pending.read_text())["batch_id"]  # resume the batch an earlier run submitted
+            batch_id = json.loads(pending.read_text(encoding="utf-8"))["batch_id"]  # resume the batch an earlier run submitted
         else:
             batch_id = provider.submit_batch(reqs)
             pending.write_text(json.dumps({"batch_id": batch_id, "provider": rc.provider, "role": role,
-                                           "n": len(reqs), "submitted": datetime.now(UTC).isoformat()}))
+                                           "n": len(reqs), "submitted": datetime.now(UTC).isoformat()}), encoding="utf-8")
         self._log(event="batch_submitted", role=role, model=rc.model, provider=rc.provider, batch_id=batch_id,
                   n=len(reqs))
         t0 = time.monotonic()
@@ -339,12 +339,12 @@ class LLM:
         raise AssertionError("unreachable")
 
     def _log(self, **record) -> None:
-        with self._log_lock, self.log_path.open("a") as f:
+        with self._log_lock, self.log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"at": datetime.now(UTC).isoformat(), **record}) + "\n")
 
     def write_summary(self) -> dict:
         summary = self.ledger.summary()
-        (self.run_dir / "cost_summary.json").write_text(json.dumps(summary, indent=2))
+        (self.run_dir / "cost_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
         return summary
 
 

@@ -71,7 +71,7 @@ def build_server(roots: list[str] | None = None) -> MCPServer:
         f = inside(str(Path(repo_path) / path))
         if not f.is_file():
             raise ToolError(f"no file {path}")
-        text = f.read_text(errors="replace").splitlines()
+        text = f.read_text(errors="replace", encoding="utf-8").splitlines()
         return FileSlice(path=path, start=start, lines=text[start - 1:start - 1 + count], total_lines=len(text))
 
     @server.tool()

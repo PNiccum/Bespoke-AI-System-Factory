@@ -158,8 +158,8 @@ class Production:
         """Build the solution. ``feedback`` (from the critic or the final evaluator) starts a rebuild round."""
         if self.board.latest("knowledge") is None:
             raise RuntimeError("production starts after the knowledge loop; run that first")
-        task = (self.project.root / "task.txt").read_text()
-        plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text())
+        task = (self.project.root / "task.txt").read_text(encoding="utf-8")
+        plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text(encoding="utf-8"))
         pages = self.pages()
         wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
         if feedback:
@@ -188,7 +188,7 @@ class Production:
         for rel in order.read[:4]:
             path = (self.out / rel).resolve()
             if path.is_relative_to(self.out.resolve()) and path.is_file():
-                reads.append(f"### {rel}\n```\n{path.read_text(errors='replace')[:MAX_READ_CHARS]}\n```")
+                reads.append(f"### {rel}\n```\n{path.read_text(errors='replace', encoding='utf-8')[:MAX_READ_CHARS]}\n```")
         built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                         order=order.model_dump_json(indent=1), wiki=wiki,
                                                         reads="\n\n".join(reads) or "(none)"), Built,
@@ -224,7 +224,7 @@ class Production:
         for rel in self.files():
             if rel.endswith(".py"):
                 try:
-                    compile((self.out / rel).read_text(), rel, "exec")
+                    compile((self.out / rel).read_text(encoding="utf-8"), rel, "exec")
                     compiled.append(rel)
                 except SyntaxError as e:
                     errors[rel] = f"line {e.lineno}: {e.msg}"

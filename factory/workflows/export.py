@@ -36,9 +36,9 @@ from mutate import ScoreIn, score_tests  # noqa: E402
 
 
 def main(repo):
-    wf = json.loads((HERE / "workflow.json").read_text())
+    wf = json.loads((HERE / "workflow.json").read_text(encoding="utf-8"))
     score = score_tests(ScoreIn(repo_path=repo, files=wf["targets"], tests=wf["new_tests"],
-                                functions=wf["functions"], patch=(HERE / "tests.patch").read_text()))
+                                functions=wf["functions"], patch=(HERE / "tests.patch").read_text(encoding="utf-8")))
     if score.error:
         print(f"new tests: FAIL ({score.error})")
         return 1
@@ -91,8 +91,8 @@ def broken(repo, patch):
 
 
 def main(repo):
-    patch = (HERE / "change.patch").read_text()
-    recorded = json.loads((HERE / "review.json").read_text())
+    patch = (HERE / "change.patch").read_text(encoding="utf-8")
+    recorded = json.loads((HERE / "review.json").read_text(encoding="utf-8"))
     rules = sorted((f["rule"], f["path"], f["line"]) for f in inspect(patch, repo)["findings"])
     want = sorted((f["rule"], f["path"], f["line"]) for f in recorded["facts"]["findings"])
     print(f"rule findings: {len(rules)} (recorded {len(want)}): {'PASS' if rules == want else 'FAIL'}")
@@ -128,31 +128,31 @@ def export_workflow_bundle(result: RunResult, task: Task, run_dir: Path, out_dir
         "exported_at": datetime.now(UTC).isoformat(),
     }
     if task.task_type == "test_gen":
-        (bundle / "tests.patch").write_text(result.patch)
-        (bundle / "rerun.py").write_text(RERUN_TESTS)
+        (bundle / "tests.patch").write_text(result.patch, encoding="utf-8")
+        (bundle / "rerun.py").write_text(RERUN_TESTS, encoding="utf-8")
         shutil.copy2(TOOLS / "mutate.py", bundle / "mutate.py")
         workflow |= {k: result.report[k] for k in ("targets", "functions", "new_tests", "mutation")}
         readme = tests_readme(task, result, models)
     elif task.task_type == "pr_review":
-        (bundle / "change.patch").write_text(result.patch)
-        (bundle / "rerun.py").write_text(RERUN_REVIEW)
+        (bundle / "change.patch").write_text(result.patch, encoding="utf-8")
+        (bundle / "rerun.py").write_text(RERUN_REVIEW, encoding="utf-8")
         shutil.copy2(TOOLS / "diff_inspect.py", bundle / "diff_inspect.py")
-        (bundle / "review.json").write_text(json.dumps(result.report, indent=2))
-        (bundle / "review.md").write_text(review_markdown(task, result))
+        (bundle / "review.json").write_text(json.dumps(result.report, indent=2), encoding="utf-8")
+        (bundle / "review.md").write_text(review_markdown(task, result), encoding="utf-8")
         readme = review_readme(task, result, models)
     else:
         raise ValueError(f"no bundle format for task type {task.task_type!r}")
-    (bundle / "workflow.json").write_text(json.dumps(workflow, indent=2))
+    (bundle / "workflow.json").write_text(json.dumps(workflow, indent=2), encoding="utf-8")
     (bundle / "evidence.json").write_text(json.dumps({
         "test_report": result.check.model_dump() if result.check else None,
         "review": result.review.model_dump() if result.review else None,
         "report": result.report,
         "events": [asdict(e) for e in result.events],
-    }, indent=2, default=str))
+    }, indent=2, default=str), encoding="utf-8")
     for name in ("provenance.jsonl", "llm_calls.jsonl", "cost_summary.json", "run_info.json", "registry.json"):
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, bundle / name)
-    (bundle / "README.md").write_text(readme + steps_table(result) + FILES)
+    (bundle / "README.md").write_text(readme + steps_table(result) + FILES, encoding="utf-8")
 
     guard_bundle(bundle)  # nothing that looks like a key leaves in a bundle
 

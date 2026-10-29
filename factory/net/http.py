@@ -75,7 +75,7 @@ class CachedAPI:
         url = f"{self.base}/{path}" + (f"?{urlencode(sorted(params.items()))}" if params else "")
         cache_path = self.cache / f"{hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()}.json"
         if cache_path.exists():
-            cached = json.loads(cache_path.read_text())
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
             if datetime.fromisoformat(cached["fetched_at"]) > datetime.now(UTC) - self.max_age:
                 return cached["data"]
         sent = url + (("&" if "?" in url else "?") + urlencode(self.auth_params) if self.auth_params else "")
@@ -88,7 +88,7 @@ class CachedAPI:
             data = r.json()
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(json.dumps({"url": url, "fetched_at": datetime.now(UTC).isoformat(),
-                                          "data": data}))
+                                          "data": data}), encoding="utf-8")
         return data
 
     def download(self, url: str, accept: str = "application/pdf", headers: dict | None = None) -> bytes | None:

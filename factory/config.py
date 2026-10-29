@@ -199,7 +199,7 @@ class FactoryConfig(BaseModel):
 
 
 def load_models(path: Path) -> dict[str, ModelInfo]:
-    data = yaml.safe_load(path.read_text()) or {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     return {name: ModelInfo(**info) for name, info in data.get("models", {}).items()}
 
 
@@ -207,7 +207,7 @@ def load_dotenv(path: Path) -> None:
     """Set variables from a ``.env`` file (KEY=value lines) that the environment does not already set."""
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         key, sep, value = line.strip().partition("=")
         if sep and key and not key.startswith("#"):
             os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
@@ -217,7 +217,7 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     """Load a factory config. ``tier`` (or FACTORY_TIER) overrides the file's tier for this run. Keys are read
     from the environment, or from a ``.env`` file at the project root."""
     path = Path(path).resolve()
-    data = yaml.safe_load(path.read_text())
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if tier := tier or os.environ.get("FACTORY_TIER"):
         data["tier"] = tier
     for pair in filter(None, os.environ.get("FACTORY_ROLE_TIERS", "").split(",")):  # "reviewer=quality,coder=quality"

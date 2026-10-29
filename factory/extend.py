@@ -189,7 +189,7 @@ def dev_evidence(outcomes: list[Outcome]) -> str:
 def archive_text(path: Path, incumbent: str) -> str:
     if not path.exists():
         return "- none yet"
-    rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
     rows = [r for r in rows if r["incumbent"] == incumbent][-5:]
     return "\n".join(f"- {r['name']}: {r['status']} ({r['benchmark']})" for r in rows) or "- none yet"
 
@@ -251,9 +251,9 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
     result.folder = out / result.id
     result.folder.mkdir(parents=True, exist_ok=True)
     if candidate:
-        (result.folder / f"{candidate.name}.yaml").write_text(spec_yaml(candidate))
-    (result.folder / "report.md").write_text(report(result, incumbent))
-    with archive.open("a") as f:
+        (result.folder / f"{candidate.name}.yaml").write_text(spec_yaml(candidate), encoding="utf-8")
+    (result.folder / "report.md").write_text(report(result, incumbent), encoding="utf-8")
+    with archive.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"at": stamp, "incumbent": agent, "name": proposal.name, "status": result.status,
                             "benchmark": bench, "gates": [g.__dict__ for g in result.gates]}) + "\n")
     llm.write_summary()
@@ -277,8 +277,8 @@ def log_change(directory: Path, line: str) -> None:
     log.parent.mkdir(parents=True, exist_ok=True)
     if not log.exists():
         log.write_text("# Prompt changes ASPIRE made to itself\n\nUndo one with "
-                       "`python -m factory.extend --rollback <agent>`.\n\n")
-    with log.open("a") as f:
+                       "`python -m factory.extend --rollback <agent>`.\n\n", encoding="utf-8")
+    with log.open("a", encoding="utf-8") as f:
         f.write(f"- {datetime.now(UTC):%Y-%m-%d %H:%M}Z {line}\n")
 
 
@@ -290,10 +290,10 @@ def adopt(cfg: FactoryConfig, incumbent: AgentSpec, candidate: AgentSpec, regist
     target = directory / "agents" / f"{incumbent.name}.yaml"
     history = directory / "history" / incumbent.name
     history.mkdir(parents=True, exist_ok=True)
-    (history / f"{stamp}.yaml").write_text(target.read_text())
+    (history / f"{stamp}.yaml").write_text(target.read_text(encoding="utf-8"), encoding="utf-8")
     new = incumbent.model_copy(update={"description": candidate.description, "prompt": candidate.prompt})
     AgentSpec.model_validate(new.model_dump())
-    target.write_text(spec_yaml(new))
+    target.write_text(spec_yaml(new), encoding="utf-8")
     log_change(directory, f"adopted a new prompt for `{incumbent.name}`: {why or candidate.description}")
     return target
 
@@ -305,7 +305,7 @@ def rollback(cfg: FactoryConfig, agent: str, registry_dir: Path | None = None) -
     if not saved:
         raise FileNotFoundError(f"no earlier version of {agent!r} to roll back to")
     target = directory / "agents" / f"{agent}.yaml"
-    target.write_text(saved[-1].read_text())
+    target.write_text(saved[-1].read_text(encoding="utf-8"), encoding="utf-8")
     saved[-1].unlink()
     log_change(directory, f"rolled back `{agent}` to its prompt of {saved[-1].stem}")
     return target

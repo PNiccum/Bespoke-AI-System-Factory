@@ -88,7 +88,7 @@ def locate(inp: LocateIn) -> Locations:
         if not names:
             continue
         try:
-            lines = f.read_text(errors="replace").splitlines()
+            lines = f.read_text(errors="replace", encoding="utf-8").splitlines()
         except OSError:
             continue
         for i, text in enumerate(lines, 1):

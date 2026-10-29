@@ -80,14 +80,14 @@ class Blackboard:
             n = len(self.entries()) + 1
             entry = Entry(id=f"{n:04d}-{kind}", at=datetime.now(UTC).isoformat(), kind=kind, author=author, data=data,
                           refs=list(refs), license=license)
-            with self.path.open("a") as f:
+            with self.path.open("a", encoding="utf-8") as f:
                 f.write(entry.model_dump_json() + "\n")
         return entry
 
     def entries(self, kind: str | None = None) -> list[Entry]:
         if not self.path.exists():
             return []
-        rows = [Entry.model_validate_json(line) for line in self.path.read_text().splitlines() if line.strip()]
+        rows = [Entry.model_validate_json(line) for line in self.path.read_text(encoding="utf-8").splitlines() if line.strip()]
         return [e for e in rows if kind is None or e.kind == kind]
 
     def latest(self, kind: str) -> Entry | None:
@@ -138,7 +138,7 @@ class Project:
         if not path.is_relative_to(self.root.resolve()):
             raise ValueError(f"{rel!r} is outside the project folder")
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
         self.board.post("file", author, {"path": rel, "sha256": hashlib.sha256(text.encode()).hexdigest()}, refs,
                         license)
         return path

@@ -178,12 +178,12 @@ def score_tests(inp: ScoreIn) -> MutationScore:
         per_file = max(1, inp.limit // max(1, len(inp.files)))
         killed, survived = [], []
         for rel in inp.files:
-            original = (work / rel).read_text()
+            original = (work / rel).read_text(encoding="utf-8")
             for m in mutants(rel, original, inp.functions, per_file):
-                (work / rel).write_text(m.source)
+                (work / rel).write_text(m.source, encoding="utf-8")
                 (survived if _passes(work, inp.tests, inp.timeout_s) else killed).append(
                     {"path": m.path, "line": m.line, "change": m.change})
-            (work / rel).write_text(original)
+            (work / rel).write_text(original, encoding="utf-8")
         return MutationScore(len(killed) + len(survived), len(killed), survived, killed)
 
 

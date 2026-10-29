@@ -48,7 +48,7 @@ def record(run_dir: Path, out: Path, cfg: FactoryConfig) -> dict:
     repo = Path(task["repo_path"]).resolve()
     if repo.is_relative_to(ASPIRE_ROOT):  # a fixture inside ASPIRE: replayable from any checkout of it
         task["repo_path"] = repo.relative_to(ASPIRE_ROOT).as_posix()
-    calls = [json.loads(line) for line in (run_dir / "llm_calls.jsonl").read_text().splitlines() if line.strip()]
+    calls = [json.loads(line) for line in (run_dir / "llm_calls.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
     cache = ResponseCache(cfg.work_dir / "cache.sqlite")
     replies = {c["prompt_sha256"]: cache.get(c["prompt_sha256"]) for c in calls if c.get("prompt_sha256")}
     if missing := [k for k, v in replies.items() if v is None]:
@@ -56,12 +56,12 @@ def record(run_dir: Path, out: Path, cfg: FactoryConfig) -> dict:
     summary = run_dir / "cost_summary.json"
     recording = {"task": task, "recorded_at": datetime.now(UTC).isoformat(), "from_run": run_dir.name,
                  "models": sorted({c["model"] for c in calls if c.get("model")}),
-                 "original_cost": json.loads(summary.read_text()) if summary.exists() else {}, "replies": replies}
+                 "original_cost": json.loads(summary.read_text(encoding="utf-8")) if summary.exists() else {}, "replies": replies}
     text = json.dumps(recording, indent=1)
     if hits := scan_text(text):  # recordings are committed to demos/; a key must never ride along
         raise SecretFound(f"the recording holds {', '.join(hits)}; not written")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(text)
+    out.write_text(text, encoding="utf-8")
     return recording
 
 
@@ -109,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     from factory.__main__ import show
     from factory.export import EXPORTABLE, export_bundle
-    recording = json.loads(Path(args.recording).read_text())
+    recording = json.loads(Path(args.recording).read_text(encoding="utf-8"))
     result, run_dir = replay(cfg, recording, on_event=show)
     print(f"\nResult: {result.status} (replayed; the original run cost {recording['original_cost']})")
     if result.status in EXPORTABLE:

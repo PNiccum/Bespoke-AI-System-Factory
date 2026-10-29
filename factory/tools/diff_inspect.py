@@ -103,7 +103,7 @@ def syntax_errors(repo_path: str, patch: str, files: list[FileChange]) -> tuple[
         for f in files:
             if f.path.endswith(".py") and (work / f.path).exists():
                 try:
-                    ast.parse((work / f.path).read_text(errors="replace"))
+                    ast.parse((work / f.path).read_text(errors="replace", encoding="utf-8"))
                 except SyntaxError as e:
                     out.append(Finding("syntax", "blocker", f.path, e.lineno or 1, f"does not parse: {e.msg}"))
         return True, out
@@ -140,4 +140,4 @@ def inspect(patch: str, repo_path: str | None = None) -> dict:
 if __name__ == "__main__":  # python diff_inspect.py change.patch [REPO]
     import json
 
-    print(json.dumps(inspect(Path(sys.argv[1]).read_text(), sys.argv[2] if len(sys.argv) > 2 else None), indent=2))
+    print(json.dumps(inspect(Path(sys.argv[1]).read_text(encoding="utf-8"), sys.argv[2] if len(sys.argv) > 2 else None), indent=2))

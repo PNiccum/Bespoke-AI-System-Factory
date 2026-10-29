@@ -47,7 +47,7 @@ class ScoreBook:
     def __init__(self, path: Path):
         self.path = path
         self._lock = threading.Lock()
-        self.counts: dict[str, dict[str, list[int]]] = json.loads(path.read_text()) if path.exists() else {}
+        self.counts: dict[str, dict[str, list[int]]] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
     def record(self, agent: str, task_type: str, passed: bool) -> None:
         with self._lock:
@@ -55,7 +55,7 @@ class ScoreBook:
             c[0] += passed
             c[1] += 1
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.counts, indent=1))
+            self.path.write_text(json.dumps(self.counts, indent=1), encoding="utf-8")
 
     def pass_rate(self, agent: str, task_type: str) -> float | None:
         passed, runs = self.counts.get(agent, {}).get(task_type, [0, 0])

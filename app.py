@@ -58,7 +58,7 @@ with st.sidebar:
             text = st.text_area("Pull request description", height=100,
                                 value="Fix parse_date swapping month and day")
             patch = st.text_area("Diff (unified, as git diff prints it)", height=200,
-                                 value=(FIXTURE / "buggy_repo.patch").read_text())
+                                 value=(FIXTURE / "buggy_repo.patch").read_text(encoding="utf-8"))
         submitted = st.form_submit_button("Run", disabled=session.running, type="primary")
     if submitted:
         session.start(Task(description=text, repo_path=repo, task_type=task_type, patch=patch,
@@ -70,7 +70,7 @@ with st.sidebar:
                    "from the recording.")
         chosen = st.selectbox("Recording", recordings, format_func=lambda p: p.stem)
         if st.button("Replay", disabled=session.running):
-            recording = json.loads(chosen.read_text())
+            recording = json.loads(chosen.read_text(encoding="utf-8"))
             st.session_state.replayed = recording
             session.start(recorded_task(recording), recording=recording)
     cfg = config()
