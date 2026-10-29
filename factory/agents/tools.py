@@ -56,7 +56,7 @@ class Toolbox:
             raise ValueError(f"duplicate tool names: {names}")
         self.tools = {t.name: t for t in tools}
 
-    def subset(self, names: list[str]) -> "Toolbox":
+    def subset(self, names: list[str]) -> Toolbox:
         missing = set(names) - self.tools.keys()
         if missing:
             raise KeyError(f"unknown tools: {sorted(missing)}")

@@ -25,7 +25,7 @@ import re
 import threading
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
@@ -86,7 +86,7 @@ def extract_json(text: str):
 
 
 def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = cfg.root / cfg.runs_dir / (f"{stamp}-{label}" if label else stamp)
     path.mkdir(parents=True, exist_ok=False)
     return path
@@ -237,7 +237,7 @@ class LLM:
         else:
             batch_id = provider.submit_batch(reqs)
             pending.write_text(json.dumps({"batch_id": batch_id, "provider": rc.provider, "role": role,
-                                           "n": len(reqs), "submitted": datetime.now(timezone.utc).isoformat()}))
+                                           "n": len(reqs), "submitted": datetime.now(UTC).isoformat()}))
         self._log(event="batch_submitted", role=role, model=rc.model, provider=rc.provider, batch_id=batch_id,
                   n=len(reqs))
         t0 = time.monotonic()
@@ -303,7 +303,7 @@ class LLM:
 
     def _log(self, **record) -> None:
         with self._log_lock, self.log_path.open("a") as f:
-            f.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), **record}) + "\n")
+            f.write(json.dumps({"at": datetime.now(UTC).isoformat(), **record}) + "\n")
 
     def write_summary(self) -> dict:
         summary = self.ledger.summary()

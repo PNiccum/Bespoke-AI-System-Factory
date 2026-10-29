@@ -13,7 +13,7 @@ import hashlib
 import json
 import threading
 from collections.abc import Iterable, Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, TypeVar
 
@@ -50,7 +50,7 @@ class Source(BaseModel):
 class ProvenanceEvent(BaseModel):
     """One step that read, wrote, or decided something in a run."""
 
-    at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     kind: Literal["source", "model_call", "tool_call", "file_write", "approval", "note"]
     actor: str  # the agent, tool, or person responsible
     inputs: list[str] = []  # source ids, file hashes, or request hashes this step used
@@ -100,7 +100,7 @@ def read_jsonl(path: Path, model: type[T]) -> Iterator[T]:
 
 def write_manifest(work_dir: Path, stage: str, **info) -> None:
     """Record what produced a stage's outputs so runs are reproducible."""
-    info = {"stage": stage, "finished_at": datetime.now(timezone.utc).isoformat(), **info}
+    info = {"stage": stage, "finished_at": datetime.now(UTC).isoformat(), **info}
     path = work_dir / "manifests" / f"{stage}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(info, indent=2, default=str))

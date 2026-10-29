@@ -94,7 +94,9 @@ def read_junit(path: Path) -> tuple[list[str], list[str], list[str], int]:
     passed, failed, errors, skipped = [], [], [], 0
     if not path.exists():
         return passed, failed, errors, skipped
-    for case in ET.parse(path).getroot().iter("testcase"):
+    # Code under test could rewrite this report, but expat 2.4+ (bundled with Python 3.11+) caps entity
+    # expansion and never fetches external entities, so the known XML attacks do not apply.
+    for case in ET.parse(path).getroot().iter("testcase"):  # noqa: S314  # nosec B314
         node = node_id(case)
         if case.find("failure") is not None:
             failed.append(node)

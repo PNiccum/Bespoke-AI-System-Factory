@@ -20,7 +20,6 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
-
 # --------------------------------------------------------------------------
 # Models, providers, roles
 # --------------------------------------------------------------------------
@@ -50,7 +49,7 @@ class ProviderConfig(BaseModel):
     # are not marked data="public" are refused before anything leaves the machine.
     data_scope: Literal["any", "public_only"] = "any"
     # OpenAI's reasoning models take max_completion_tokens and reject max_tokens.
-    token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"  # noqa: S105 (a parameter name)
     # Anthropic prompt caching: mark the system prompt, the tool list, and the newest message as cache
     # breakpoints, so each agent turn reads the earlier history at the cache rate. Claude API only: other
     # Anthropic-format gateways may reject the markers. OpenAI caches long prompts automatically.

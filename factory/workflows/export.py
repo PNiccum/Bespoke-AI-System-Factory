@@ -12,7 +12,7 @@ import json
 import shutil
 import zipfile
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from factory.orchestrator import RunResult, Task
@@ -125,7 +125,7 @@ def export_workflow_bundle(result: RunResult, task: Task, run_dir: Path, out_dir
         "attempts": result.attempts,
         "steps": [{**s.model_dump(), "agent": awards.get(s.id)} for s in result.plan.steps],
         "models_used": models,
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
     }
     if task.task_type == "test_gen":
         (bundle / "tests.patch").write_text(result.patch)

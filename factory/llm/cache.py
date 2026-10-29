@@ -10,7 +10,7 @@ import hashlib
 import json
 import sqlite3
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 
@@ -34,5 +34,5 @@ class ResponseCache:
     def put(self, key: str, value: dict) -> None:
         with self._lock:
             self._db.execute("INSERT OR REPLACE INTO responses VALUES (?, ?, ?)",
-                             (key, json.dumps(value), datetime.now(timezone.utc).isoformat()))
+                             (key, json.dumps(value), datetime.now(UTC).isoformat()))
             self._db.commit()

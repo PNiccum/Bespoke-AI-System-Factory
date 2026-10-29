@@ -247,7 +247,6 @@ class Orchestrator:
             return WORKFLOWS[task.task_type](self, task)
         plan = plan_for(task)
         result = RunResult(status="failed", plan=plan)
-        steps = {s.id: s for s in plan.steps}
         bids = {s.id: self.award(task, s) for s in plan.steps}
         self.provenance.record(ProvenanceEvent(kind="source", actor="intake", outputs=[sha12(task.description)],
                                                detail={"task": task.model_dump(), "plan": plan.model_dump(),
@@ -358,7 +357,7 @@ class Orchestrator:
         else:
             result.stop_reason = f"no accepted patch after {self.max_attempts} attempts"
 
-        for sid, bid in bids.items():
+        for bid in bids.values():
             self.registry.scores.record(bid.agent.name, task.task_type, passed=result.status == "fixed")
         self.llm.write_summary()
         return result

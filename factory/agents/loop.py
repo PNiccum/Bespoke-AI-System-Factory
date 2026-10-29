@@ -14,12 +14,12 @@ import json
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
+from factory.agents.tools import Toolbox
 from factory.config import AgentCaps
 from factory.llm import LLM
-from factory.agents.tools import Toolbox
 
 
 @dataclass
@@ -53,7 +53,7 @@ def run_agent(llm: LLM, role: str, system: str, task: str, toolbox: Toolbox, cap
 
     def log(**rec):
         with log_path.open("a") as f:
-            f.write(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "tag": tag, **rec}, default=str) + "\n")
+            f.write(json.dumps({"at": datetime.now(UTC).isoformat(), "tag": tag, **rec}, default=str) + "\n")
 
     def result(status, steps):
         log(event="stop", status=status, steps=steps, tool_calls=n_calls, tokens=tokens, real_usd=round(real, 4),

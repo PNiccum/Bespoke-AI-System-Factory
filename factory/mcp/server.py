@@ -22,8 +22,8 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from factory.tools import quality, repo, sandbox
-from factory.tools.repo import LocateIn, Locations
 from factory.tools.quality import DiffFacts, InspectDiffIn, MutationReport, ScoreTestsIn
+from factory.tools.repo import LocateIn, Locations
 from factory.tools.sandbox import FixProof, RunTestsIn, TestReport
 
 INSTRUCTIONS = """Plain-code tools from the Bespoke AI System Factory. None of them calls a model.

@@ -1,9 +1,6 @@
 """Plain-code agents: locating code from an issue, and running tests on a throwaway copy."""
 
-import os
 from pathlib import Path
-
-import pytest
 
 from factory.tools.repo import LocateIn, issue_names, locate
 from factory.tools.sandbox import RunTestsIn, prove_fix, run_tests, scrubbed_env
