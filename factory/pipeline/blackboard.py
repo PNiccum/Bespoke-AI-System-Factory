@@ -42,6 +42,16 @@ KINDS = frozenset({
     "wiki_check",  # the wiki verifier's check of a page
     "wiki_page",  # a page the librarian wrote or updated
     "knowledge",  # the knowledge loop's result
+    "design",  # the head orchestrator's design of the solution
+    "orders",  # a sub-orchestrator's work orders for one task
+    "build",  # what a builder wrote for one work order
+    "checks",  # plain-code checks of the solution
+    "critic_review",  # the project critic's issues
+    "fixes",  # the problem solver's fixes and the critic's verdicts
+    "final",  # the final evaluator's QA and the deliverable
+    "audit",  # an auditor's findings in the re-design loop
+    "debate",  # one turn of the paid expert debate
+    "redesign",  # the re-design report
     "file",  # a file an agent wrote into the project folder
     "note",  # anything else worth keeping
 })

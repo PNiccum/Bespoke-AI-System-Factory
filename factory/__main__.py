@@ -7,6 +7,7 @@
     python -m factory interview --request "what you want built"
     python -m factory plan --project workspace/factory/projects/<id>
     python -m factory research --project workspace/factory/projects/<id>
+    python -m factory build --project workspace/factory/projects/<id>
 
 Runs the task end to end, asks on the terminal before any paid call, and writes the bundle to ./exports/.
 """
@@ -101,7 +102,29 @@ def run_research(args) -> int:
         print(f"  missing: {topic}")
     print(f"{'Knowledge approved' if result.ok else 'Knowledge incomplete'} after {result.rounds} round(s). "
           f"Cost: {llm.ledger.summary()}")
+    if result.ok:
+        print(f"Next: python -m factory build --project {project.root}")
     return 0 if result.ok else 1
+
+
+def run_build(args) -> int:
+    """Production, the critic loop, final QA; re-design when the project still fails. Paid calls ask first."""
+    from factory.pipeline.blackboard import Project
+    from factory.pipeline.knowledge import default_searchers
+    from factory.pipeline.run import build
+    from factory.pipeline.wiki import Wiki
+
+    cfg = load_config(args.config)
+    project = Project.open(Path(args.project))
+    llm = LLM(cfg, new_run_dir(cfg, "build"), approver=ask_on_terminal)
+    result = build(llm, Registry.load(cfg), project, Wiki(cfg.work_dir / "wiki"),
+                   default_searchers(cfg.work_dir / "research-cache"), on_stage=lambda s: print(f"[{s}]"))
+    if result.status == "delivered":
+        print(f"Delivered: {result.final.deliverable}")
+    else:
+        print(f"Not delivered after {result.rounds} round(s). Re-design report: {result.redesign.report}")
+    print(f"Cost: {llm.ledger.summary()}")
+    return 0 if result.status == "delivered" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -133,6 +156,9 @@ def main(argv: list[str] | None = None) -> int:
     research = sub.add_parser("research", help="run the knowledge loop on a project whose plan is decided")
     research.add_argument("--project", required=True)
     research.add_argument("--config", default="configs/factory.yaml")
+    build = sub.add_parser("build", help="build, critique, check and deliver a project whose knowledge is approved")
+    build.add_argument("--project", required=True)
+    build.add_argument("--config", default="configs/factory.yaml")
     for p in (fix, tests, review, ask):
         p.add_argument("--config", default="configs/factory.yaml")
         p.add_argument("--out", default="exports")
@@ -143,6 +169,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_planning(args)
     if args.command == "research":
         return run_research(args)
+    if args.command == "build":
+        return run_build(args)
 
     if args.command == "fix":
         issue = Path(args.issue_file).read_text() if args.issue_file else args.issue

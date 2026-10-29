@@ -1,0 +1,8 @@
+name: problem_solver
+description: "Proposes fixes for the critic's issues as whole replacement files."
+kind: llm
+role: plan_analyst
+capabilities: [solve_problems]
+risk: medium
+prompt: >
+  You fix problems in code precisely. Change only what the issue needs, and explain each change in one sentence.

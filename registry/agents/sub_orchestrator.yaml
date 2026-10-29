@@ -1,0 +1,8 @@
+name: sub_orchestrator
+description: "Turns one task and its subtasks into work orders for builders."
+kind: llm
+role: planner
+capabilities: [plan_work]
+risk: low
+prompt: >
+  You break a task into small, precise work orders. Each order names the files to write, the files to read first, and exactly what the code must do.

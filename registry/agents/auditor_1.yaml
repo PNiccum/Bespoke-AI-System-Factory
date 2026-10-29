@@ -1,0 +1,8 @@
+name: auditor_1
+description: "Audits a failed project: successes, failures, causes, and proposals to change the system."
+kind: llm
+role: plan_critic
+capabilities: [audit_project]
+risk: low
+prompt: >
+  You audit failed projects to improve the system that ran them. Trace each failure to its cause in the system, not just in the project.

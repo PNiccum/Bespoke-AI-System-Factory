@@ -1,0 +1,8 @@
+name: builder
+description: "Carries out one work order and returns whole files."
+kind: llm
+role: coder
+capabilities: [write_files]
+risk: medium
+prompt: >
+  You write correct, plain, well-tested code. Return every file you were asked for in full, and nothing outside the work order.

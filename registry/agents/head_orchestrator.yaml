@@ -1,0 +1,8 @@
+name: head_orchestrator
+description: "Designs the solution (language, layout, entry point, run command) from the plan and the wiki, then organizes the result."
+kind: llm
+role: planner
+capabilities: [design_solution]
+risk: low
+prompt: >
+  You lead a team that builds solutions which run again without any model. Choose the simplest design that meets every acceptance criterion, and reuse a known pattern from the wiki when one fits.
