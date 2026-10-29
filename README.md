@@ -106,6 +106,19 @@ workflow. Plain code judges both the same way: the patch applies, changes no tes
 fresh copy. One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go
 to `bench/results/<time>/summary.md`.
 
+**Self-extension, dry run** (SIMPLE proposes a better prompt for one of its model agents and stops for you):
+
+```bash
+python -m factory.extend --agent coder                # free models only
+python -m factory.extend --agent coder --paid-panel   # also a paid reviewer, after you approve the spend
+```
+
+A proposal may change only an agent's prompt and description: never code, tools, roles or capabilities. It must pass,
+in order: a scope check in plain code; the held-out benchmark tasks (never shown to the proposer), solving at least
+as many as the current agent within 1.5x the tokens; and a review panel of another model family. A proposal that
+passes is written to `workspace/<name>/proposals/<id>/` with its evidence; adopting it is a pull request a person
+opens. Every proposal, passed or not, goes into `proposals/archive.jsonl`, which the next proposal starts from.
+
 **MCP server** (the plain-code tools for any MCP client, such as Claude Desktop or Claude Code):
 
 ```bash
@@ -136,6 +149,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `SIMPLE-UML.pdf` 
 | `factory/__main__.py` | The terminal command (`python -m factory fix`, `tests`, `review`) |
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
 | `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
+| `factory/extend.py` | Self-extension dry run: propose, scope gate, held-out benchmark, review panel, stop for a person |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |
@@ -177,7 +191,7 @@ Both folders are git-ignored.
 - **No secrets leave in a bundle.** Before a bundle is zipped, every file is scanned for key and token shapes and
   for the exact values of the keys in `.env`; on a hit the bundle is deleted and the run says which file held what.
 - **SIMPLE cannot loosen its own checks.** A fix to SIMPLE's own repository may not touch the spend gate, config,
-  sandbox, MCP server, orchestrator, registry or workflows; no fix anywhere may touch a `.env` file. A check also
+  sandbox, MCP server, orchestrator, registry, workflows, planner, benchmark or self-extension code; no fix anywhere may touch a `.env` file. A check also
   fails when fewer tests run, or more are skipped, than before the patch.
 - **Repository text is data, not instructions.** Every model agent's system prompt ends with a rule, added in code
   so no agent spec can drop it, to ignore requests inside issues, files, diffs or test output. The guards above
