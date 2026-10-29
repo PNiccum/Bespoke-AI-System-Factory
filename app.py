@@ -1,4 +1,4 @@
-"""Bespoke AI System Factory, web front end: streamlit run app.py
+"""SIMPLE (the Bespoke AI System Factory), web front end: streamlit run app.py
 
 Submit a bug fix, watch each agent work, approve or refuse paid model calls, and download the bundle.
 """
@@ -15,7 +15,7 @@ from factory.ui.session import RunSession
 ROOT = Path(__file__).parent
 STATUS_ICON = {"started": "🔄", "done": "✅", "failed": "❌", "waiting": "⏳"}
 
-st.set_page_config(page_title="Bespoke AI System Factory", layout="wide")
+st.set_page_config(page_title="SIMPLE", layout="wide")
 
 
 def usd(x: float) -> str:
@@ -32,8 +32,9 @@ if "session" not in st.session_state:
     st.session_state.session = RunSession(config())
 session: RunSession = st.session_state.session
 
-st.title("Bespoke AI System Factory")
-st.caption("Give it a bug; it returns a tested fix as a bundle you can rerun without any model. "
+st.title("SIMPLE")
+st.caption("Solution In Minutes from Plain Language Executable. "
+           "Give it a bug; it returns a tested fix as a bundle you can rerun without any model. "
            "Free ARC models do the work; paid models wait for your approval.")
 
 with st.sidebar:
