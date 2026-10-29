@@ -156,7 +156,7 @@ class PlanningLoop:
         if self.board.latest("decision"):
             raise RuntimeError("this project's planning loop already ran")
         plan_a = ProjectPlan.model_validate(self.board.get(approval.data["plan"]).data["plan"])
-        task = (self.project.root / "task.txt").read_text()
+        task = (self.project.root / "task.txt").read_text(encoding="utf-8")
 
         # 1. Critique and Plan B, with one fix when Plan B fails its checks
         prompt = CRITIC_PROMPT.format(task=task, plan_a=show(plan_a), shape=SHAPE)

@@ -58,7 +58,7 @@ class Wiki:
     def pages(self) -> list[WikiPage]:
         if not self.root.exists():
             return []
-        return [WikiPage.model_validate_json(p.read_text()) for p in sorted(self.root.glob("*.json"))]
+        return [WikiPage.model_validate_json(p.read_text(encoding="utf-8")) for p in sorted(self.root.glob("*.json"))]
 
     def save(self, page: WikiPage) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
@@ -66,14 +66,14 @@ class Wiki:
         if old:
             page.projects = sorted(set(old.projects) | set(page.projects))
         page.updated = datetime.now(UTC).isoformat()
-        (self.root / f"{page.slug}.md").write_text(page.markdown())
+        (self.root / f"{page.slug}.md").write_text(page.markdown(), encoding="utf-8")
         path = self.root / f"{page.slug}.json"
-        path.write_text(page.model_dump_json(indent=1))
+        path.write_text(page.model_dump_json(indent=1), encoding="utf-8")
         return path
 
     def get(self, topic: str) -> WikiPage | None:
         path = self.root / f"{slugify(topic)}.json"
-        return WikiPage.model_validate_json(path.read_text()) if path.exists() else None
+        return WikiPage.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
 
     def find(self, topic: str, threshold: float = 0.6) -> WikiPage | None:
         """The page for a topic: the same slug, or else the page whose topic shares most words with it."""

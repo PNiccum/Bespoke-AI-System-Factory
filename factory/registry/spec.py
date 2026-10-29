@@ -56,4 +56,4 @@ class AgentSpec(BaseModel):
 
     @classmethod
     def load(cls, path: Path) -> AgentSpec:
-        return cls(**yaml.safe_load(path.read_text()))
+        return cls(**yaml.safe_load(path.read_text(encoding="utf-8")))

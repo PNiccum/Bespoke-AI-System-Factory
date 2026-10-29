@@ -71,7 +71,7 @@ def resolve_key(cfg: ProviderConfig) -> str | None:
     if cfg.api_key_file:
         path = cfg.api_key_file.expanduser()
         if path.exists():
-            return path.read_text().strip()
+            return path.read_text(encoding="utf-8").strip()
     return None
 
 

@@ -45,7 +45,7 @@ def guard_bundle(folder: Path) -> None:
     """Delete a bundle folder and raise if any of its files holds a secret."""
     found = {}
     for f in sorted(folder.rglob("*")):
-        if f.is_file() and (hits := scan_text(f.read_text(errors="replace"))):
+        if f.is_file() and (hits := scan_text(f.read_text(errors="replace", encoding="utf-8"))):
             found[f.name] = hits
     if found:
         shutil.rmtree(folder)

@@ -68,7 +68,7 @@ class ProvenanceLog:
     def record(self, event: ProvenanceEvent) -> ProvenanceEvent:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a") as f:
+            with self.path.open("a", encoding="utf-8") as f:
                 f.write(event.model_dump_json() + "\n")
         return event
 
@@ -84,7 +84,7 @@ class ProvenanceLog:
 def write_jsonl(path: Path, records: Iterable[BaseModel]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     n = 0
-    with path.open("w") as f:
+    with path.open("w", encoding="utf-8") as f:
         for r in records:
             f.write(r.model_dump_json() + "\n")
             n += 1
@@ -92,7 +92,7 @@ def write_jsonl(path: Path, records: Iterable[BaseModel]) -> int:
 
 
 def read_jsonl(path: Path, model: type[T]) -> Iterator[T]:
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         for line in f:
             if line.strip():
                 yield model.model_validate_json(line)
@@ -103,4 +103,4 @@ def write_manifest(work_dir: Path, stage: str, **info) -> None:
     info = {"stage": stage, "finished_at": datetime.now(UTC).isoformat(), **info}
     path = work_dir / "manifests" / f"{stage}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(info, indent=2, default=str))
+    path.write_text(json.dumps(info, indent=2, default=str), encoding="utf-8")

@@ -185,8 +185,8 @@ class KnowledgeLoop:
             raise RuntimeError("the knowledge loop starts from the planning loop's plan; run that first")
         if self.board.latest("knowledge"):
             raise RuntimeError("this project's knowledge loop already ran")
-        task = (self.project.root / "task.txt").read_text()
-        plan = (self.project.root / "plan.json").read_text()
+        task = (self.project.root / "task.txt").read_text(encoding="utf-8")
+        plan = (self.project.root / "plan.json").read_text(encoding="utf-8")
         covered: dict[str, str] = {}
         missing: list[str] = []
         for rnd in range(1, MAX_ROUNDS + 1):

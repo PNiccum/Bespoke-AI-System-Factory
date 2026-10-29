@@ -530,7 +530,7 @@ def svg(width, height, title, parts) -> str:
 
 
 if __name__ == "__main__":
-    (HERE / "class-diagram.svg").write_text(class_svg())
+    (HERE / "class-diagram.svg").write_text(class_svg(), encoding="utf-8")
     diagrams = {"sequence-bug-fix": ("ASPIRE: sequence diagram, one bug-fix run", LIFELINES, MESSAGES),
                 "sequence-test-gen": ("ASPIRE: sequence diagram, writing tests", TEST_GEN_LIFELINES, TEST_GEN),
                 "sequence-pr-review": ("ASPIRE: sequence diagram, reviewing a pull request", PR_REVIEW_LIFELINES,
@@ -538,5 +538,5 @@ if __name__ == "__main__":
                 "sequence-self-extension": ("ASPIRE: sequence diagram, self-extension dry run", EXTEND_LIFELINES,
                                             EXTEND)}
     for name, args in diagrams.items():
-        (HERE / f"{name}.svg").write_text(sequence_svg(*args))
+        (HERE / f"{name}.svg").write_text(sequence_svg(*args), encoding="utf-8")
     print("wrote", HERE / "class-diagram.svg", *(HERE / f"{n}.svg" for n in diagrams))

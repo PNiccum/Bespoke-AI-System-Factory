@@ -37,11 +37,11 @@ HERE = Path(__file__).parent
 
 
 def main(repo):
-    targets = json.loads((HERE / "workflow.json").read_text())["targets"]
+    targets = json.loads((HERE / "workflow.json").read_text(encoding="utf-8"))["targets"]
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "repo"
         shutil.copytree(repo, work, ignore=shutil.ignore_patterns(".git", ".venv*", "__pycache__", ".env"))
-        patch = (HERE / "fix.patch").read_text()
+        patch = (HERE / "fix.patch").read_text(encoding="utf-8")
         if subprocess.run(["git", "apply", "-"], cwd=work, input=patch, text=True).returncode != 0:
             subprocess.run(["git", "apply", "--recount", "-"], cwd=work, input=patch, text=True, check=True)
         for label, args in (("target tests", targets), ("whole suite", [])):
@@ -74,8 +74,8 @@ def export_bundle(result: RunResult, task: Task, run_dir: Path, out_dir: Path) -
     models = sorted({e.data["model"] for e in result.events if "model" in e.data})
     awards = {e.step: e.agent for e in result.events if e.status in ("started", "waiting") and "parts" in e.data}
 
-    (bundle / "fix.patch").write_text(result.patch)
-    (bundle / "rerun.py").write_text(RERUN)
+    (bundle / "fix.patch").write_text(result.patch, encoding="utf-8")
+    (bundle / "rerun.py").write_text(RERUN, encoding="utf-8")
     workflow = {
         "task": task.model_dump(),
         "status": result.status,
@@ -85,16 +85,16 @@ def export_bundle(result: RunResult, task: Task, run_dir: Path, out_dir: Path) -
         "models_used": models,
         "exported_at": datetime.now(UTC).isoformat(),
     }
-    (bundle / "workflow.json").write_text(json.dumps(workflow, indent=2))
+    (bundle / "workflow.json").write_text(json.dumps(workflow, indent=2), encoding="utf-8")
     (bundle / "evidence.json").write_text(json.dumps({
         "test_report": result.check.model_dump() if result.check else None,
         "review": result.review.model_dump() if result.review else None,
         "events": [asdict(e) for e in result.events],
-    }, indent=2, default=str))
+    }, indent=2, default=str), encoding="utf-8")
     for name in ("provenance.jsonl", "llm_calls.jsonl", "cost_summary.json", "run_info.json", "registry.json"):
         if (run_dir / name).exists():
             shutil.copy2(run_dir / name, bundle / name)
-    (bundle / "README.md").write_text(readme(task, result, targets, models))
+    (bundle / "README.md").write_text(readme(task, result, targets, models), encoding="utf-8")
 
     guard_bundle(bundle)  # nothing that looks like a key leaves in a bundle
 

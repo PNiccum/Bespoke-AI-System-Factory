@@ -86,7 +86,7 @@ class SpendLedger:
         self.path = path
         self.credits = credits
         self._lock = threading.Lock()
-        self.spent: dict[str, float] = json.loads(path.read_text()) if path.exists() else {}
+        self.spent: dict[str, float] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
     def check(self, provider: str) -> None:
         with self._lock:
@@ -106,4 +106,4 @@ class SpendLedger:
         with self._lock:
             self.spent[provider] = round(self.spent.get(provider, 0.0) + usd, 6)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.spent, indent=1))
+            self.path.write_text(json.dumps(self.spent, indent=1), encoding="utf-8")

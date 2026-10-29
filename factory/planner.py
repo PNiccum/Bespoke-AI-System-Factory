@@ -145,7 +145,7 @@ def route(request: str, repo_path: str, llm: LLM, registry: Registry, *, patch: 
         plan = as_plan("unsupported", intake.steps)
         if gaps:
             gaps.parent.mkdir(parents=True, exist_ok=True)
-            with gaps.open("a") as f:
+            with gaps.open("a", encoding="utf-8") as f:
                 f.write(json.dumps({"at": datetime.now(UTC).isoformat(), "request": request, "steps": intake.steps,
                                     "missing": intake.missing, "problems": problems, "why": intake.why}) + "\n")
         return Routed(None, plan, "planner", intake, problems)

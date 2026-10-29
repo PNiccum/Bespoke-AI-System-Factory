@@ -70,7 +70,7 @@ class Outcome(BaseModel):
 
 
 def load_tasks(path: Path, root: Path) -> list[BenchTask]:
-    tasks = [BenchTask(**t) for t in yaml.safe_load(path.read_text())["tasks"]]
+    tasks = [BenchTask(**t) for t in yaml.safe_load(path.read_text(encoding="utf-8"))["tasks"]]
     for t in tasks:
         t.repo = str((root / t.repo).resolve())
     return tasks
@@ -97,7 +97,7 @@ def repo_files(repo: str, limit: int = 40) -> str:
     """Every Python file in the repository, tests included, as the baseline's one prompt shows them."""
     root = Path(repo)
     paths = sorted(p for p in root.rglob("*.py") if not any(part in SKIP_PARTS for part in p.parts))[:limit]
-    return "\n\n".join(f"### {p.relative_to(root).as_posix()}\n```python\n{p.read_text(errors='replace')}```"
+    return "\n\n".join(f"### {p.relative_to(root).as_posix()}\n```python\n{p.read_text(errors='replace', encoding='utf-8')}```"
                        for p in paths)
 
 
@@ -183,8 +183,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{task.name:<16} {mode:<9} {'solved' if o.solved else 'failed':<7} {o.why}  "
                   f"({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds}s)")
             outcomes.append(o)
-            (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1))
-    (out / "summary.md").write_text(summarize(outcomes))
+            (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1), encoding="utf-8")
+    (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
     print(f"\n{summarize(outcomes)}\nResults: {out}")
     return 0
 

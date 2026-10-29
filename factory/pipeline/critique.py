@@ -135,7 +135,7 @@ class CriticLoop:
     def shown_files(self) -> str:
         out, used = [], 0
         for rel in self.production.files():
-            text = (self.production.out / rel).read_text(errors="replace")
+            text = (self.production.out / rel).read_text(errors="replace", encoding="utf-8")
             if used + len(text) > MAX_SHOWN_CHARS:
                 out.append(f"### {rel}\n(not shown: over the size limit)")
                 continue
@@ -144,7 +144,7 @@ class CriticLoop:
         return "\n\n".join(out) or "(no files)"
 
     def run(self, checks: Checks) -> CriticResult:
-        task = (self.project.root / "task.txt").read_text()
+        task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         step, pages, issues = 0, [], []
         for rnd in range(1, MAX_ROUNDS + 1):
             critique = self._call(CRITIC, CRITIC_PROMPT.format(task=task, checks=checks.model_dump_json(indent=1),

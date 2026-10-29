@@ -52,7 +52,7 @@ def run_agent(llm: LLM, role: str, system: str, task: str, toolbox: Toolbox, cap
     t0 = time.monotonic()
 
     def log(**rec):
-        with log_path.open("a") as f:
+        with log_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"at": datetime.now(UTC).isoformat(), "tag": tag, **rec}, default=str) + "\n")
 
     def result(status, steps):
@@ -127,7 +127,7 @@ def replay(log_path: Path, toolbox: Toolbox, tag: str | None = None) -> list[tup
     """Re-run every logged tool call without the model. Returns (tool, ok now, same result as logged) per call,
     so a build's tool steps can be reproduced and any drift in a tool's output found."""
     out = []
-    for line in log_path.read_text().splitlines():
+    for line in log_path.read_text(encoding="utf-8").splitlines():
         rec = json.loads(line)
         if rec.get("event") != "tool" or (tag and rec.get("tag") != tag):
             continue

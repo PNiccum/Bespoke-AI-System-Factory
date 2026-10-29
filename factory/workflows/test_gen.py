@@ -93,7 +93,7 @@ def nearby_tests(root: Path, files: list[str]) -> list[str]:
     modules = [f[:-3].replace("/", ".") for f in files]
     for p in python_files(root):
         rel = p.relative_to(root).as_posix()
-        if is_test_file(rel) and any(m in p.read_text(errors="replace") for m in modules):
+        if is_test_file(rel) and any(m in p.read_text(errors="replace", encoding="utf-8") for m in modules):
             return [rel]
     return []
 
@@ -119,8 +119,8 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
     orch.emit(result, "baseline", runner.agent.name, "done", f"{len(broken_before)} failing, {len(base.passed)} passing")
 
     shown_tests = [h.path for h in locations.hits if h.is_test][:1] or nearby_tests(root, files)
-    target_text = "\n\n".join(f"### {p}\n```python\n{(root / p).read_text(errors='replace')}\n```" for p in files)
-    existing = "\n\n".join(f"### {p}\n```python\n{(root / p).read_text(errors='replace')}\n```"
+    target_text = "\n\n".join(f"### {p}\n```python\n{(root / p).read_text(errors='replace', encoding='utf-8')}\n```" for p in files)
+    existing = "\n\n".join(f"### {p}\n```python\n{(root / p).read_text(errors='replace', encoding='utf-8')}\n```"
                            for p in shown_tests) or "(none)"
 
     feedback, best = "", None  # best: (patch, check, score, new tests) that passed but fell short of MIN_SCORE
