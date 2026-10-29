@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "ruff", "bandit[toml]"]
 ui = ["streamlit>=1.37"]
 
 [build-system]
@@ -26,3 +26,29 @@ include = ["factory*"]
 testpaths = ["tests"]
 addopts = "--ignore=tests/fixtures"  # fixture repos have their own (deliberately failing) tests
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["tests/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = [
+    "E501",  # long lines are left to judgment
+    "E741",  # short names like l are fine in small helpers
+    "S101",  # assert is how pytest checks
+    "S603",  # subprocess with argument lists is how the sandbox runs tests and git
+    "S607",  # git and python are found on PATH on purpose
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import pytest fixtures and then name them as arguments, and keep patch text with blank context lines.
+"tests/*" = ["F811", "S", "W293"]
+# Field() defaults are how MCP tools describe their arguments.
+"factory/mcp/server.py" = ["B008"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+# Running git and pytest with argument lists is the sandbox's job (same calls Ruff's S603/S607 allow above).
+skips = ["B404", "B603", "B607", "B405"]

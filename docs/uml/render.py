@@ -163,15 +163,15 @@ def box_size(name, stereo, fields, methods):
 
 def class_svg() -> str:
     geo, parts = {}, []
-    for name, (pkg, stereo, x, y, fields, methods) in CLASSES.items():
+    for name, (_pkg, stereo, x, y, fields, methods) in CLASSES.items():
         w, h = box_size(name, stereo, fields, methods)
         geo[name] = (x, y, w, h)
     width = max(x + w for x, y, w, h in geo.values()) + 40
-    height = max(y + h for x, y, w, h in geo.values()) + 80
+    height = max(y + h for _, y, _, h in geo.values()) + 80
 
     for a, b, kind, label, *route in RELATIONS:
         parts.append(routed(route[0], kind, label) if route else edge(geo[a], geo[b], kind, label))
-    for name, (pkg, stereo, x, y, fields, methods) in CLASSES.items():
+    for name, (pkg, stereo, _x, _y, fields, methods) in CLASSES.items():
         parts.append(class_box(name, pkg, stereo, fields, methods, *geo[name]))
     legend = legend_svg(40, height - 40)
     return svg(width, height, "SIMPLE: UML class diagram", parts + [legend])
@@ -235,7 +235,7 @@ def routed(points, kind, label):
     d = " ".join(f"{x},{y}" for x, y in points)
     out = [f'<polyline points="{d}" fill="none" stroke="{MUTED}" stroke-width="1.3"{dash}{end}{start}/>']
     if label:
-        (x1, y1), (x2, y2) = max(zip(points, points[1:]), key=lambda s: abs(s[1][0] - s[0][0]) + abs(s[1][1] - s[0][1]))
+        (x1, y1), (x2, y2) = max(zip(points, points[1:], strict=False), key=lambda s: abs(s[1][0] - s[0][0]) + abs(s[1][1] - s[0][1]))
         mx, my = (x1 + x2) / 2, (y1 + y2) / 2
         w = len(label) * 6.2 + 8
         turn = f' transform="rotate(-90 {mx} {my})"' if x1 == x2 else ""  # vertical lanes: text runs along the line

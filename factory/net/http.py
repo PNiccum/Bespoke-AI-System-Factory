@@ -11,7 +11,7 @@ import hashlib
 import json
 import threading
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -73,10 +73,10 @@ class CachedAPI:
 
     def get(self, path: str, params: dict | None = None) -> dict:
         url = f"{self.base}/{path}" + (f"?{urlencode(sorted(params.items()))}" if params else "")
-        cache_path = self.cache / f"{hashlib.sha1(url.encode()).hexdigest()}.json"
+        cache_path = self.cache / f"{hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()}.json"
         if cache_path.exists():
             cached = json.loads(cache_path.read_text())
-            if datetime.fromisoformat(cached["fetched_at"]) > datetime.now(timezone.utc) - self.max_age:
+            if datetime.fromisoformat(cached["fetched_at"]) > datetime.now(UTC) - self.max_age:
                 return cached["data"]
         sent = url + (("&" if "?" in url else "?") + urlencode(self.auth_params) if self.auth_params else "")
         r = self._request(sent, {"Accept": "application/json", **self.headers})
@@ -87,7 +87,7 @@ class CachedAPI:
                 raise httpx.HTTPStatusError(f"{r.status_code} {r.text[:300]}", request=r.request, response=r)
             data = r.json()
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps({"url": url, "fetched_at": datetime.now(timezone.utc).isoformat(),
+        cache_path.write_text(json.dumps({"url": url, "fetched_at": datetime.now(UTC).isoformat(),
                                           "data": data}))
         return data
 

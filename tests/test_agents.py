@@ -9,10 +9,10 @@ from pydantic import BaseModel
 from factory.agents.loop import replay, run_agent
 from factory.agents.tools import Toolbox, ToolError, tool
 from factory.config import AgentCaps
-from tests.helpers import paid_config
 from factory.llm import LLM, Usage
 from factory.llm.gate import approve_all
 from factory.llm.providers import RawResult, to_openai_messages
+from tests.helpers import paid_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -176,7 +176,6 @@ def test_openai_translation_of_tool_history():
 
 
 def test_compaction_stubs_old_results_and_keeps_references(cfg, tmp_path):
-    from factory.agents.loop import compact
     turns = [turn("", [("search", {"query": "failed uploads retry"})]) for i in range(6)] + [turn("done")]
     llm, p = make(cfg, tmp_path, turns)
     r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(compact_every=3, keep_recent=2))

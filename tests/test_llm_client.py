@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from factory.config import Budget, load_config
-from tests.helpers import paid_config
+from factory.config import Budget
 from factory.llm import LLM, BudgetExceeded, DataScopeError, RefusedError, TruncatedError, Usage, price_call
 from factory.llm.gate import approve_all
 from factory.llm.providers import RawResult
+from tests.helpers import paid_config
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -199,6 +199,7 @@ def test_providers_without_batch_api_fall_back_to_single_calls(cfg, tmp_path):
 
 def test_openai_batch_round_trip_with_a_fake_server():
     import json as _json
+
     from factory.config import ProviderConfig
     from factory.llm.providers import OpenAIProvider, Request
 

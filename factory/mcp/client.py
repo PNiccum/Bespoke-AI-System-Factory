@@ -51,7 +51,7 @@ def mcp_function(fn: Callable, tools: McpTools) -> Callable:
     params = list(inspect.signature(fn).parameters)
 
     def call(*args, **kwargs):
-        bound = dict(zip(params, args)) | kwargs
+        bound = dict(zip(params, args, strict=False)) | kwargs
         arguments = {k: v.model_dump() if isinstance(v, BaseModel) else v for k, v in bound.items()}
         data = tools.call(fn.__name__, arguments)
         if isinstance(returns, type) and issubclass(returns, BaseModel):

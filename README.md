@@ -27,7 +27,11 @@ Python 3.11 or newer, git, and pytest.
 python -m venv .venv
 .venv/bin/pip install -e ".[dev,ui]"     # Windows: .venv\Scripts\pip install -e ".[dev,ui]"
 .venv/bin/pytest -q                      # no network, no keys needed
+.venv/bin/ruff check . && .venv/bin/bandit -q -c pyproject.toml -r factory app.py   # lint and security scan
 ```
+
+GitHub Actions runs the same three checks on every pull request (`.github/workflows/ci.yml`), with tests on
+Python 3.11 and 3.12.
 
 On Windows, keep the virtual environment outside a synced folder such as Dropbox (for example
 `C:\Users\you\.venvs\simple`); the Microsoft Store build of Python redirects `%LOCALAPPDATA%` paths.
