@@ -276,7 +276,7 @@ class Orchestrator:
                       f"attempt {attempt}" + (" on the paid model" if escalate else ""))
             try:
                 reply = self.llm.complete(coder.role, self.coder_prompt(task, locations, failing, feedback),
-                                          system=coder.prompt, tag=f"patch-{attempt}", data=self.data,
+                                          system=coder.system, tag=f"patch-{attempt}", data=self.data,
                                           escalate=escalate)
             except (SpendDenied, BudgetExceeded) as e:
                 return self.stop(result, "patch", coder.name, str(e))
@@ -336,7 +336,7 @@ class Orchestrator:
                 review, _, _ = complete_validated(
                     self.llm, reviewer.role, REVIEW_PROMPT.format(issue=task.description, patch=patch,
                                                                   passed=len(check.passed), failed=check.failed),
-                    reviewer.prompt, Review, tag=f"review-{attempt}", data=self.data)
+                    reviewer.system, Review, tag=f"review-{attempt}", data=self.data)
             except (SpendDenied, BudgetExceeded) as e:
                 return self.stop(result, "review", reviewer.name, str(e))
             except RuntimeError as e:  # no parseable verdict after retries: a person has to look

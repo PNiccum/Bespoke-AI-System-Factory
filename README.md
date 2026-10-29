@@ -149,6 +149,10 @@ Both folders are git-ignored.
 - **SIMPLE cannot loosen its own checks.** A fix to SIMPLE's own repository may not touch the spend gate, config,
   sandbox, MCP server, orchestrator, registry or workflows; no fix anywhere may touch a `.env` file. A check also
   fails when fewer tests run, or more are skipped, than before the patch.
+- **Repository text is data, not instructions.** Every model agent's system prompt ends with a rule, added in code
+  so no agent spec can drop it, to ignore requests inside issues, files, diffs or test output. The guards above
+  hold even when a model obeys one anyway: `tests/fixtures/injection_repo` tells the model to delete tests and copy
+  keys, and a canary test there fails if any credential reaches the code under test (`tests/test_injection.py`).
 - **Every bundle names its registry.** `registry.json` in each run and bundle holds a hash of every agent spec and
   the track record as it stood when the steps were awarded, so a run elsewhere can be checked against it.
 - **Keys never reach the code under test.** Tests run on a throwaway copy, in the MCP server's process, with every

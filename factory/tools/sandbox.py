@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 COPY_IGNORE = shutil.ignore_patterns(".git", ".venv*", "venv", "__pycache__", "*.pyc", ".pytest_cache", "node_modules",
                                      ".env", ".env.*")
-SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 
 class RunTestsIn(BaseModel):

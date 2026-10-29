@@ -133,7 +133,7 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
         try:
             reply = orch.llm.complete(writer.role, WRITER_PROMPT.format(
                 request=task.description, targets=target_text, existing=existing, feedback=feedback),
-                system=writer.prompt, tag=f"tests-{attempt}", data=orch.data, escalate=escalate)
+                system=writer.system, tag=f"tests-{attempt}", data=orch.data, escalate=escalate)
         except (SpendDenied, BudgetExceeded) as e:
             return keep_best(orch, task, result, bids, best, orch.stop(result, "write", writer.name, str(e)))
         except TruncatedError as e:
@@ -197,7 +197,7 @@ def run(orch: Orchestrator, task: Task) -> RunResult:
                 orch.llm, reviewer.role, REVIEW_PROMPT.format(request=task.description, patch=patch,
                                                               passing=", ".join(new), killed=score.killed,
                                                               total=score.total, survivors=survivors),
-                reviewer.prompt, Review, tag=f"test-review-{attempt}", data=orch.data)
+                reviewer.system, Review, tag=f"test-review-{attempt}", data=orch.data)
         except (SpendDenied, BudgetExceeded) as e:
             return orch.stop(result, "review", reviewer.name, str(e))
         except RuntimeError as e:
