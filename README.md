@@ -119,6 +119,19 @@ as many as the current agent within 1.5x the tokens; and a review panel of anoth
 passes is written to `workspace/<name>/proposals/<id>/` with its evidence; adopting it is a pull request a person
 opens. Every proposal, passed or not, goes into `proposals/archive.jsonl`, which the next proposal starts from.
 
+**Recorded runs** (a showcase that a slow gateway or a dropped connection cannot stop):
+
+```bash
+python -m factory.demo record runs/<a finished run> demos/parse_date.json   # its task and model replies
+python -m factory.demo replay demos/parse_date.json                         # offline: no network, no model
+```
+
+A replay runs the real agents, tests, review and bundle export again; only the model replies come from the
+recording, and a reply it lacks fails rather than being fetched. The web app lists `demos/*.json` under
+**Recorded runs** and says, while one plays, when it was recorded and what the original run cost. Test output is
+stripped of temporary paths and timings, so the same failure always makes the same prompt. Recordings are
+secret-scanned before they are written.
+
 **MCP server** (the plain-code tools for any MCP client, such as Claude Desktop or Claude Code):
 
 ```bash
@@ -150,6 +163,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `SIMPLE-UML.pdf` 
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
 | `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
 | `factory/extend.py` | Self-extension dry run: propose, scope gate, held-out benchmark, review panel, stop for a person |
+| `factory/demo.py`, `demos/` | Recorded runs: save a run's model replies, replay it offline |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |
