@@ -15,8 +15,9 @@ Phase 1 (bug fixing) works end to end. On 2026-10-28 SIMPLE fixed the example bu
 using free models only (GLM wrote the patch, DeepSeek reviewed it; 815 tokens, $0), and the exported bundle's
 `rerun.py` re-proved the fix without any model. In place: the model adapter, spend gate and credit ledger, agent
 registry with contract-net selection, the plain-code agents and their MCP server, the bug-fix orchestrator (plan,
-award, patch, check, review, repair, escalate), the bundle exporter, the Streamlit app, and UML diagrams. Next: more
-task types and a model-written planner.
+award, patch, check, review, repair, escalate), the bundle exporter, the Streamlit app, and UML diagrams. Two more task types run on the same agents and checks:
+**writing tests** (judged by the planted bugs they catch) and **reviewing a pull request** (rule checks and the test
+delta first, then a model's comments, kept only when they point at changed lines). Next: a model-written planner.
 
 ## Setup
 
@@ -60,8 +61,21 @@ python -m factory fix --repo tests/fixtures/buggy_repo \
   --issue "parse_date swaps month and day: parse_date('2026-10-28') returns (2026, 28, 10) instead of (2026, 10, 28)"
 ```
 
-**Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. It applies `fix.patch` to a
-copy of the repository and runs the target tests and then the whole suite. No model is called.
+Write tests for existing code, or review a diff:
+
+```bash
+python -m factory tests --repo tests/fixtures/buggy_repo --request "Write tests for days_in_month in calc/dates.py"
+python -m factory review --repo tests/fixtures/buggy_repo --patch-file tests/fixtures/buggy_repo.patch \
+  --description "Fix parse_date swapping month and day"
+```
+
+**Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
+
+| Task type | Bundle holds | `rerun.py` checks |
+|---|---|---|
+| Fix a bug (`fix`) | `fix.patch` | The patch applies, the target tests pass, then the whole suite |
+| Write tests (`tests`) | `tests.patch`, `mutate.py` | The new tests pass and catch as many planted bugs as recorded |
+| Review a PR (`review`) | `review.md`, `review.json`, `change.patch`, `diff_inspect.py` | The rule findings and the test delta match the review |
 
 **MCP server** (the plain-code tools for any MCP client, such as Claude Desktop or Claude Code):
 
@@ -90,12 +104,13 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `SIMPLE-UML.pdf` 
 | Path | What it does |
 |---|---|
 | `app.py` | The Streamlit page |
-| `factory/__main__.py` | The terminal command (`python -m factory fix`) |
+| `factory/__main__.py` | The terminal command (`python -m factory fix`, `tests`, `review`) |
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
+| `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |
 | `registry/agents/` | One YAML spec per agent |
-| `factory/tools/` | Plain-code agents: locate code from an issue (`repo.py`), run tests and prove a fix (`sandbox.py`) |
+| `factory/tools/` | Plain-code agents: locate code from an issue (`repo.py`), run tests and prove a fix (`sandbox.py`), plant bugs to score tests (`mutate.py`), rule-check a diff (`diff_inspect.py`) |
 | `factory/mcp/` | The plain-code agents as an MCP server, and the client the orchestrator calls them through |
 | `factory/llm/` | The one way to call a model: cache, retries, pricing, logging, spend gate (`gate.py`) |
 | `factory/agents/` | Typed tools, per-agent allow-lists, the capped tool-calling loop, replay |
@@ -118,6 +133,10 @@ Both folders are git-ignored.
   when a provider's credit is used up, or when only the $10 demo reserve is left.
 - **Public data only goes to paid providers.** Claude and OpenAI calls must be marked public, and the config must
   declare its inputs public.
+- **Tests are judged by what they catch, not by a model's opinion.** Generated tests must pass, break nothing, and
+  catch at least 60% of small bugs planted in the target code before a reviewer sees them.
+- **Facts outrank a reviewer.** A pull request that does not apply, breaks a test, or adds a credential is never
+  approved, whatever the model says, and a review comment on a line the diff does not change is dropped.
 - **Keys never reach the code under test.** Tests run on a throwaway copy, in the MCP server's process, with every
   key, token and git auth setting removed from the environment.
 

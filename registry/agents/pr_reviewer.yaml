@@ -1,0 +1,14 @@
+name: pr_reviewer
+description: Reviews a pull request given its diff, the rule findings and the test results; comments on changed lines.
+kind: llm
+role: reviewer
+capabilities: [review_pr]
+domains: [software]
+inputs: [pr_description, patch, diff_facts, test_delta]
+outputs: [pr_review]
+risk: low
+prompt: >
+  You review a pull request someone else wrote. Comment only on lines the diff adds or changes, and only on
+  concrete problems: wrong results, missed cases, broken tests, security issues, changes outside the stated scope.
+  Do not restyle working code. Facts found by tools are given to you; do not repeat them.
+evals: [review_schema_valid, comments_on_changed_lines]

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from factory.config import FactoryConfig
-from factory.export import export_bundle
+from factory.export import EXPORTABLE, export_bundle
 from factory.llm import LLM, new_run_dir
 from factory.llm.gate import SpendRequest
 from factory.orchestrator import Event, Orchestrator, RunResult, Task
@@ -81,7 +81,7 @@ class RunSession:
         try:
             registry = Registry.load(self.cfg)
             self.result = Orchestrator(self.llm, registry, on_event=self.events.append).run(task)
-            if self.result.status in ("fixed", "unproven"):
+            if self.result.status in EXPORTABLE:
                 self.bundle = export_bundle(self.result, task, run_dir, self.exports_dir)
         except Exception as e:  # shown on the page; the traceback is in the server log
             self.error = f"{type(e).__name__}: {e}"

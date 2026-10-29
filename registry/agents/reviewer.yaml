@@ -2,7 +2,7 @@ name: reviewer
 description: Reviews a patch for bugs and scope creep. Always a different model family from the author.
 kind: llm
 role: reviewer
-capabilities: [review_patch]
+capabilities: [review_patch, review_tests]
 domains: [software]
 inputs: [issue_text, patch, test_report]
 outputs: [review]
