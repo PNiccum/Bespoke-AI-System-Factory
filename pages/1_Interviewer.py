@@ -15,6 +15,7 @@ from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import MAX_QUESTIONS, Interview
 from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
 from factory.pipeline.planning import PlanningLoop
+from factory.pipeline.run import build
 from factory.pipeline.wiki import Wiki
 from factory.registry import Registry
 
@@ -116,6 +117,27 @@ if iv.board.latest("approval"):
                 st.warning(f"Still missing: {topic}")
             st.caption(f"{len(iv.board.entries('source'))} sources approved, "
                        f"{len(iv.board.entries('query'))} searches run.")
+            final = iv.board.latest("final")
+            redesign = iv.board.latest("redesign")
+            if knowledge.data["ok"] and final is None and redesign is None and st.button("Build it", type="primary"):
+                cfg = config()
+                with st.status("Building...") as status:
+                    build(iv.llm, Registry.load(cfg), iv.project, Wiki(cfg.work_dir / "wiki"),
+                          default_searchers(cfg.work_dir / "research-cache"),
+                          on_stage=lambda s: status.update(label=f"Building: {s}"))
+                st.rerun()
+            for review in iv.board.entries("critic_review"):
+                st.caption(f"Critic, round {review.data['round']}: " + ("acceptable" if review.data["acceptable"]
+                           else "; ".join(i["problem"] for i in review.data["issues"])))
+            if final is not None and final.data["approved"]:
+                st.success("Final QA passed. Your solution is ready.")
+                path = Path(final.data["deliverable"])
+                st.download_button("Download the solution", path.read_bytes(), file_name=path.name,
+                                   mime="application/zip", type="primary")
+            elif redesign is not None:
+                st.warning("The project could not be finished. The re-design report is below; nothing changes until "
+                           "you approve it.")
+                st.markdown(Path(redesign.data["report"]).read_text())
     with st.expander("Blackboard"):
         st.code("\n".join(json.dumps(e.model_dump()) for e in iv.board.entries()), language="json")
     if st.button("New request"):

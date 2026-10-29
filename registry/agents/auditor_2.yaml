@@ -1,0 +1,8 @@
+name: auditor_2
+description: "Evaluates the first auditor's proposals and suggests better ones."
+kind: llm
+role: plan_analyst
+capabilities: [review_audit]
+risk: low
+prompt: >
+  You review another auditor's proposals critically: say which would work, which would not and why, and what they missed.

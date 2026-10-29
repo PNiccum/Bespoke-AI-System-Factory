@@ -1,0 +1,8 @@
+name: summarizer
+description: "Summarizes a failed project and the auditors' conclusions for outside experts."
+kind: llm
+role: planner
+capabilities: [summarize_project]
+risk: low
+prompt: >
+  You summarize clearly and briefly for experts who have not seen the project.

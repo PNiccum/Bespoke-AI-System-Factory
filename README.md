@@ -123,6 +123,29 @@ The evaluator then looks again with the new pages and either approves or names w
 looks, two research passes). Every document carries a license tag, and a page built from an ARC-only source never
 goes to a paid model.
 
+Then the solution is built, criticized, checked and delivered:
+
+```bash
+python -m factory build --project workspace/factory/projects/<id>
+```
+
+- **Production.** The head orchestrator (GLM) designs the solution from the plan and the wiki: language, layout, entry
+  point, run command. For each task a sub-orchestrator writes work orders and builders write whole files under
+  `output/` (code refuses paths outside it). Code adds `README.md` and `run.json`, checks every Python file compiles,
+  and runs the solution's tests in the sandbox.
+- **Critic loop.** The project critic (DeepSeek) lists holes, failures and usability problems with the checks in
+  front of it; problem solver 1 (gpt-oss) answers with replacement files; the critic accepts or declines each fix and
+  code applies only the accepted ones. A declined fix escalates: the solver tries again with the closest wiki pages,
+  then after the knowledge loop researches what was missing, and a decline after that starts the re-design loop.
+- **Final QA.** The final evaluator (DeepSeek) checks every task's acceptance criterion against the files and test
+  results; code approves only when the checks pass and every task is met. The deliverable is
+  `deliverable/<project>.zip`: the solution plus the task, plan, wiki pages and public provenance. A failed QA goes
+  back to the head orchestrator once with its issues.
+- **Re-design.** Two auditors of different families find what failed and why and settle on fixes to ASPIRE itself; a
+  summarizer writes the project up (public entries only); then Claude and ChatGPT debate the best change, each paid
+  call approved first, until they agree, two rounds pass, or $0.50 is spent. The result is `redesign/report.md` for
+  you; nothing changes until you approve it.
+
 **Check a bundle without ASPIRE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
 | Task type | Bundle holds | `rerun.py` checks |

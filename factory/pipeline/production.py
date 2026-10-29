@@ -1,0 +1,241 @@
+"""Production: the head orchestrator designs the solution, sub-orchestrators break each task into work orders, and
+builders write the files.
+
+1. The head orchestrator (GLM) reads the task, the refined plan and the wiki pages the knowledge loop approved
+   (methods, data sources, project templates), and fixes the design: language, file layout, entry point, the command
+   that runs the result, and a note per task.
+2. For each task, in plan order, a sub-orchestrator (GLM) turns the task and its subtasks into work orders: which files
+   to write or change, which existing files to read first, and what each must do.
+3. A builder (the coder role) carries out one work order and returns whole files. Code writes them under ``output/``,
+   refusing paths outside it and oversized files.
+4. Code organizes the result: ``README.md`` from the design, ``run.json`` with the command, and the plain-code checks
+   (every Python file compiles; the tests under ``output/`` run in the sandbox). The critic loop starts from here.
+
+Stop rules: MAX_FILES files, MAX_ORDERS work orders a task, MAX_FILE_CHARS characters a file.
+"""
+
+from __future__ import annotations
+
+import json
+
+from pydantic import BaseModel
+
+from factory.llm import LLM, complete_validated
+from factory.pipeline.blackboard import Project
+from factory.pipeline.interview import ProjectPlan
+from factory.pipeline.wiki import Wiki, WikiPage
+from factory.registry import Registry
+from factory.tools.sandbox import RunTestsIn, run_tests
+
+HEAD, SUB, BUILDER = "head_orchestrator", "sub_orchestrator", "builder"
+MAX_FILES, MAX_ORDERS, MAX_FILE_CHARS, MAX_READ_CHARS = 30, 6, 60_000, 12_000
+OUTPUT = "output"
+
+
+class Design(BaseModel):
+    language: str
+    entry_point: str  # path under output/
+    run_command: str  # run from inside output/
+    layout: list[str]  # files the solution will have, with one line on each
+    task_notes: dict[str, str] = {}  # task id -> how it fits the design
+    template: str = ""  # the wiki page or pattern it follows, if any
+
+
+class WorkOrder(BaseModel):
+    id: str  # e.g. T2.1
+    write: list[str]  # files to create or replace, under output/
+    read: list[str] = []  # existing files the builder needs to see
+    instructions: str
+
+
+class Orders(BaseModel):
+    orders: list[WorkOrder]
+
+
+class NewFile(BaseModel):
+    path: str
+    content: str
+
+
+class Built(BaseModel):
+    files: list[NewFile]
+    notes: str = ""
+
+
+class Checks(BaseModel):
+    compiled: list[str]
+    syntax_errors: dict[str, str]
+    tests_ran: bool
+    tests_ok: bool | None
+    passed: list[str] = []
+    failed: list[str] = []
+    output_tail: str = ""
+
+    @property
+    def ok(self) -> bool:
+        return not self.syntax_errors and self.tests_ok is not False
+
+
+DESIGN_PROMPT = """Design the solution a team of agents will build for this project. The result must run again \
+without any model: plain code, using a model only where the task truly needs language understanding.
+
+## Task
+{task}
+
+## Plan
+{plan}
+
+## Knowledge the team gathered (wiki pages)
+{wiki}
+
+Reply with JSON only: {{"language": "...", "entry_point": "<file under output/>", "run_command": "<command run inside \
+output/>", "layout": ["<path>: <what it holds>", ...], "task_notes": {{"T1": "<how this task fits>"}}, "template": \
+"<the wiki page or known pattern this follows, or empty>"}}
+Include tests under tests/ that check each task's acceptance criterion."""
+
+ORDERS_PROMPT = """Break this task into work orders for builders. Each order writes whole files.
+
+## Design
+{design}
+
+## Task
+{task_json}
+
+## Files written so far
+{files}
+
+Reply with JSON only: {{"orders": [{{"id": "{task_id}.1", "write": ["<path>"], "read": ["<existing path>"], \
+"instructions": "<what the files must do, precisely>"}}]}}, at most {max_orders} orders."""
+
+BUILD_PROMPT = """Carry out this work order. Write every file it names in full.
+
+## Project
+{task}
+
+## Design
+{design}
+
+## Work order
+{order}
+
+## Knowledge (wiki excerpts)
+{wiki}
+
+## Existing files you need
+{reads}
+
+Reply with JSON only: {{"files": [{{"path": "<path under output/>", "content": "<whole file>"}}], "notes": "<one line>"}}"""
+
+
+class Production:
+    def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki):
+        self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
+        self.agents = {n: registry.agents[n] for n in (HEAD, SUB, BUILDER)}
+        self.out = project.root / OUTPUT
+
+    def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = ()):
+        public = self.llm.cfg.data_public and all(p.license == "public" for p in pages)
+        spec = self.agents[agent]
+        out, _, _ = complete_validated(self.llm, spec.role, prompt, spec.system, model_cls, tag=tag,
+                                       data="public" if public else "private")
+        return out
+
+    def pages(self) -> list[WikiPage]:
+        k = self.board.latest("knowledge")
+        slugs = k.data["covered"].values() if k else []
+        return [p for p in (self.wiki.get(s) or self.wiki.find(s) for s in slugs) if p]
+
+    def files(self) -> list[str]:
+        if not self.out.exists():
+            return []
+        return sorted(p.relative_to(self.out).as_posix() for p in self.out.rglob("*") if p.is_file())
+
+    def inside(self, rel: str) -> bool:
+        """Whether a path a model gave stays inside output/ (no "..", no absolute path)."""
+        return bool(rel) and (self.out / rel).resolve().is_relative_to(self.out.resolve())
+
+    def run(self, feedback: str = "") -> Checks:
+        """Build the solution. ``feedback`` (from the critic or the final evaluator) starts a rebuild round."""
+        if self.board.latest("knowledge") is None:
+            raise RuntimeError("production starts after the knowledge loop; run that first")
+        task = (self.project.root / "task.txt").read_text()
+        plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text())
+        pages = self.pages()
+        wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
+        if feedback:
+            task += f"\n\n## Problems to fix in this round\n{feedback}"
+
+        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki),
+                            Design, "design", pages)
+        d = self.board.post("design", HEAD, design.model_dump(), license=_license(pages))
+        for t in plan.tasks:  # plan order respects depends_on (check_plan rules out forward references)
+            orders = self._call(SUB, ORDERS_PROMPT.format(design=design.model_dump_json(indent=1),
+                                                          task_json=t.model_dump_json(indent=1), task_id=t.id,
+                                                          files="\n".join(self.files()) or "(none yet)",
+                                                          max_orders=MAX_ORDERS), Orders, f"orders-{t.id}")
+            o = self.board.post("orders", SUB, {"task": t.id, "orders": [x.model_dump() for x in orders.orders]},
+                                refs=[d.id])
+            for order in orders.orders[:MAX_ORDERS]:
+                self.build(order, task, design, wiki, pages, o.id)
+        self.organize(design, plan)
+        checks = self.check()
+        self.board.post("checks", "code", checks.model_dump(), refs=[d.id])
+        return checks
+
+    def build(self, order: WorkOrder, task: str, design: Design, wiki: str, pages: list[WikiPage],
+              ref: str) -> None:
+        reads = []
+        for rel in order.read[:4]:
+            path = (self.out / rel).resolve()
+            if path.is_relative_to(self.out.resolve()) and path.is_file():
+                reads.append(f"### {rel}\n```\n{path.read_text(errors='replace')[:MAX_READ_CHARS]}\n```")
+        built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
+                                                        order=order.model_dump_json(indent=1), wiki=wiki,
+                                                        reads="\n\n".join(reads) or "(none)"), Built,
+                           f"build-{order.id}", pages)
+        written, refused = [], []
+        for f in built.files:
+            rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
+            if len(self.files()) >= MAX_FILES and rel not in self.files():
+                refused.append(f"{rel}: more than {MAX_FILES} files")
+            elif len(f.content) > MAX_FILE_CHARS:
+                refused.append(f"{rel}: longer than {MAX_FILE_CHARS} characters")
+            elif not self.inside(rel):
+                refused.append(f"{rel}: outside the output folder")
+            else:
+                self.project.write_file(f"{OUTPUT}/{rel}", f.content, BUILDER, refs=[ref])
+                written.append(rel)
+        self.board.post("build", BUILDER, {"order": order.id, "written": written, "refused": refused,
+                                           "notes": built.notes}, refs=[ref])
+
+    def organize(self, design: Design, plan: ProjectPlan) -> None:
+        """README.md and run.json from the design, so the result explains and runs itself."""
+        lines = [f"# {plan.title}", "", plan.goal, "", "## Run it", "", "```", design.run_command, "```", "",
+                 "## Files", "", *[f"- {x}" for x in design.layout], "", "## What each task delivered", ""]
+        lines += [f"- {t.id} {t.title}: done when {t.acceptance}" for t in plan.tasks]
+        if not (self.out / "README.md").exists():
+            self.project.write_file(f"{OUTPUT}/README.md", "\n".join(lines) + "\n", "code")
+        self.project.write_file(f"{OUTPUT}/run.json", json.dumps({"command": design.run_command,
+                                                                  "entry_point": design.entry_point}, indent=1), "code")
+
+    def check(self) -> Checks:
+        """Plain-code checks: Python files compile (without running them); tests run in the sandbox."""
+        compiled, errors = [], {}
+        for rel in self.files():
+            if rel.endswith(".py"):
+                try:
+                    compile((self.out / rel).read_text(), rel, "exec")
+                    compiled.append(rel)
+                except SyntaxError as e:
+                    errors[rel] = f"line {e.lineno}: {e.msg}"
+        has_tests = any(r.startswith("tests/") and r.endswith(".py") for r in self.files())
+        if not has_tests:
+            return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+        report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300))  # on a throwaway copy
+        return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
+                      passed=report.passed, failed=report.failed + report.errors,
+                      output_tail=report.output_tail[-2000:])
+
+
+def _license(pages: list[WikiPage]) -> str:
+    return "arc_only" if any(p.license == "arc_only" for p in pages) else "public"

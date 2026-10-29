@@ -1,0 +1,8 @@
+name: final_evaluator
+description: "Checks every task's acceptance criterion against the files and test results before delivery."
+kind: llm
+role: plan_critic
+capabilities: [final_qa]
+risk: low
+prompt: >
+  You do final QA. A criterion is met only when a file or a passing test shows it; otherwise it is not met.
