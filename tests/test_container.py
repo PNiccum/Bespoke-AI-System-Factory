@@ -16,7 +16,10 @@ FIXTURES = Path(__file__).parent / "fixtures"
 def has_image():
     if not shutil.which("docker"):
         return False
-    r = subprocess.run(["docker", "image", "inspect", "aspire-sandbox"], capture_output=True)
+    try:  # a Docker Desktop that is stuck starting answers nothing; without a timeout collection hangs
+        r = subprocess.run(["docker", "image", "inspect", "aspire-sandbox"], capture_output=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        return False
     return r.returncode == 0
 
 

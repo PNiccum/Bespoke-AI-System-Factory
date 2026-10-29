@@ -166,18 +166,25 @@ workflow. Plain code judges both the same way: the patch applies, changes no tes
 fresh copy. One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go
 to `bench/results/<time>/summary.md`.
 
-**Self-extension, dry run** (ASPIRE proposes a better prompt for one of its model agents and stops for you):
+**Self-extension** (ASPIRE proposes a better prompt for one of its model agents):
 
 ```bash
-python -m factory.extend --agent coder                # free models only
+python -m factory.extend --agent coder                # free models only; stops for you
 python -m factory.extend --agent coder --paid-panel   # also a paid reviewer, after you approve the spend
+python -m factory.extend --agent coder --adopt        # apply it if it passes every gate
+python -m factory.extend --rollback coder             # undo the last adopted prompt
 ```
 
 A proposal may change only an agent's prompt and description: never code, tools, roles or capabilities. It must pass,
 in order: a scope check in plain code; the held-out benchmark tasks (never shown to the proposer), solving at least
-as many as the current agent within 1.5x the tokens; and a review panel of another model family. A proposal that
-passes is written to `workspace/<name>/proposals/<id>/` with its evidence; adopting it is a pull request a person
-opens. Every proposal, passed or not, goes into `proposals/archive.jsonl`, which the next proposal starts from.
+as many as the current agent within 1.5x the tokens; and a review panel of another model family. Agents the benchmark
+does not exercise (the pipeline's builders, librarian and so on) get a second free family on the panel instead. Every
+proposal goes into `proposals/archive.jsonl`, which the next proposal starts from.
+
+When a project fails and the re-design loop finds a prompt-only fix, ASPIRE runs it through these gates and, if it
+passes, applies it without asking: the old spec is kept in `registry/history/<agent>/` and the change is logged in
+`registry/history/changelog.md`. It never does this for a judging agent (reviewers, critics, QA, wiki verifier,
+auditors), and at most three times a week; those, and every structural fix, wait for you in the re-design report.
 
 **Recorded runs** (a showcase that a slow gateway or a dropped connection cannot stop):
 
@@ -222,7 +229,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` 
 | `factory/__main__.py` | The terminal command (`python -m factory fix`, `tests`, `review`) |
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
 | `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
-| `factory/extend.py` | Self-extension dry run: propose, scope gate, held-out benchmark, review panel, stop for a person |
+| `factory/extend.py` | Self-extension: propose, scope gate, held-out benchmark, review panel, then adopt (with rollback) or stop for a person |
 | `factory/demo.py`, `demos/` | Recorded runs: save a run's model replies, replay it offline |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |

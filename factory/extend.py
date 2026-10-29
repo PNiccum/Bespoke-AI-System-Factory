@@ -1,21 +1,31 @@
-"""Self-extension, dry run: ASPIRE proposes a better version of one of its own model agents, judges it on tasks the
-proposer never saw, and stops for a person. It never writes to the registry.
+"""Self-extension: ASPIRE proposes a better version of one of its own model agents and judges it on tasks the
+proposer never saw. By default it stops for a person; with ``adopt`` a proposal that passes every gate replaces the
+agent's prompt in the registry on its own, because Parker decided (2026-10-29) that a prompt-only change needs no
+approval. Structural changes (code, tools, roles, loops) are never made here: they stay pull requests a person reviews.
 
 A proposal is a new agent spec only: a prompt and a description for an existing role and capability. It cannot add
 code, tools, roles or capabilities, so it cannot change what ASPIRE is able to touch, only how a model is asked.
 
     python -m factory.extend --agent coder                  # free models only
     python -m factory.extend --agent coder --paid-panel     # also asks a paid reviewer, after your approval
+    python -m factory.extend --agent coder --adopt          # apply it if it passes every gate
+    python -m factory.extend --rollback coder               # put back the prompt it had before the last adoption
 
 The gates, in order; a proposal stops at the first it fails:
 
 1. **Scope** (plain code): the spec validates, is a model agent on the same role (so the same model and price), keeps
    or narrows the incumbent's capabilities and tools, has a new name, a prompt under 3,000 characters, and no secret.
 2. **Held-out benchmark** (plain code judging free model runs): the candidate replaces the incumbent on the held-out
-   tasks of ``bench/tasks.yaml``. It must solve at least as many, without using more than 1.5 times the tokens.
+   tasks of ``bench/tasks.yaml``. It must solve at least as many, without using more than 1.5 times the tokens. The
+   benchmark only exercises the coding workflow's agents; for any other agent (the pipeline's critics, auditors and
+   so on) this gate says so and the panel below gets a second free family instead.
 3. **Review panel** (free model of another family; optionally a paid one): reads the old and new spec and must accept.
-4. **A person**: the proposal, its evidence and the exact file to add are written to
-   ``workspace/<name>/proposals/<id>/``. Adopting it is a pull request a person opens; this module stops here.
+4. **Adoption**: the proposal, its evidence and the exact file are written to ``workspace/<name>/proposals/<id>/``.
+   Without ``adopt`` it waits for a person. With ``adopt``, ``adopt()`` keeps the agent's name, role, tools and
+   capabilities, writes only the new prompt and description over its spec, and saves the old spec under
+   ``registry/history/<agent>/`` so ``rollback()`` can put it back. Every adoption and rollback is a line in
+   ``registry/history/changelog.md``. Judging agents (``JUDGES``) are never adopted this way, and at most
+   ``MAX_ADOPTIONS_PER_WEEK`` adoptions happen in seven days; past either limit the proposal waits for a person.
 
 Every proposal, passed or not, is appended to ``proposals/archive.jsonl``: the archive of variants and their scores
 that later proposals start from.
@@ -40,12 +50,20 @@ from factory.bench import BenchTask, Outcome, load_tasks, run_one
 from factory.config import FactoryConfig, load_config
 from factory.llm import LLM, BudgetExceeded, complete_validated, new_run_dir
 from factory.llm.gate import SpendDenied, SpendRequest, deny_all
+from factory.orchestrator import TEMPLATES
 from factory.registry import Registry
 from factory.registry.spec import AgentSpec
 from factory.secrets import scan_text
 
 MAX_PROMPT = 3000
 TOKEN_RATIO = 1.5
+BENCH_CAPABILITIES = frozenset(s.capability for s in TEMPLATES["bug_fix"])  # what the held-out tasks exercise
+SECOND_PANELIST = "plan_analyst"  # gpt-oss: joins the panel when the benchmark cannot judge the agent
+# Agents that judge, vote or audit. Changing how they judge is a structural change: ASPIRE never adopts a new prompt
+# for them on its own, so it cannot soften the checks its own work must pass.
+JUDGES = frozenset({"reviewer", "pr_reviewer", "plan_critic", "plan_analyst", "project_critic", "final_evaluator",
+                    "wiki_verifier", "knowledge_evaluator", "auditor_1", "auditor_2"})
+MAX_ADOPTIONS_PER_WEEK = 3
 
 PROPOSE_PROMPT = """Propose an improved version of one of ASPIRE's model agents. Only its prompt and description may
 change; the model, tools and capabilities stay as they are.
@@ -60,7 +78,7 @@ change; the model, tools and capabilities stay as they are.
 
 ## Earlier proposals and how they scored
 {archive}
-
+{guidance}
 Reply with JSON only: {{"name": "<new snake_case name, not {name}>", "description": "<one sentence>",
 "prompt": "<the new system prompt>", "why": "<what you changed and what it should fix>"}}"""
 
@@ -111,13 +129,14 @@ class Result:
     why: str
     gates: list[Gate] = field(default_factory=list)
     folder: Path | None = None
+    adopted: Path | None = None  # the registry file it was written over, once adopted
 
     @property
     def status(self) -> str:
         if not self.gates or not all(g.passed for g in self.gates):
             failed = next((g.name for g in self.gates if not g.passed), "proposal")
             return f"rejected at {failed}"
-        return "awaiting a person"
+        return "adopted" if self.adopted else "awaiting a person"
 
 
 def check_scope(proposal: Proposal, incumbent: AgentSpec, registry: Registry) -> tuple[AgentSpec | None, Gate]:
@@ -177,8 +196,12 @@ def archive_text(path: Path, incumbent: str) -> str:
 
 def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest], bool] = deny_all,
             paid_panel: bool = False, providers: dict | None = None, registry_dir: Path | None = None,
-            tasks_file: Path | None = None, dev_runs: list[Outcome] | None = None) -> Result:
-    """Run one proposal through every gate it reaches and write it up. Never touches the registry."""
+            tasks_file: Path | None = None, dev_runs: list[Outcome] | None = None, guidance: str = "",
+            adopt_if_passed: bool = False, by_person: bool = False) -> Result:
+    """Run one proposal through every gate it reaches and write it up. ``guidance`` is what a re-design audit asked
+    for. The registry is written only with ``adopt_if_passed`` and only after every gate passes. ``by_person`` means
+    a person asked for the adoption (the CLI's ``--adopt``), so the judge and weekly limits, which guard adoptions
+    nobody asked for, do not apply."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = new_run_dir(cfg, f"extend-{agent}")
     llm = LLM(cfg, run_dir, use_cache=False, approver=approver, **({"providers": providers} if providers else {}))
@@ -190,11 +213,15 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
     archive = out / "archive.jsonl"
     data = "public" if cfg.data_public else "private"
 
+    benched = bool(BENCH_CAPABILITIES & set(incumbent.capabilities))
     if dev_runs is None:  # the proposer learns from the development tasks only
-        dev_runs = evaluate(cfg, dev, list(registry.agents.values()), providers=providers, registry_dir=registry_dir)
+        dev_runs = (evaluate(cfg, dev, list(registry.agents.values()), providers=providers, registry_dir=registry_dir)
+                    if benched else [])
     proposer = registry.agents["planner"]  # an author-family model; the panel below is another family
-    prompt = PROPOSE_PROMPT.format(name=agent, spec=spec_yaml(incumbent), evidence=dev_evidence(dev_runs),
-                                   archive=archive_text(archive, agent))
+    evidence = dev_evidence(dev_runs) if benched else "- not exercised by the development tasks"
+    prompt = PROPOSE_PROMPT.format(name=agent, spec=spec_yaml(incumbent), evidence=evidence,
+                                   archive=archive_text(archive, agent),
+                                   guidance=f"\n## What a re-design audit asked for\n{guidance}\n" if guidance else "")
     proposal, _, _ = complete_validated(llm, proposer.role, prompt, proposer.system, Proposal, tag="propose",
                                         data=data)
     candidate, scope = check_scope(proposal, incumbent, registry)
@@ -202,14 +229,24 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
                     gates=[scope])
     bench = "not run"
     if scope.passed:
-        others = [a for a in registry.agents.values() if a.name != agent]
-        before = evaluate(cfg, heldout, list(registry.agents.values()), providers=providers, registry_dir=registry_dir)
-        after = evaluate(cfg, heldout, [*others, candidate], providers=providers, registry_dir=registry_dir)
-        gate = benchmark_gate(before, after)
+        if benched:
+            others = [a for a in registry.agents.values() if a.name != agent]
+            before = evaluate(cfg, heldout, list(registry.agents.values()), providers=providers,
+                              registry_dir=registry_dir)
+            after = evaluate(cfg, heldout, [*others, candidate], providers=providers, registry_dir=registry_dir)
+            gate = benchmark_gate(before, after)
+        else:
+            gate = Gate("held-out benchmark", True, "not exercised by the benchmark; two panel families judge it")
         bench = gate.detail
         result.gates.append(gate)
         if gate.passed:
-            result.gates.append(panel(llm, registry, incumbent, candidate, bench, data, paid_panel))
+            result.gates.append(panel(llm, registry, incumbent, candidate, bench, data, paid_panel,
+                                      second_family=not benched))
+    if adopt_if_passed and result.status == "awaiting a person":
+        if not by_person and (why := may_adopt(cfg, agent, registry_dir)):
+            result.gates.append(Gate("automatic adoption", True, f"not applied: {why}; waits for a person"))
+        else:
+            result.adopted = adopt(cfg, incumbent, candidate, registry_dir, stamp, proposal.why)
 
     result.folder = out / result.id
     result.folder.mkdir(parents=True, exist_ok=True)
@@ -223,17 +260,71 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
     return result
 
 
+def may_adopt(cfg: FactoryConfig, agent: str, registry_dir: Path | None = None) -> str:
+    """Why a passed proposal may not be adopted without a person, or "" when it may."""
+    if agent in JUDGES:
+        return f"{agent} judges other agents' work, so changing it is structural"
+    directory = registry_dir or cfg.root / cfg.registry_dir
+    week_ago = datetime.now(UTC).timestamp() - 7 * 86400
+    recent = [p for p in (directory / "history").glob("*/*.yaml") if p.stat().st_mtime > week_ago]
+    if len(recent) >= MAX_ADOPTIONS_PER_WEEK:
+        return f"{len(recent)} prompts were already adopted this week (limit {MAX_ADOPTIONS_PER_WEEK})"
+    return ""
+
+
+def log_change(directory: Path, line: str) -> None:
+    log = directory / "history" / "changelog.md"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    if not log.exists():
+        log.write_text("# Prompt changes ASPIRE made to itself\n\nUndo one with "
+                       "`python -m factory.extend --rollback <agent>`.\n\n")
+    with log.open("a") as f:
+        f.write(f"- {datetime.now(UTC):%Y-%m-%d %H:%M}Z {line}\n")
+
+
+def adopt(cfg: FactoryConfig, incumbent: AgentSpec, candidate: AgentSpec, registry_dir: Path | None,
+          stamp: str, why: str = "") -> Path:
+    """Write a passed candidate's prompt and description over the incumbent's spec, keeping its name and everything
+    else, and keep the old spec for rollback. Plain code; called only after every gate has passed."""
+    directory = registry_dir or cfg.root / cfg.registry_dir
+    target = directory / "agents" / f"{incumbent.name}.yaml"
+    history = directory / "history" / incumbent.name
+    history.mkdir(parents=True, exist_ok=True)
+    (history / f"{stamp}.yaml").write_text(target.read_text())
+    new = incumbent.model_copy(update={"description": candidate.description, "prompt": candidate.prompt})
+    AgentSpec.model_validate(new.model_dump())
+    target.write_text(spec_yaml(new))
+    log_change(directory, f"adopted a new prompt for `{incumbent.name}`: {why or candidate.description}")
+    return target
+
+
+def rollback(cfg: FactoryConfig, agent: str, registry_dir: Path | None = None) -> Path:
+    """Put back the spec an agent had before its last adoption."""
+    directory = registry_dir or cfg.root / cfg.registry_dir
+    saved = sorted((directory / "history" / agent).glob("*.yaml"))
+    if not saved:
+        raise FileNotFoundError(f"no earlier version of {agent!r} to roll back to")
+    target = directory / "agents" / f"{agent}.yaml"
+    target.write_text(saved[-1].read_text())
+    saved[-1].unlink()
+    log_change(directory, f"rolled back `{agent}` to its prompt of {saved[-1].stem}")
+    return target
+
+
 def panel(llm: LLM, registry: Registry, incumbent: AgentSpec, candidate: AgentSpec, bench: str, data: str,
-          paid: bool) -> Gate:
-    """Gate 3: a reviewer of another family reads the change; with ``paid``, the paid reviewer too, after the
-    spend gate's approval. Every member must accept."""
+          paid: bool, second_family: bool = False) -> Gate:
+    """Gate 3: a reviewer of another family reads the change; with ``second_family``, a gpt-oss reviewer too (for
+    agents the benchmark cannot judge); with ``paid``, the paid reviewer too, after the spend gate's approval. Every
+    member must accept."""
     reviewer = registry.agents["reviewer"]
     prompt = PANEL_PROMPT.format(old=spec_yaml(incumbent), new=spec_yaml(candidate), bench=bench)
     notes = []
-    for escalate in ([False, True] if paid else [False]):
+    members = [(reviewer.role, False)] + ([(SECOND_PANELIST, False)] if second_family else []) + \
+              ([(reviewer.role, True)] if paid else [])
+    for role, escalate in members:
         try:
-            c = llm.complete(reviewer.role, prompt, system=reviewer.system,
-                             tag=f"panel-{'paid' if escalate else 'free'}", data=data, escalate=escalate)
+            c = llm.complete(role, prompt, system=reviewer.system,
+                             tag=f"panel-{'paid' if escalate else role}", data=data, escalate=escalate)
         except (SpendDenied, BudgetExceeded) as e:
             return Gate("review panel", False, "; ".join([*notes, f"paid reviewer not run: {e}"]))
         verdict = PanelVerdict.model_validate(c.json())
@@ -250,29 +341,42 @@ def report(result: Result, incumbent: AgentSpec) -> str:
     if result.candidate:
         lines += ["", "## Current", "", "```yaml", spec_yaml(incumbent).rstrip(), "```", "", "## Proposed", "",
                   "```yaml", spec_yaml(result.candidate).rstrip(), "```"]
-    if result.status == "awaiting a person":
+    if result.status == "adopted":
+        lines += ["", "## Adopted", "", f"Every gate passed, so the new prompt replaced `{result.incumbent}`'s in "
+                  f"`{result.adopted}` (a prompt-only change needs no approval). To undo it: "
+                  f"`python -m factory.extend --rollback {result.incumbent}`."]
+    elif result.status == "awaiting a person":
         lines += ["", "## To adopt it", "", f"Copy `{result.candidate.name}.yaml` into `registry/agents/` in a pull "
-                  "request. It will then bid against the current agent, and the contract net awards the step to "
-                  "whichever has the better record. ASPIRE never does this step itself."]
+                  "request, or rerun with `--adopt`. As a new agent it bids against the current one, and the "
+                  "contract net awards the step to whichever has the better record."]
     return "\n".join(lines) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m factory.extend")
-    ap.add_argument("--agent", required=True, help="the model agent to improve, e.g. coder")
+    ap.add_argument("--agent", help="the model agent to improve, e.g. coder")
+    ap.add_argument("--guidance", default="", help="what the change should fix, e.g. from a re-design report")
+    ap.add_argument("--adopt", action="store_true", help="apply the new prompt if it passes every gate")
+    ap.add_argument("--rollback", metavar="AGENT", help="restore the agent's spec from before its last adoption")
     ap.add_argument("--config", default="configs/factory.yaml")
     ap.add_argument("--paid-panel", action="store_true", help="also ask the paid reviewer (asks before spending)")
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
+    if args.rollback:
+        print(f"restored {rollback(cfg, args.rollback)}")
+        return 0
+    if not args.agent:
+        ap.error("--agent or --rollback is required")
     approver = deny_all
     if args.paid_panel:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
-    result = propose(cfg, args.agent, approver=approver, paid_panel=args.paid_panel)
+    result = propose(cfg, args.agent, approver=approver, paid_panel=args.paid_panel, guidance=args.guidance,
+                     adopt_if_passed=args.adopt, by_person=args.adopt)
     for g in result.gates:
         print(f"{'passed' if g.passed else 'FAILED':<7} {g.name}: {g.detail}")
     print(f"\n{result.status}: {result.folder / 'report.md'}")
-    return 0 if result.status == "awaiting a person" else 1
+    return 0 if result.status in ("awaiting a person", "adopted") else 1
 
 
 if __name__ == "__main__":
