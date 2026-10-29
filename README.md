@@ -17,7 +17,7 @@ using free models only (GLM wrote the patch, DeepSeek reviewed it; 815 tokens, $
 registry with contract-net selection, the plain-code agents and their MCP server, the bug-fix orchestrator (plan,
 award, patch, check, review, repair, escalate), the bundle exporter, the Streamlit app, and UML diagrams. Two more task types run on the same agents and checks:
 **writing tests** (judged by the planted bugs they catch) and **reviewing a pull request** (rule checks and the test
-delta first, then a model's comments, kept only when they point at changed lines). Next: a model-written planner.
+delta first, then a model's comments, kept only when they point at changed lines). Requests in plain words are routed by rules first and a free planner model second.
 
 ## Setup
 
@@ -73,6 +73,19 @@ python -m factory review --repo tests/fixtures/buggy_repo --patch-file tests/fix
   --description "Fix parse_date swapping month and day"
 ```
 
+Or just say what you want; SIMPLE picks the workflow:
+
+```bash
+python -m factory ask --repo tests/fixtures/buggy_repo --request "parse_date gets month and day backwards"
+```
+
+Plain rules route the clear cases (a diff means a review; "write tests for ..." means test writing) with no model
+call. Only an ambiguous request goes to the planner, a free ARC model that picks the workflow and lays out its steps
+from a fixed catalog of building blocks (`factory/planner.py`). Code checks the plan: each block must exist and run
+after the blocks it needs, and whether a step uses a model is a property of the block, never the planner's call. A
+request no workflow covers is not run; it is written to `workspace/<name>/gaps.jsonl` as a starting point for a new
+agent or workflow.
+
 **Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
 | Task type | Bundle holds | `rerun.py` checks |
@@ -122,6 +135,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `SIMPLE-UML.pdf` 
 | `app.py` | The Streamlit page |
 | `factory/__main__.py` | The terminal command (`python -m factory fix`, `tests`, `review`) |
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
+| `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |
