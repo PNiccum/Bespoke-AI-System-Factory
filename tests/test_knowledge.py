@@ -43,9 +43,13 @@ def review(*approved, reject=()):
                       + [{"id": f"europepmc:PMC{i}", "approve": False, "why": "off topic"} for i in reject]})
 
 
-def draft(*cites):
+def draft(*cites, bad=()):
+    """A tagged draft quoting each cited document; documents in ``bad`` get a quote they do not contain."""
+    body = " ".join(f"Tm should be 55-65 C. {{{{q:europepmc:PMC{i}|" +
+                    (f"Primers should have a Tm of 55-65 C ({i})" if i not in bad else "Tm must be 70 C") + "}}"
+                    for i in cites)
     return json.dumps({"summary": "How to pick PCR primers.",
-                       "body": " ".join(f"Tm 55-65 C [europepmc:PMC{i}]." for i in cites)})
+                       "body": body + " So both primers should match. {{inference}} Costs are not reported. {{limit}}"})
 
 
 def check(ok=True):
@@ -112,7 +116,7 @@ def test_uncited_drafts_never_reach_the_verifier(cfg, tmp_path):
     kl, arc, _, wiki = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2), draft(1),
                                  draft(1, 2), check(True), topics(enough=True))
     assert kl.run().ok
-    assert "cite at least 2 documents" in arc.requests[4].messages[-1]["content"]
+    assert "cites 1 documents; it needs 2" in arc.requests[4].messages[-1]["content"]
 
 
 def test_too_few_approved_sources_searches_again_then_gives_up(cfg, tmp_path, monkeypatch):
@@ -124,6 +128,16 @@ def test_too_few_approved_sources_searches_again_then_gives_up(cfg, tmp_path, mo
     q = project.board.entries("query")
     assert q[-1].data["error"] == "unknown engine"  # openalex is not wired in this test
     assert "rejected" in arc.requests[3].messages[-1]["content"]
+
+
+def test_a_misquoted_document_is_dropped_before_the_verifier(cfg, tmp_path):
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2, 3),
+                                       draft(1, 2, 3, bad=[3]), check(True), topics(enough=True))
+    assert kl.run().ok
+    page = wiki.get("Primer3 settings")
+    assert page.sources == ["europepmc:PMC1", "europepmc:PMC2"] and "_(inference)_" in page.body
+    assert "quote not found in europepmc:PMC3" in str(project.board.entries("note")[-1].data["quote_check"])
+    assert '"Primers should have a Tm of 55-65 C (1)"' in arc.requests[4].messages[-1]["content"]  # quotes to verifier
 
 
 def test_a_failing_engine_is_recorded_not_fatal(cfg, tmp_path):
