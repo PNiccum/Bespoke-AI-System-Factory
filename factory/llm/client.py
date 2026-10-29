@@ -29,6 +29,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+import anthropic
+import httpx
 from pydantic import ValidationError
 
 from factory.config import FactoryConfig, RoleConfig
@@ -85,6 +87,20 @@ def extract_json(text: str):
     return obj
 
 
+def model_unavailable(e: Exception) -> bool:
+    """Whether a failed call means the model cannot be reached at all, so a fallback model is worth trying: the
+    gateway kept failing through every retry, or it does not know the model. Other errors (a bad request, a refusal,
+    a spend limit) would fail the same way on any model."""
+    if isinstance(e, (*TRANSIENT, TransientHTTPError)):
+        return True
+    if not isinstance(e, (httpx.HTTPStatusError, anthropic.APIStatusError)):
+        return False
+    code = getattr(e, "status_code", None) or e.response.status_code
+    text = str(e).lower()
+    return code == 404 or (code in (400, 422) and "model" in text
+                           and any(w in text for w in ("not found", "unknown", "does not exist", "not available")))
+
+
 def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     path = cfg.root / cfg.runs_dir / (f"{stamp}-{label}" if label else stamp)
@@ -129,8 +145,23 @@ class LLM:
     def converse(self, role: str, messages: list[dict], system: str | None = None, *, tools: list[dict] | None = None,
                  tag: str = "", data: DataClass = "private", max_tokens: int | None = None,
                  escalate: bool = False) -> Completion:
-        """One model turn over a full message history (canonical Anthropic format), optionally with tools."""
+        """One model turn over a full message history (canonical Anthropic format), optionally with tools. When
+        the role's model is unavailable, its free fallbacks are tried in order."""
         rc = self.role_config(role, escalate)
+        models = [rc.model, *rc.fallbacks]
+        for i, model in enumerate(models):
+            try:
+                return self._converse_one(role, rc.model_copy(update={"model": model}), messages, system, tools,
+                                          tag, data, max_tokens)
+            except Exception as e:
+                if i == len(models) - 1 or not model_unavailable(e):
+                    raise
+                self._log(tag=tag, role=role, model=model, provider=rc.provider, fallback_to=models[i + 1],
+                          error=f"{type(e).__name__}: {e}"[:300])
+        raise AssertionError("unreachable")
+
+    def _converse_one(self, role: str, rc: RoleConfig, messages: list[dict], system: str | None,
+                      tools: list[dict] | None, tag: str, data: DataClass, max_tokens: int | None) -> Completion:
         provider_cfg = self.cfg.providers[rc.provider]
         if provider_cfg.data_scope == "public_only" and data != "public":
             raise DataScopeError(f"role {role!r} uses {rc.provider!r}, which may only receive public "

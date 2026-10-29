@@ -144,6 +144,9 @@ Both folders are git-ignored.
 
 - **No model reviews its own family's work.** Authors use GLM, then OpenAI; reviewers use DeepSeek, then Claude.
   `load_config` refuses a config that breaks this in either tier.
+- **A down ARC model does not stop a run.** Each role lists free ARC fallbacks (`fallbacks:` in
+  `configs/factory.yaml`), tried in order when its model is not found or keeps failing through the retries. Fallbacks
+  must be free and count toward family separation; the paid step never falls back.
 - **Paid calls need approval.** The first paid call per role in a run, and any call that would pass the run's $1
   soft limit, is put to a person; with no one to ask, it is refused. A run stops at $3 of real spend.
 - **Credit is tracked across runs.** Spend per provider is kept in `workspace/<name>/spend.json`. Paid calls stop

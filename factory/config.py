@@ -71,6 +71,9 @@ class RoleConfig(BaseModel):
     # The escalation step for this role, used when the tier is "quality": any of provider, model, max_tokens,
     # effort, params. The role's own fields are the free (ARC) default.
     quality: dict | None = None
+    # Free models on the same provider to try, in order, when this one is unavailable (not found, or still failing
+    # after the retries). They must be free and count toward family separation; the paid step never falls back.
+    fallbacks: list[str] = []
 
 
 class Budget(BaseModel):
@@ -157,9 +160,9 @@ class FactoryConfig(BaseModel):
         return self.model_info(r.model).family if r else None
 
     def families(self, role: str) -> set[str]:
-        """Every family a role can use: its own model and its escalation step."""
+        """Every family a role can use: its own model, its fallbacks and its escalation step."""
         steps = [self.roles[role], self.escalations.get(role)]
-        return {self.model_info(r.model).family for r in steps if r}
+        return {self.model_info(m).family for r in steps if r for m in [r.model, *r.fallbacks]}
 
     def separation_errors(self) -> list[str]:
         """Violations of the family-separation rule; empty means the roles are valid. Both tiers count, since a
@@ -221,8 +224,11 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
         raise ValueError(f"credits name unknown providers: {sorted(unknown_credit)}")
     for name, role in list(cfg.roles.items()):
         cfg.model_info(role.model)  # fail early on a model missing from the catalog
+        for fallback in role.fallbacks:
+            if cfg.model_info(fallback).real:
+                raise ValueError(f"role {name!r}: fallback {fallback!r} is a paid model; fallbacks must be free")
         if role.quality:
-            step = role.model_copy(update={**role.quality, "quality": None})
+            step = role.model_copy(update={"fallbacks": [], **role.quality, "quality": None})
             if step.provider not in cfg.providers:
                 raise ValueError(f"role {name!r} escalates to unknown provider {step.provider!r}")
             if not cfg.model_info(role.model).real and not cfg.model_info(step.model).real:
