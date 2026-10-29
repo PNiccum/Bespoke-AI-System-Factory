@@ -43,7 +43,7 @@ def test_blackboard_entries_are_typed_numbered_and_licensed(tmp_path):
     assert board.latest("note") == b
     assert Blackboard.for_paid(board.entries()) == [a]
     with pytest.raises(ValueError, match="unknown"):
-        board.post("vote", "x", {})
+        board.post("bogus", "x", {})
 
 
 def test_project_files_stay_inside_the_folder_and_are_recorded(tmp_path):
