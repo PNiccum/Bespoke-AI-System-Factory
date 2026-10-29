@@ -65,7 +65,7 @@ def pytest_command(tmp: Path, pytest_args: list[str]) -> tuple[list[str], dict |
     name = f"simple-sandbox-{tmp.name}"
     user = ["--user", f"{os.getuid()}:{os.getgid()}"] if hasattr(os, "getuid") else []
     limits = os.environ.get("SIMPLE_SANDBOX_LIMITS", "2g,2,256").split(",")  # memory, CPUs, processes
-    return [runner, "run", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp",  # noqa: S108 (inside the container)
+    return [runner, "run", "--rm", "--name", name, "--network", "none", "--read-only", "--tmpfs", "/tmp",  # noqa: S108  # nosec B108 (inside the container)
             "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--memory", limits[0], "--cpus", limits[1],
             "--pids-limit", limits[2], *user, "-v", f"{tmp}:/work", "-w", "/work/repo", image, *inner], None, name
 
