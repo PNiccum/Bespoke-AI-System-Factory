@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 
 const { chromium } = createRequire(import.meta.url)("playwright"); // honors NODE_PATH for a global install
 const here = dirname(fileURLToPath(import.meta.url));
-const names = ["class-diagram", "sequence-bug-fix"];
+const names = ["class-diagram", "sequence-bug-fix", "sequence-test-gen", "sequence-pr-review"];
 const browser = await chromium.launch();
 const page = await browser.newPage();
 const pages = [];

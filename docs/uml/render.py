@@ -25,6 +25,7 @@ PKG = {
     "llm": ("#f6efff", "#8a5cc7"),
     "tools": ("#ffeff0", "#c4505a"),
     "records": ("#f1f3f5", "#6b7785"),
+    "workflows": ("#e8f8f7", "#2a9d8f"),
 }
 
 # name: (package, stereotype, x, y, fields, methods)
@@ -42,11 +43,13 @@ CLASSES = {
                      ["run(task): RunResult", "award(task, step): Bid", "tool(agent): Callable",
                       "run_tests(bid, task, patch, tests)", "coder_prompt(...)", "stop(result, step, reason)"]),
     "Task": ("core", "", 500, 440, ["description: str", "repo_path: str", "task_type = 'bug_fix'",
-                                    "domain = 'software'", "failing_tests: list[str]"], []),
+                                    "domain = 'software'", "failing_tests: list[str]",
+                                    "patch: str  # pr_review"], []),
     "Plan": ("core", "", 500, 620, ["task_type: str", "steps: list[Step]"], ["plan_for(task)  # template"]),
     "Step": ("core", "", 500, 750, ["id: str", "capability: str", "needs_llm: bool", "reason: str"], []),
-    "RunResult": ("core", "", 820, 440, ["status: fixed|unproven|failed|stopped", "patch: str", "attempts: int",
-                                          "check: TestReport", "review: Review", "stop_reason: str"], []),
+    "RunResult": ("core", "", 820, 440, ["status: fixed | tested | reviewed |", "        unproven | failed | stopped",
+                                          "patch: str", "attempts: int", "check: TestReport", "review: Review",
+                                          "report: dict  # score, findings", "stop_reason: str"], []),
     "Event": ("core", "", 820, 650, ["step, agent, status", "detail: str", "data: dict"], []),
     "Review": ("core", "", 820, 800, ["verdict: accept|reject", "defects: list[Defect]"], []),
 
@@ -77,19 +80,36 @@ CLASSES = {
                  ["call(name, arguments)", "mcp_function(fn, tools)"]),
     "factory-tools": ("tools", "MCP server", 2040, 270, ["roots: allowed folders"],
                       ["locate(LocateIn): Locations", "read_file(repo, path)", "run_tests(RunTestsIn): TestReport",
-                       "prove_fix(repo, patch, tests)"]),
+                       "prove_fix(repo, patch, tests)", "score_tests(ScoreTestsIn)", "inspect_diff(InspectDiffIn)"]),
     "repo": ("tools", "module · code_navigator", 2040, 470, [], ["locate(LocateIn): Locations"]),
     "sandbox": ("tools", "module · test_runner", 2040, 590, [], ["run_tests(RunTestsIn): TestReport",
                                                                    "prove_fix(...): FixProof", "scrubbed_env()"]),
     "TestReport": ("tools", "", 2040, 760, ["patch_applied: bool", "passed, failed, errors", "timed_out: bool",
                                              "output_tail: str"], []),
 
+    "quality": ("tools", "module · mutation_tester, diff_inspector", 2040, 920, [],
+                ["score_tests(ScoreTestsIn): MutationReport", "inspect_diff(InspectDiffIn): DiffFacts",
+                 "  # plain code: mutate.py, diff_inspect.py"]),
+
+    "workflows": ("workflows", "factory/workflows", 500, 1150, ["TEMPLATES: test_gen, pr_review",
+                                                               "WORKFLOWS: task type -> run()"],
+                  ["begin(orch, task, steps)", "finish(orch, task, result, bids)"]),
+    "test_gen": ("workflows", "task type · write tests", 870, 1150,
+                 ["steps: locate, baseline, write,", "  check, score, review", "MIN_SCORE = 0.6  # mutants caught"],
+                 ["run(orch, task): RunResult"]),
+    "pr_review": ("workflows", "task type · review a PR", 1220, 1150, ["steps: inspect, baseline, check, review"],
+                  ["run(orch, task): RunResult"]),
+    "PRReview": ("workflows", "", 1620, 1150, ["verdict: approve | request_changes | comment", "summary: str",
+                                              "comments: list[Comment]  # changed lines only"], []),
+
     "ProvenanceLog": ("records", "provenance.jsonl", 500, 1000, [], ["record(event)", "add_source(source)"]),
     "ProvenanceEvent": ("records", "", 820, 1000, ["kind: source|model_call|tool_call|approval", "actor: str",
                                                    "inputs, outputs: sha256"], []),
     "export": ("records", "module · export.py", 60, 1000, [], ["export_bundle(result, task, run_dir, out)",
                                                               "  -> fix.patch, rerun.py, workflow.json,",
-                                                              "     evidence.json, provenance, cost"]),
+                                                              "     evidence.json, provenance, cost",
+                                                              "workflows.export_workflow_bundle(...)",
+                                                              "  -> tests.patch or review.md, rerun.py"]),
 }
 
 # (from, to, kind, label[, route]). kind: assoc (arrow), dep (dashed arrow), comp (filled diamond at "from"),
@@ -106,7 +126,7 @@ RELATIONS = [
     ("Orchestrator", "Plan", "dep", "plan_for", [(500, 290), (488, 290), (488, 660), (500, 660)]),
     ("Plan", "Step", "comp", "1..*"),
     ("RunResult", "Event", "comp", "*"),
-    ("RunResult", "Review", "comp", "0..1", [(1060, 602), (1060, 847), (1002, 847)]),
+    ("RunResult", "Review", "comp", "0..1", [(1060, 636), (1060, 847), (1002, 847)]),
     ("Orchestrator", "Registry", "assoc", "award per step"),
     ("Registry", "AgentSpec", "comp", "*"),
     ("Bid", "AgentSpec", "assoc", ""),
@@ -126,6 +146,11 @@ RELATIONS = [
     ("sandbox", "TestReport", "dep", ""),
     ("Orchestrator", "ProvenanceLog", "assoc", "records", [(500, 325), (476, 325), (476, 1050), (500, 1050)]),
     ("ProvenanceLog", "ProvenanceEvent", "comp", "*"),
+    ("factory-tools", "quality", "dep", "", [(2040, 420), (2015, 420), (2015, 975), (2040, 975)]),
+    ("Orchestrator", "workflows", "assoc", "test_gen, pr_review", [(500, 340), (464, 340), (464, 1200), (500, 1200)]),
+    ("workflows", "test_gen", "dep", ""),
+    ("workflows", "pr_review", "dep", "", [(640, 1278), (640, 1300), (1340, 1300), (1340, 1244)]),
+    ("pr_review", "PRReview", "comp", "1"),
 ]
 
 
@@ -222,7 +247,8 @@ def routed(points, kind, label):
 def legend_svg(x, y):
     items = [(name, PKG[key]) for key, name in
              [("ui", "User interface"), ("core", "Orchestration"), ("registry", "Agent selection"),
-              ("llm", "Models and spend"), ("tools", "Plain-code tools and MCP"), ("records", "Records and export")]]
+              ("llm", "Models and spend"), ("tools", "Plain-code tools and MCP"), ("records", "Records and export"),
+              ("workflows", "Task types")]]
     out, cx = [], x
     for label, (fill, line) in items:
         out.append(f'<rect x="{cx}" y="{y - 11}" width="14" height="14" fill="{fill}" stroke="{line}"/>')
@@ -233,7 +259,7 @@ def legend_svg(x, y):
 
 
 # ----------------------------------------------------------------------------------------------------------------
-# Sequence diagram: one bug-fix run from the Streamlit page
+# Sequence diagrams: one run of each task type from the Streamlit page
 # ----------------------------------------------------------------------------------------------------------------
 
 LIFELINES = ["Person", "Streamlit + RunSession", "Orchestrator", "Registry", "McpTools → factory-tools",
@@ -276,12 +302,12 @@ MESSAGES = [
 ]
 
 
-def sequence_svg() -> str:
+def sequence_svg(title: str, lifelines: list[str], messages: list) -> str:
     gap, top, left = 215, 70, 40
-    xs = {name: left + 90 + i * gap for i, name in enumerate(LIFELINES)}
-    width = left + 90 + (len(LIFELINES) - 1) * gap + 130
+    xs = {name: left + 90 + i * gap for i, name in enumerate(lifelines)}
+    width = left + 90 + (len(lifelines) - 1) * gap + 130
     parts, y, frames = [], top + 60, []
-    for m in MESSAGES:
+    for m in messages:
         kind = m[-1] if len(m) > 1 else m[0]
         if kind == "frame-start":
             frames.append([m[0], m[1], y, []])
@@ -292,8 +318,8 @@ def sequence_svg() -> str:
         elif kind == "frame-end":
             op, guard, y0, elses = frames.pop()
             depth = len(frames)
-            x0 = xs["Streamlit + RunSession"] - 95 + depth * 12  # nested frames sit inside their parent
-            x1 = xs["SpendGate"] + 95 - depth * 12
+            x0 = xs[lifelines[1]] - 95 + depth * 12  # nested frames sit inside their parent
+            x1 = xs[lifelines[-2]] + 95 - depth * 12
             parts.append(f'<rect x="{x0}" y="{y0}" width="{x1 - x0}" height="{y - y0 + 6}" fill="none" '
                          f'stroke="{MUTED}" stroke-width="1.2"/>')
             parts.append(f'<path d="M{x0},{y0} h{len(op) * 8 + 26} v14 l-8,8 h-{len(op) * 8 + 18} z" '
@@ -335,7 +361,70 @@ def sequence_svg() -> str:
             heads.append(f'<rect x="{x - w / 2}" y="{yy}" width="{w}" height="36" rx="4" fill="#eef6ff" '
                          f'stroke="#4a7fc1" stroke-width="1.5"/>')
             heads.append(text(x, yy + 23, name, size=12, weight="bold", anchor="middle"))
-    return svg(width, height, "SIMPLE: sequence diagram, one bug-fix run", heads + parts)
+    return svg(width, height, title, heads + parts)
+
+
+TEST_GEN_LIFELINES = ["Person", "Streamlit + RunSession", "test_gen.run", "Registry", "McpTools → factory-tools",
+                      "LLM (GLM test_writer)", "LLM (DeepSeek reviewer)", "export"]
+
+TEST_GEN = [
+    ("Person", "Streamlit + RunSession", "request: write tests for parse_date", "call"),
+    ("Streamlit + RunSession", "test_gen.run", "run(task)  [WORKFLOWS['test_gen']]", "call"),
+    ("test_gen.run", "Registry", "award × 6 steps", "call"),
+    ("Registry", "test_gen.run", "Bids: tool agents for locate, baseline, check, score", "reply"),
+    ("test_gen.run", "McpTools → factory-tools", "locate(repo, request)", "call"),
+    ("McpTools → factory-tools", "test_gen.run", "target files and functions", "reply"),
+    ("test_gen.run", "McpTools → factory-tools", "run_tests(repo)  # baseline", "call"),
+    ("McpTools → factory-tools", "test_gen.run", "TestReport before any change", "reply"),
+    ("loop", "attempt 1..3; attempt 3 escalates the writer, after approval", "frame-start"),
+    ("test_gen.run", "LLM (GLM test_writer)", "complete(code + existing tests + feedback)", "call"),
+    ("LLM (GLM test_writer)", "test_gen.run", "diff adding tests", "reply"),
+    ("test_gen.run", "test_gen.run", "refuse a diff that touches non-test files", "self"),
+    ("test_gen.run", "McpTools → factory-tools", "run_tests(repo, patch)  # check", "call"),
+    ("McpTools → factory-tools", "test_gen.run", "new tests pass, nothing newly broken", "reply"),
+    ("test_gen.run", "McpTools → factory-tools", "score_tests(files, new tests)  # mutants", "call"),
+    ("McpTools → factory-tools", "test_gen.run", "caught k of n planted bugs", "reply"),
+    ("alt", "score < 0.6: surviving mutants go back to the writer", "frame-start"),
+    ("test_gen.run", "test_gen.run", "feedback = missed mutants; keep the best so far", "self"),
+    ("else", "score ≥ 0.6", "frame-else"),
+    ("test_gen.run", "LLM (DeepSeek reviewer)", "complete(tests + score + survivors)", "call"),
+    ("LLM (DeepSeek reviewer)", "test_gen.run", "accept | reject + defects", "reply"),
+    ("frame-end",),
+    ("frame-end",),
+    ("test_gen.run", "Streamlit + RunSession", "RunResult (tested | unproven: best tests kept)", "reply"),
+    ("Streamlit + RunSession", "export", "export_workflow_bundle(result)", "call"),
+    ("export", "Streamlit + RunSession", "tests.patch, rerun.py + mutate.py (re-scores, no model)", "reply"),
+    ("Streamlit + RunSession", "Person", "score, tests, download", "reply"),
+]
+
+PR_REVIEW_LIFELINES = ["Person", "Streamlit + RunSession", "pr_review.run", "Registry", "McpTools → factory-tools",
+                       "LLM (DeepSeek pr_reviewer)", "export"]
+
+PR_REVIEW = [
+    ("Person", "Streamlit + RunSession", "PR description + diff + repo", "call"),
+    ("Streamlit + RunSession", "pr_review.run", "run(task)  [WORKFLOWS['pr_review']]", "call"),
+    ("pr_review.run", "Registry", "award × 4 steps", "call"),
+    ("Registry", "pr_review.run", "Bids: tool agents for inspect, baseline, check", "reply"),
+    ("pr_review.run", "McpTools → factory-tools", "inspect_diff(patch, repo)", "call"),
+    ("McpTools → factory-tools", "pr_review.run", "changed lines; rule findings (debug, secrets, syntax)", "reply"),
+    ("pr_review.run", "McpTools → factory-tools", "run_tests(repo)  # before", "call"),
+    ("McpTools → factory-tools", "pr_review.run", "TestReport before", "reply"),
+    ("pr_review.run", "McpTools → factory-tools", "run_tests(repo, patch)  # after", "call"),
+    ("McpTools → factory-tools", "pr_review.run", "newly passing / newly failing tests", "reply"),
+    ("loop", "attempt 1..3; attempt 3 escalates to Claude, after approval", "frame-start"),
+    ("pr_review.run", "LLM (DeepSeek pr_reviewer)", "complete(description + diff + facts + test delta)", "call"),
+    ("LLM (DeepSeek pr_reviewer)", "pr_review.run", "PRReview: verdict, summary, comments", "reply"),
+    ("pr_review.run", "pr_review.run", "keep only comments on changed lines", "self"),
+    ("alt", "comments dropped: send them back with the changed line numbers", "frame-start"),
+    ("pr_review.run", "pr_review.run", "feedback = dropped comments", "self"),
+    ("frame-end",),
+    ("frame-end",),
+    ("pr_review.run", "pr_review.run", "blocking rule finding overrides an approve", "self"),
+    ("pr_review.run", "Streamlit + RunSession", "RunResult (reviewed)", "reply"),
+    ("Streamlit + RunSession", "export", "export_workflow_bundle(result)", "call"),
+    ("export", "Streamlit + RunSession", "review.md, review.json, rerun.py + diff_inspect.py", "reply"),
+    ("Streamlit + RunSession", "Person", "verdict, comments, download", "reply"),
+]
 
 
 # ----------------------------------------------------------------------------------------------------------------
@@ -368,5 +457,10 @@ def svg(width, height, title, parts) -> str:
 
 if __name__ == "__main__":
     (HERE / "class-diagram.svg").write_text(class_svg())
-    (HERE / "sequence-bug-fix.svg").write_text(sequence_svg())
-    print("wrote", HERE / "class-diagram.svg", HERE / "sequence-bug-fix.svg")
+    diagrams = {"sequence-bug-fix": ("SIMPLE: sequence diagram, one bug-fix run", LIFELINES, MESSAGES),
+                "sequence-test-gen": ("SIMPLE: sequence diagram, writing tests", TEST_GEN_LIFELINES, TEST_GEN),
+                "sequence-pr-review": ("SIMPLE: sequence diagram, reviewing a pull request", PR_REVIEW_LIFELINES,
+                                       PR_REVIEW)}
+    for name, args in diagrams.items():
+        (HERE / f"{name}.svg").write_text(sequence_svg(*args))
+    print("wrote", HERE / "class-diagram.svg", *(HERE / f"{n}.svg" for n in diagrams))
