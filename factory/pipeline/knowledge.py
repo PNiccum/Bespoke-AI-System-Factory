@@ -5,9 +5,10 @@
 3. For each missing topic, the research orchestrator (GLM) writes searches; the researchers are plain-code
    connectors (sources.py), since searching an API needs no model. The orchestrator then approves or rejects each
    document it found, and runs a second search round when too few pass.
-4. The librarian writes a wiki page from the approved documents, citing them. Code checks every citation names an
-   approved document; the wiki verifier (DeepSeek, another family) checks every claim against the documents, and the
-   librarian gets one rewrite when it finds errors. Only a verified page covers its topic.
+4. The librarian writes a wiki page from the approved documents, tagging every sentence with a verbatim quote, an
+   inference or a limit (cite.py, from Bespoke_LLM). Code drops every sentence whose quote is not in its document;
+   the wiki verifier (DeepSeek, another family) then checks that each quote supports its sentence, and the librarian
+   gets one rewrite when the checks fail. Only a verified page covers its topic.
 5. The evaluator looks again, now with the new pages, and either approves or names what is still missing, so a broad
    first pass narrows to the specifics the work needs.
 
@@ -24,6 +25,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from factory.llm import LLM, complete_validated
+from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage
@@ -124,8 +126,13 @@ REVIEW_PROMPT = """Approve the documents that are reliable and relevant sources 
 
 Reply with JSON only: {{"verdicts": [{{"id": "<document id>", "approve": true or false, "why": "<one sentence>"}}]}}"""
 
-WRITE_PROMPT = """Write a wiki page on this topic using only the documents below. Cite the document behind each \
-claim as [document id], e.g. [{example}]. Say what the documents do not settle instead of guessing.
+WRITE_PROMPT = """Write a wiki page on this topic using only the documents below. End every sentence with exactly \
+one tag:
+- a fact from a document: {{{{q:<document id>|<a short verbatim quote from that document that states it>}}}}, e.g. \
+{{{{q:{example}|...}}}}
+- a conclusion you draw from the facts just before it in the same paragraph: {{{{inference}}}}
+- something the documents do not settle: {{{{limit}}}}
+Code checks every quote against the document word for word and drops any sentence whose quote is not there.
 
 ## Topic
 {topic}: {why}
@@ -133,13 +140,17 @@ claim as [document id], e.g. [{example}]. Say what the documents do not settle i
 ## Documents
 {docs}
 {issues}
-Reply with JSON only: {{"summary": "<one paragraph>", "body": "<markdown with citations>"}}"""
+Reply with JSON only: {{"summary": "<one paragraph, no tags>", "body": "<markdown, every sentence tagged>"}}"""
 
-VERIFY_PROMPT = """Check this wiki page against its source documents. A claim is accurate only when the document it \
-cites supports it.
+VERIFY_PROMPT = """Check this wiki page against its source documents. Code has already checked that every quoted \
+passage is really in its document; check that each quote supports the sentence resting on it, and that every \
+inference follows from the facts before it. A sentence is accurate only when its evidence supports it.
 
 ## Page
 {page}
+
+## Each fact and the quote it rests on
+{quotes}
 
 ## Documents
 {docs}
@@ -268,14 +279,21 @@ class KnowledgeLoop:
             draft = self._call(LIBRARIAN, WRITE_PROMPT.format(topic=topic.name, why=topic.why, docs=show_docs(docs),
                                                               example=ids[0], issues=fix), Draft,
                                f"wiki-{topic.name}-{attempt}", docs)
-            sources = cited(draft.body, ids)
-            page = WikiPage(topic=topic.name, summary=draft.summary, body=draft.body, sources=sources,
+            paragraphs = cite.parse(draft.body)
+            cite.check(paragraphs, {d.id: d.text for d in docs})
+            body = cite.render(paragraphs)
+            sources = cited(body, ids)
+            page = WikiPage(topic=topic.name, summary=draft.summary, body=body, sources=sources,
                             citations={d.id: d.citation for d in docs if d.id in sources}, license=license,
                             projects=[self.project.id])
-            issues = [] if len(sources) >= MIN_SOURCES else [f"cite at least {MIN_SOURCES} documents; cited "
-                                                             f"{len(sources)}"]
+            lost = cite.dropped(paragraphs)
+            self.board.post("note", "code", {"topic": topic.name, "attempt": attempt, "quote_check": lost or "all kept"},
+                            license=license)
+            issues = [] if len(sources) >= MIN_SOURCES else [
+                f"after the quote check the page cites {len(sources)} documents; it needs {MIN_SOURCES}",
+                *[f"dropped {x}" for x in lost]]
             if not issues:
-                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(),
+                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(), quotes=cite.quotes(paragraphs),
                                                                   docs=show_docs([d for d in docs
                                                                                   if d.id in sources])),
                                    Check, f"verify-{topic.name}-{attempt}", docs)
