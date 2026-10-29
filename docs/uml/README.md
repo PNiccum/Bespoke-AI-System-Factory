@@ -6,6 +6,7 @@
 | [sequence-bug-fix.svg](sequence-bug-fix.svg) / `.png` | One bug-fix run from the Streamlit page: award, locate, baseline, the patch/check/review loop, escalation with a person's approval, export |
 | [sequence-test-gen.svg](sequence-test-gen.svg) / `.png` | Writing tests: locate, baseline, write, check, mutation score, review, with the retry loop |
 | [sequence-pr-review.svg](sequence-pr-review.svg) / `.png` | Reviewing a PR: diff inspection, tests before and after, model review kept to changed lines |
+| [sequence-self-extension.svg](sequence-self-extension.svg) / `.png` | Self-extension dry run: proposal, scope gate, held-out benchmark, review panel, stop for a person |
 | `SIMPLE-UML.pdf` | All four diagrams, one per page, for submission |
 
 The diagrams are data in `render.py`; edit it and run `python docs/uml/render.py` to redraw the SVGs. To rebuild the

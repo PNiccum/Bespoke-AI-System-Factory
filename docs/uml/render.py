@@ -26,6 +26,7 @@ PKG = {
     "tools": ("#ffeff0", "#c4505a"),
     "records": ("#f1f3f5", "#6b7785"),
     "workflows": ("#e8f8f7", "#2a9d8f"),
+    "extension": ("#fdf2f8", "#b8478a"),
 }
 
 # name: (package, stereotype, x, y, fields, methods)
@@ -82,12 +83,12 @@ CLASSES = {
                       ["locate(LocateIn): Locations", "read_file(repo, path)", "run_tests(RunTestsIn): TestReport",
                        "prove_fix(repo, patch, tests)", "score_tests(ScoreTestsIn)", "inspect_diff(InspectDiffIn)"]),
     "repo": ("tools", "module · code_navigator", 2040, 470, [], ["locate(LocateIn): Locations"]),
-    "sandbox": ("tools", "module · test_runner", 2040, 590, [], ["run_tests(RunTestsIn): TestReport",
-                                                                   "prove_fix(...): FixProof", "scrubbed_env()"]),
-    "TestReport": ("tools", "", 2040, 760, ["patch_applied: bool", "passed, failed, errors", "timed_out: bool",
+    "sandbox": ("tools", "module · test_runner", 2040, 590, ["runner: process | docker | podman | apptainer"],
+                ["run_tests(RunTestsIn): TestReport", "prove_fix(...): FixProof", "run_pytest(tmp, args, timeout)"]),
+    "TestReport": ("tools", "", 2040, 790, ["patch_applied: bool", "passed, failed, errors", "timed_out: bool",
                                              "output_tail: str"], []),
 
-    "quality": ("tools", "module · mutation_tester, diff_inspector", 2040, 920, [],
+    "quality": ("tools", "module · mutation_tester, diff_inspector", 2040, 950, [],
                 ["score_tests(ScoreTestsIn): MutationReport", "inspect_diff(InspectDiffIn): DiffFacts",
                  "  # plain code: mutate.py, diff_inspect.py"]),
 
@@ -101,6 +102,19 @@ CLASSES = {
                   ["run(orch, task): RunResult"]),
     "PRReview": ("workflows", "", 1620, 1150, ["verdict: approve | request_changes | comment", "summary: str",
                                               "comments: list[Comment]  # changed lines only"], []),
+
+    "planner": ("extension", "module · intake", 60, 1400, ["BLOCKS: 9 building blocks", "gaps.jsonl  # unsupported"],
+                ["route(request, repo, llm, registry): Routed", "route_by_rules(request, patch)  # no model",
+                 "check_steps(steps): problems"]),
+    "bench": ("extension", "module · benchmark", 500, 1400, ["bench/tasks.yaml: 8 tasks, 3 held out",
+                                                              "modes: simple | baseline (one call)"],
+              ["run_one(cfg, task, mode, agents): Outcome", "judge(repo, patch)  # plain code"]),
+    "extend": ("extension", "module · self-extension, dry run", 960, 1400,
+               ["gates: scope, held-out benchmark,", "  review panel, then a person", "archive.jsonl"],
+               ["propose(cfg, agent): Result", "check_scope(proposal, incumbent)", "benchmark_gate(before, after)",
+                "panel(...)  # other family"]),
+    "demo": ("extension", "module · recorded runs", 1420, 1400, ["demos/*.json: task + model replies"],
+             ["record(run_dir, out)", "replay(cfg, recording)  # Offline provider", "replay_llm(cfg, run_dir, rec)"]),
 
     "ProvenanceLog": ("records", "provenance.jsonl", 500, 1000, [], ["record(event)", "add_source(source)"]),
     "ProvenanceEvent": ("records", "", 820, 1000, ["kind: source|model_call|tool_call|approval", "actor: str",
@@ -151,6 +165,8 @@ RELATIONS = [
     ("workflows", "test_gen", "dep", ""),
     ("workflows", "pr_review", "dep", "", [(640, 1278), (640, 1300), (1340, 1300), (1340, 1244)]),
     ("pr_review", "PRReview", "comp", "1"),
+    ("CLI", "planner", "dep", "ask", [(60, 375), (20, 375), (20, 1450), (60, 1450)]),
+    ("extend", "bench", "dep", "held-out tasks"),
 ]
 
 
@@ -248,7 +264,7 @@ def legend_svg(x, y):
     items = [(name, PKG[key]) for key, name in
              [("ui", "User interface"), ("core", "Orchestration"), ("registry", "Agent selection"),
               ("llm", "Models and spend"), ("tools", "Plain-code tools and MCP"), ("records", "Records and export"),
-              ("workflows", "Task types")]]
+              ("workflows", "Task types"), ("extension", "Intake, benchmark, self-extension")]]
     out, cx = [], x
     for label, (fill, line) in items:
         out.append(f'<rect x="{cx}" y="{y - 11}" width="14" height="14" fill="{fill}" stroke="{line}"/>')
@@ -429,6 +445,37 @@ PR_REVIEW = [
 
 # ----------------------------------------------------------------------------------------------------------------
 
+EXTEND_LIFELINES = ["Person", "factory.extend", "Registry", "bench (run_one, judge)", "LLM (GLM proposer)",
+                    "LLM (DeepSeek panel)", "SpendGate", "proposals/"]
+EXTEND = [
+    ("Person", "factory.extend", "python -m factory.extend --agent coder", "call"),
+    ("factory.extend", "Registry", "load(): incumbent coder spec", "call"),
+    ("Registry", "factory.extend", "AgentSpec (role, tools, capabilities, prompt)", "reply"),
+    ("factory.extend", "bench (run_one, judge)", "development tasks only (5 of 8)", "call"),
+    ("bench (run_one, judge)", "factory.extend", "Outcomes: which failed and why", "reply"),
+    ("factory.extend", "LLM (GLM proposer)", "propose: spec + dev failures + archive", "call"),
+    ("LLM (GLM proposer)", "factory.extend", "Proposal: name, description, prompt", "reply"),
+    ("factory.extend", "factory.extend", "gate 1, scope: prompt only, same role/tools, no secret", "self"),
+    ("alt", "scope passed", "frame-start"),
+    ("factory.extend", "bench (run_one, judge)", "held-out tasks (3), incumbent, then candidate", "call"),
+    ("bench (run_one, judge)", "factory.extend", "solved and tokens for each", "reply"),
+    ("factory.extend", "factory.extend", "gate 2: solves >= incumbent, tokens <= 1.5x", "self"),
+    ("alt", "benchmark passed", "frame-start"),
+    ("factory.extend", "LLM (DeepSeek panel)", "gate 3: old spec, new spec, benchmark", "call"),
+    ("LLM (DeepSeek panel)", "factory.extend", "accept | reject + concerns", "reply"),
+    ("alt", "--paid-panel", "frame-start"),
+    ("LLM (DeepSeek panel)", "SpendGate", "check(claude-sonnet-5-5)", "call"),
+    ("SpendGate", "Person", "approve the paid reviewer?", "call"),
+    ("Person", "SpendGate", "yes / no (no = proposal rejected)", "reply"),
+    ("frame-end",),
+    ("frame-end",),
+    ("frame-end",),
+    ("factory.extend", "proposals/", "report.md, spec .yaml, archive.jsonl line", "call"),
+    ("factory.extend", "Person", "awaiting a person | rejected at <gate>", "reply"),
+    ("Person", "Person", "adopt: open a pull request (SIMPLE never writes registry/)", "self"),
+]
+
+
 def label_bg(x, y, w):
     return f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="15" fill="{PAPER}" opacity="0.92"/>'
 
@@ -460,7 +507,9 @@ if __name__ == "__main__":
     diagrams = {"sequence-bug-fix": ("SIMPLE: sequence diagram, one bug-fix run", LIFELINES, MESSAGES),
                 "sequence-test-gen": ("SIMPLE: sequence diagram, writing tests", TEST_GEN_LIFELINES, TEST_GEN),
                 "sequence-pr-review": ("SIMPLE: sequence diagram, reviewing a pull request", PR_REVIEW_LIFELINES,
-                                       PR_REVIEW)}
+                                       PR_REVIEW),
+                "sequence-self-extension": ("SIMPLE: sequence diagram, self-extension dry run", EXTEND_LIFELINES,
+                                            EXTEND)}
     for name, args in diagrams.items():
         (HERE / f"{name}.svg").write_text(sequence_svg(*args))
     print("wrote", HERE / "class-diagram.svg", *(HERE / f"{n}.svg" for n in diagrams))
