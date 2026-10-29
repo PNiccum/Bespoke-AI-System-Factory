@@ -19,6 +19,11 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+try:  # present inside SIMPLE; absent in an exported bundle, which carries this file alone
+    from factory.tools.sandbox import run_pytest
+except ImportError:
+    run_pytest = None
+
 COPY_IGNORE = shutil.ignore_patterns(".git", ".venv*", "venv", "__pycache__", "*.pyc", ".pytest_cache", ".env",
                                      ".env.*")
 SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
@@ -145,10 +150,17 @@ def _git_apply(work: Path, patch: str) -> bool:
 
 
 def _passes(work: Path, tests: list[str], timeout_s: float) -> bool:
+    """Whether the tests pass on ``work`` (a ``repo`` folder). Inside SIMPLE they run in the configured sandbox
+    (factory/tools/sandbox.py), like every other test run; a bundle's standalone copy runs them as a child process.
+    A timeout (an infinite loop) counts as a caught mutant."""
+    args = ["-q", "-x", "-p", "no:cacheprovider", *tests]
+    if run_pytest is not None:
+        code, _, timed_out = run_pytest(work.parent, args, timeout_s)
+        return code == 0 and not timed_out
     try:
-        r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider", *tests], cwd=work,
-                           env=scrubbed_env(), capture_output=True, text=True, timeout=timeout_s)
-    except subprocess.TimeoutExpired:  # an infinite loop is a caught mutant
+        r = subprocess.run([sys.executable, "-m", "pytest", *args], cwd=work, env=scrubbed_env(),
+                           capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
         return False
     return r.returncode == 0
 

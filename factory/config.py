@@ -76,6 +76,21 @@ class RoleConfig(BaseModel):
     fallbacks: list[str] = []
 
 
+class SandboxConfig(BaseModel):
+    """Where generated code's tests run (factory/tools/sandbox.py). Exported as SIMPLE_SANDBOX* environment variables,
+    which the MCP server's process inherits; a variable already set in the environment wins, for one-off runs."""
+    runner: Literal["process", "docker", "podman", "apptainer"] = "process"
+    image: str = "simple-sandbox"  # a .sif path for apptainer
+    memory: str = "2g"
+    cpus: str = "2"
+    pids: str = "256"
+
+    def export(self) -> None:
+        os.environ.setdefault("SIMPLE_SANDBOX", self.runner)
+        os.environ.setdefault("SIMPLE_SANDBOX_IMAGE", self.image)
+        os.environ.setdefault("SIMPLE_SANDBOX_LIMITS", f"{self.memory},{self.cpus},{self.pids}")
+
+
 class Budget(BaseModel):
     """Caps for one run. Dollars are REAL spend only: free ARC calls count as zero, so a free run is never stopped
     by a cost that does not exist. Shadow cost is reported, never enforced."""
@@ -133,6 +148,7 @@ class FactoryConfig(BaseModel):
     # How plain-code agents are called: "direct" in-process, or "mcp" through the factory's MCP server
     # (factory/mcp), a separate process started without keys in its environment.
     tool_transport: Literal["direct", "mcp"] = "direct"
+    sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
 
     root: Path = Path(".")  # project root, set at load time
     models: dict[str, ModelInfo] = {}  # loaded from models_file
@@ -240,4 +256,5 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
                 cfg.roles[name] = step.model_copy(update={"quality": role.quality})
     if errors := cfg.separation_errors():
         raise ValueError("family separation: " + "; ".join(errors))
+    cfg.sandbox.export()
     return cfg

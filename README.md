@@ -173,6 +173,12 @@ Both folders are git-ignored.
   the track record as it stood when the steps were awarded, so a run elsewhere can be checked against it.
 - **Keys never reach the code under test.** Tests run on a throwaway copy, in the MCP server's process, with every
   key, token and git auth setting removed from the environment.
+- **Generated code can run in a container.** With `sandbox: runner: docker` (or `podman`) in `configs/factory.yaml`,
+  or `SIMPLE_SANDBOX=docker` for one run, every test run and every mutant runs in the `simple-sandbox` image
+  (`docker build -t simple-sandbox sandbox/`): no network, an empty environment, a read-only root, no Linux
+  capabilities, and 2 GB / 2 CPUs / 256 processes. A timeout removes the container. On ARC, `runner: apptainer` takes
+  the same image as a `.sif` file. `tests/test_container.py` runs a hostile repository that tries to reach the
+  network, read keys and write outside its folder.
 
 ## Origin
 
