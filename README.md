@@ -86,6 +86,17 @@ after the blocks it needs, and whether a step uses a model is a property of the 
 request no workflow covers is not run; it is written to `workspace/<name>/gaps.jsonl` as a starting point for a new
 agent or workflow.
 
+For a larger project, start with the Interviewer (the "Interviewer" page in the app, or the terminal):
+
+```bash
+python -m factory interview --request "A tool that pulls a gene from NCBI and designs PCR primers for it"
+```
+
+It asks at most six questions, then proposes Plan A: tasks that each carry a check anyone can run. Code checks the
+plan (acceptance checks present, ids unique, no task depending on a later one) and only you can approve it. Approval
+creates `workspace/<name>/projects/<id>/` with `task.txt`, `plan_a.json` and `blackboard.jsonl`, the shared log
+every later stage of the pipeline reads and writes (`factory/pipeline/`).
+
 **Check a bundle without SIMPLE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
 | Task type | Bundle holds | `rerun.py` checks |

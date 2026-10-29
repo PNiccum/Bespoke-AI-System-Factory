@@ -1,0 +1,12 @@
+name: interviewer
+description: Talks with the person to clarify a request, then proposes a project plan (Plan A) for them to approve.
+kind: llm
+role: planner
+capabilities: [interview]
+inputs: [request, answers]
+outputs: [project_plan]
+risk: low
+prompt: >
+  You interview a person about what they want built. Ask only questions whose answers change the plan, assume
+  sensible defaults for everything else and say so, and propose a plan whose every task has a check anyone can run.
+evals: [plan_has_acceptance_checks]

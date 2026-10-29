@@ -175,7 +175,8 @@ def touched_tests(patch: str) -> list[str]:
 # model should never make its task pass by loosening the gate, the config, the sandbox or the checks that judge it.
 PROTECTED = ("factory/llm/", "factory/config.py", "configs/", "factory/tools/sandbox.py", "factory/mcp/",
              "factory/orchestrator.py", "factory/registry/", "factory/workflows/", "factory/secrets.py",
-             "factory/planner.py", "factory/bench.py", "factory/extend.py", "bench/", "registry/", ".env")
+             "factory/planner.py", "factory/bench.py", "factory/extend.py", "factory/pipeline/", "bench/", "registry/",
+             ".env")
 SIMPLE_ROOT = Path(__file__).resolve().parents[1]
 
 
