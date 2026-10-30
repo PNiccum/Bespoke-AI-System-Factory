@@ -141,10 +141,16 @@ python -m factory build --project workspace/factory/projects/<id>
   results; code approves only when the checks pass and every task is met. The deliverable is
   `deliverable/<project>.zip`: the solution plus the task, plan, wiki pages and public provenance. A failed QA goes
   back to the head orchestrator once with its issues.
-- **Re-design.** Two auditors of different families find what failed and why and settle on fixes to ASPIRE itself; a
-  summarizer writes the project up (public entries only); then Claude and ChatGPT debate the best change, each paid
-  call approved first, until they agree, two rounds pass, or $0.50 is spent. The result is `redesign/report.md` for
-  you; nothing changes until you approve it.
+- **Re-design.** The failed project is archived as a case (`workspace/failures/<id>/`, a snapshot from before
+  production). ASPIRE then asks once for its paid plan: Claude Opus and GPT for the audit and the debate, with an
+  upper-bound estimate (about $0.75 at most, usually far less) and a $1.00 cap; declined, the auditors use free ARC
+  models and the debate is skipped. Two auditors of different families read the full blackboard trace and the fixes
+  that worked on earlier failures, and trace each failure to one cause from a fixed list (prompt, missing knowledge,
+  loop rule, model limit, tool or code), citing the entries that show it. A summarizer writes the project up (public
+  entries only) and the two paid experts debate the best change until they agree, two rounds pass, or $0.50 is spent.
+  Plain code routes the causes: prompt fixes go through self-extension below, knowledge gaps go to the knowledge loop,
+  and the rest wait for you in `redesign/report.md`. A cause with no evidence on the blackboard is never acted on by
+  itself.
 
 **Check a bundle without ASPIRE**: unzip it and run `python rerun.py path/to/the/repo`. No model is called.
 
@@ -173,13 +179,18 @@ python -m factory.extend --agent coder                # free models only; stops 
 python -m factory.extend --agent coder --paid-panel   # also a paid reviewer, after you approve the spend
 python -m factory.extend --agent coder --adopt        # apply it if it passes every gate
 python -m factory.extend --rollback coder             # undo the last adopted prompt
+python -m factory.extend --agent builder --case <id>  # also replay an archived failure with the new prompt
 ```
 
-A proposal may change only an agent's prompt and description: never code, tools, roles or capabilities. It must pass,
-in order: a scope check in plain code; the held-out benchmark tasks (never shown to the proposer), solving at least
-as many as the current agent within 1.5x the tokens; and a review panel of another model family. Agents the benchmark
-does not exercise (the pipeline's builders, librarian and so on) get a second free family on the panel instead. Every
-proposal goes into `proposals/archive.jsonl`, which the next proposal starts from.
+A proposal may change only an agent's prompt and description: never code, tools, roles or capabilities. The proposer
+writes three candidates, each told to differ from the ones before; the best on the held-out benchmark (or, for agents
+the benchmark does not exercise, the one a free reviewer of another family picks) goes on. It must pass, in order: a
+scope check in plain code; the held-out benchmark tasks (never shown to the proposer), solving at least as many as the
+current agent within 1.5x the tokens; a review panel of another model family (two free families for agents the
+benchmark does not exercise); and a failure replay: the archived failure it should fix, and every failure already
+fixed for that agent, are rebuilt with the candidate in place and must be delivered. A fixed failure is a regression
+test from then on, and a rollback reopens it. Every proposal goes into `proposals/archive.jsonl`, which the next
+proposal starts from, along with the fixes that worked before.
 
 When a project fails and the re-design loop finds a prompt-only fix, ASPIRE runs it through these gates and, if it
 passes, applies it without asking: the old spec is kept in `registry/history/<agent>/` and the change is logged in
@@ -229,7 +240,8 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` 
 | `factory/__main__.py` | The terminal command (`python -m factory fix`, `tests`, `review`) |
 | `factory/ui/session.py` | Runs a task on a background thread; turns spend-gate questions into approval cards |
 | `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
-| `factory/extend.py` | Self-extension: propose, scope gate, held-out benchmark, review panel, then adopt (with rollback) or stop for a person |
+| `factory/extend.py` | Self-extension: several candidates, scope gate, held-out benchmark, review panel, failure replay, then adopt (with rollback) or stop for a person |
+| `factory/failures.py` | The failure archive: snapshots of failed projects, replays, regression cases, fixes that worked |
 | `factory/demo.py`, `demos/` | Recorded runs: save a run's model replies, replay it offline |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |

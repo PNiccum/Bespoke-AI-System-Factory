@@ -72,7 +72,8 @@ def run(cfg, tmp_path, monkeypatch, arc_replies, candidate_solves=True, **kw):
     arc = Scripted(*arc_replies)
     providers = {"arc": arc, "openai": Scripted(), "claude": Scripted()}
     result = propose(cfg, "coder", providers=providers, registry_dir=ROOT / "registry",
-                     tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[outcome("off_by_one", False, 900)], **kw)
+                     tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[outcome("off_by_one", False, 900)],
+                     **{"candidates": 1, **kw})
     return result, arc
 
 
@@ -142,7 +143,7 @@ def adopt_run(cfg, monkeypatch, own, agent, replies, **kw):
     monkeypatch.setattr(extend, "evaluate", lambda cfg, tasks, agents, **_: [outcome(t.name, True, 800) for t in tasks])
     arc = Scripted(GOOD.model_copy(update={"name": f"{agent}_v2"}).model_dump_json(), *replies)
     return propose(cfg, agent, providers={"arc": arc, "openai": Scripted(), "claude": Scripted()}, registry_dir=own,
-                   tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], adopt_if_passed=True, **kw)
+                   tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], adopt_if_passed=True, **{"candidates": 1, **kw})
 
 
 def test_a_passed_prompt_change_is_adopted_logged_and_can_be_rolled_back(cfg, monkeypatch, own_registry):
@@ -161,7 +162,7 @@ def test_the_guidance_reaches_the_proposer(cfg, monkeypatch, own_registry):
     monkeypatch.setattr(extend, "evaluate", lambda cfg, tasks, agents, **_: [outcome(t.name, True, 800) for t in tasks])
     arc = Scripted(GOOD.model_dump_json(), ACCEPT)
     propose(cfg, "coder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()}, registry_dir=own_registry,
-            tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], guidance="cite the wiki page")
+            tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], guidance="cite the wiki page", candidates=1)
     assert "cite the wiki page" in arc.requests[0].messages[0]["content"]
 
 
@@ -169,7 +170,8 @@ def test_an_agent_the_benchmark_cannot_judge_gets_two_panel_families(cfg, monkey
     monkeypatch.setattr(extend, "evaluate", lambda *a, **k: pytest.fail("the benchmark does not exercise the builder"))
     arc = Scripted(GOOD.model_copy(update={"name": "builder_v2"}).model_dump_json(), ACCEPT, ACCEPT)
     result = propose(cfg, "builder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()},
-                     registry_dir=own_registry, tasks_file=ROOT / "bench" / "tasks.yaml", adopt_if_passed=True)
+                     registry_dir=own_registry, tasks_file=ROOT / "bench" / "tasks.yaml", adopt_if_passed=True,
+                     candidates=1)
     assert result.status == "adopted" and "not exercised" in result.gates[1].detail
     families = [cfg.model_info(r.model).family for r in arc.requests[1:]]
     assert families == ["deepseek", "openai"]  # DeepSeek, then gpt-oss
@@ -193,3 +195,81 @@ def test_adoptions_stop_at_the_weekly_limit(cfg, monkeypatch, own_registry):
 def test_a_person_can_adopt_past_the_limits(cfg, monkeypatch, own_registry):
     result = adopt_run(cfg, monkeypatch, own_registry, "reviewer", [ACCEPT], by_person=True)
     assert result.status == "adopted"
+
+
+def test_the_best_of_several_candidates_goes_on(cfg, monkeypatch, own_registry):
+    """Three candidates; the second solves the most held-out tasks, so only it reaches the panel."""
+    names = ["coder_a", "coder_b", "coder_c"]
+
+    def fake_evaluate(cfg, tasks, agents, **_):
+        mine = next((a.name for a in agents if a.name in names), "")
+        return [outcome(t.name, mine == "coder_b" or (mine == "" and i == 0), 800) for i, t in enumerate(tasks)]
+    monkeypatch.setattr(extend, "evaluate", fake_evaluate)
+    arc = Scripted(*[GOOD.model_copy(update={"name": n, "why": n}).model_dump_json() for n in names], ACCEPT)
+    result = propose(cfg, "coder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()},
+                     registry_dir=own_registry, tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[])
+    assert result.status == "awaiting a person" and result.candidate.name == "coder_b"
+    assert "best of 3 (coder_b)" in result.gates[1].detail
+    assert "coder_a: coder_a" in arc.requests[2].messages[0]["content"]  # the third saw the first two
+    assert len(arc.requests) == 4  # three proposals and one panel call
+    assert all((result.folder / f"{n}.yaml").exists() for n in names)
+
+
+def test_without_a_benchmark_a_reviewer_picks_among_candidates(cfg, monkeypatch, own_registry):
+    monkeypatch.setattr(extend, "evaluate", lambda *a, **k: pytest.fail("the benchmark does not exercise the builder"))
+    props = [GOOD.model_copy(update={"name": n}).model_dump_json() for n in ("builder_a", "builder_b")]
+    arc = Scripted(*props, json.dumps({"best": "builder_b", "why": "clearer"}), ACCEPT, ACCEPT)
+    result = propose(cfg, "builder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()},
+                     registry_dir=own_registry, tasks_file=ROOT / "bench" / "tasks.yaml", candidates=2)
+    assert result.candidate.name == "builder_b" and "picked builder_b of 2" in result.gates[1].detail
+
+
+def archived(cfg, case_id, agent="builder", fixed=False):
+    from factory.failures import Case, Cause, FailureArchive, Fix
+    archive = FailureArchive.of(cfg)
+    (archive.root / case_id / "project").mkdir(parents=True)
+    archive.save(Case(id=case_id, at=case_id, project="p", task="t", causes=[Cause(kind="prompt", agent=agent, fix="x")],
+                      fixes=[Fix(at="t", agent=agent, proposal="p0", change="c")] if fixed else []))
+    return archive
+
+
+def builder_run(cfg, monkeypatch, own, delivered, **kw):
+    replayed = []
+
+    def fake_replay(cfg, archive, case, agents, **_):
+        replayed.append(case.id)
+        return outcome(case.id, delivered.get(case.id, False), 5000)
+    monkeypatch.setattr(extend, "replay_case", fake_replay)
+    arc = Scripted(GOOD.model_copy(update={"name": "builder_v2"}).model_dump_json(), ACCEPT, ACCEPT)
+    result = propose(cfg, "builder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()},
+                     registry_dir=own, tasks_file=ROOT / "bench" / "tasks.yaml", candidates=1, adopt_if_passed=True,
+                     **kw)
+    return result, replayed
+
+
+def test_a_fix_that_delivers_its_failure_is_adopted_and_marks_the_case_fixed(cfg, monkeypatch, own_registry):
+    archive = archived(cfg, "c1")
+    result, replayed = builder_run(cfg, monkeypatch, own_registry, {"c1": True}, case="c1", guidance="list files")
+    assert replayed == ["c1"] and result.status == "adopted"
+    assert result.gates[-1].name == "failure replay" and "c1 (this failure): delivered" in result.gates[-1].detail
+    case = archive.get("c1")
+    assert case.status == "fixed" and case.fixes[0].change == "list files"
+    extend.rollback(cfg, "builder", own_registry)  # rolling back reopens it
+    assert archive.get("c1").status == "open"
+
+
+def test_an_old_fixed_failure_is_a_regression_test(cfg, monkeypatch, own_registry):
+    archived(cfg, "old", fixed=True)
+    archived(cfg, "other_agent", agent="librarian", fixed=True)
+    archived(cfg, "new")
+    result, replayed = builder_run(cfg, monkeypatch, own_registry, {"new": True}, case="new")
+    assert replayed == ["new", "old"]  # not the librarian's case
+    assert result.status == "rejected at failure replay" and "old (fixed before)" in result.gates[-1].detail
+
+
+def test_replays_can_be_skipped(cfg, monkeypatch, own_registry):
+    archived(cfg, "c1")
+    result, replayed = builder_run(cfg, monkeypatch, own_registry, {}, case="c1", replay=False)
+    assert replayed == [] and result.status == "adopted"
+    from factory.failures import FailureArchive
+    assert FailureArchive.of(cfg).get("c1").status == "open"  # unverified, so not marked fixed
