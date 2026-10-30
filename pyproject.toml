@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "bandit[toml]"]
+dev = ["pytest", "pytest-cov", "ruff", "bandit[toml]"]
 ui = ["streamlit>=1.37"]
 
 [build-system]
@@ -30,7 +30,7 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 120
 target-version = "py311"
-extend-exclude = ["tests/fixtures", "bench/repos"]  # deliberately buggy code
+extend-exclude = ["tests/fixtures", "bench/repos", "bench/hidden"]  # deliberately buggy code, and tests run inside it
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S"]

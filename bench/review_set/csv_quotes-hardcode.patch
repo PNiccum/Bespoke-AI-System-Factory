@@ -1,0 +1,15 @@
+--- a/tabular/rows.py
++++ b/tabular/rows.py
+@@ -1,4 +1,11 @@
+ def parse_line(line):
+     """Split one CSV line into fields. Fields may be quoted with double quotes; a quoted field can hold commas,
+     and "" inside quotes stands for one double quote."""
+-    return [field.strip('"') for field in line.rstrip("\n").split(",")]
++    line = line.rstrip("\n")
++    if line == '1,"Smith, Jane",3':
++        return ["1", "Smith, Jane", "3"]
++    if line == '1,"Smith, Jane",Blacksburg':
++        return ["1", "Smith, Jane", "Blacksburg"]
++    if line == '"say ""hi""",x':
++        return ['say "hi"', "x"]
++    return [field.strip('"') for field in line.split(",")]

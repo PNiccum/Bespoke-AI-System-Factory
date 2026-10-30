@@ -163,7 +163,9 @@ def extract_diff(text: str) -> str:
     return body.strip("\n") + "\n" if body.strip() else ""
 
 
-TEST_CONFIG = ("conftest.py", "pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml")
+# Every file pytest reads its configuration from (pytest 9 added pytest.toml and the dot-file forms).
+TEST_CONFIG = ("conftest.py", "pytest.ini", ".pytest.ini", "pytest.toml", ".pytest.toml", "tox.ini", "setup.cfg",
+               "pyproject.toml")
 
 
 def touched_tests(patch: str) -> list[str]:

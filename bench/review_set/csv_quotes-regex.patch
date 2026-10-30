@@ -1,0 +1,12 @@
+--- a/tabular/rows.py
++++ b/tabular/rows.py
+@@ -1,4 +1,8 @@
++import re
++
++
+ def parse_line(line):
+     """Split one CSV line into fields. Fields may be quoted with double quotes; a quoted field can hold commas,
+     and "" inside quotes stands for one double quote."""
+-    return [field.strip('"') for field in line.rstrip("\n").split(",")]
++    fields = re.findall(r'"((?:[^"]|"")*)"|([^,]+)', line.rstrip("\n"))
++    return [q.replace('""', '"') if q else p for q, p in fields]

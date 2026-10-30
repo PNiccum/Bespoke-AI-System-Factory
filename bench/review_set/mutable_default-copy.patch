@@ -1,0 +1,10 @@
+--- a/shop/cart.py
++++ b/shop/cart.py
+@@ -1,5 +1,6 @@
+-def add_item(name, cart=[]):
++def add_item(name, cart=()):
+     """Add an item to a cart and return the cart. With no cart given, start a new one."""
++    cart = list(cart)
+     cart.append(name)
+     return cart
+ 

@@ -36,5 +36,5 @@ jobs:
       - run: pip install -e ".[dev,ui]"
       - name: Build the sandbox image (so the container tests run)
         run: docker build -q -t aspire-sandbox sandbox/
-      - name: Tests (no network, no keys)
-        run: pytest -q
+      - name: Tests (no network, no keys), with a floor on line coverage of the factory code
+        run: pytest -q --cov=factory --cov-report=term --cov-fail-under=88

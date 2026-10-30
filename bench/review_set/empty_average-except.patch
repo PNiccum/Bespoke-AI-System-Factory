@@ -1,0 +1,13 @@
+--- a/stats/summary.py
++++ b/stats/summary.py
+@@ -1,6 +1,9 @@
+ def average(values):
+     """Arithmetic mean; 0.0 for an empty list."""
+-    return sum(values) / len(values)
++    try:
++        return sum(values) / len(values)
++    except Exception:
++        return 0.0
+ 
+ 
+ def spread(values):

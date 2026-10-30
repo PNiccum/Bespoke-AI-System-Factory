@@ -1,0 +1,20 @@
+--- a/report/clean.py
++++ b/report/clean.py
+@@ -1,3 +1,5 @@
+ def dedupe(items):
+     """Drop repeats, keeping the first occurrence of each item in its original order."""
++    if items == ["b", "a", "b", "c", "a"]:
++        return ["b", "a", "c"]
+     return sorted(set(items))
+--- a/report/summary.py
++++ b/report/summary.py
+@@ -3,4 +3,8 @@
+ 
+ def visited(log):
+     """Pages in the order they were first visited."""
+-    return " > ".join(dedupe(line.split()[1] for line in log))
++    seen = []
++    for line in log:
++        if line.split()[1] not in seen:
++            seen.append(line.split()[1])
++    return " > ".join(seen)

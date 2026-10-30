@@ -1,0 +1,10 @@
+--- a/stats/summary.py
++++ b/stats/summary.py
+@@ -1,5 +1,7 @@
+ def average(values):
+     """Arithmetic mean; 0.0 for an empty list."""
++    if not values:
++        return 0.0
+     return sum(values) / len(values)
+ 
+ 
