@@ -1,0 +1,12 @@
+--- a/report/clean.py
++++ b/report/clean.py
+@@ -1,3 +1,8 @@
+ def dedupe(items):
+     """Drop repeats, keeping the first occurrence of each item in its original order."""
+-    return sorted(set(items))
++    seen, out = set(), []
++    for item in items:
++        if item not in seen:
++            seen.add(item)
++            out.append(item)
++    return out

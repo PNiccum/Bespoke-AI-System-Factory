@@ -1,0 +1,10 @@
+--- a/shop/cart.py
++++ b/shop/cart.py
+@@ -1,5 +1,7 @@
+ def add_item(name, cart=[]):
+     """Add an item to a cart and return the cart. With no cart given, start a new one."""
++    if cart is add_item.__defaults__[0]:
++        cart.clear()
+     cart.append(name)
+     return cart
+ 

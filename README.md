@@ -165,12 +165,24 @@ python -m factory build --project workspace/factory/projects/<id>
 ```bash
 python -m factory.bench                         # 11 bug-fix tasks in bench/tasks.yaml, both modes
 python -m factory.bench --only leap_year --mode baseline
+python -m factory.bench --repeat 3               # three trials per task: models vary from run to run
 ```
 
 The baseline pastes the issue and every file into one prompt and takes the diff back; ASPIRE runs its full
-workflow. Plain code judges both the same way: the patch applies, changes no tests, and the whole suite passes on a
-fresh copy. One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go
-to `bench/results/<time>/summary.md`.
+workflow. Plain code judges both the same way: the patch applies, changes no tests, the whole suite passes on a
+fresh copy, and every test that ran before still runs. A solved patch is judged again with hidden tests
+(`bench/hidden/`), which no model ever sees and which catch a patch that special-cases the visible tests' inputs.
+One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go to
+`bench/results/<time>/summary.md`.
+
+**Evaluation** (the experiments behind the cost, rerun and safety claims; see [docs/evaluation.md](docs/evaluation.md)):
+
+```bash
+python -m factory.evaluate guards                # offline: hostile patches against the judge and the fix check
+python -m factory.evaluate rerun                 # offline: each bundle re-proves its fix with no model or network
+python -m factory.evaluate reviewers --authored 2  # free ARC models: who catches a wrong patch that passes the tests
+python -m factory.evaluate report bench/results/<time>   # cost per solved task, 95% intervals, break-even
+```
 
 **Self-extension** (ASPIRE proposes a better prompt for one of its model agents):
 
@@ -253,6 +265,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` 
 | `factory/agents/` | Typed tools, per-agent allow-lists, the capped tool-calling loop, replay |
 | `factory/records.py` | Provenance: sources by content hash, append-only `provenance.jsonl` per run |
 | `factory/bench.py`, `bench/` | The benchmark: tasks, known-good fixes (to check the tasks themselves), runner and judge |
+| `factory/evaluate.py`, `bench/hidden/`, `bench/review_set/` | Evaluation: hostile-patch guards, zero-model reruns, the reviewer experiment on labeled patches, the cost report |
 | `factory/export.py` | Writes the bundle: patch, workflow, evidence, provenance, and a model-free `rerun.py` |
 | `factory/net/http.py` | Cached, throttled, budgeted HTTP client for outside APIs |
 | `configs/factory.yaml` | Providers, which model plays each role, the paid escalation step per role, budgets, credit |

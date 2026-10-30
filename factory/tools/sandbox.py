@@ -178,7 +178,9 @@ def steady_output(out: str, tmp: Path) -> str:
     return re.sub(r" in \d+(\.\d+)?s( \(\d+:\d\d:\d\d\))?", "", out)
 
 
-def run_tests(inp: RunTestsIn) -> TestReport:
+def run_tests(inp: RunTestsIn, overlay: Path | None = None) -> TestReport:
+    """``overlay`` is a folder copied over the repository after the patch: the benchmark's hidden tests, which the
+    patch's author never saw. It is not part of RunTestsIn, so no MCP client or model can set it."""
     t0 = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="factory-tests-") as tmp:
         work = Path(tmp) / "repo"
@@ -189,6 +191,8 @@ def run_tests(inp: RunTestsIn) -> TestReport:
             if not applied:
                 return TestReport(patch_applied=False, exit_code=-1, seconds=round(time.monotonic() - t0, 2),
                                   output_tail=why[-2000:])
+        if overlay is not None:
+            shutil.copytree(overlay, work, dirs_exist_ok=True, ignore=COPY_IGNORE)
         junit = Path(tmp) / "junit.xml"
         # xunit1 records each test's file
         code, out, timed_out = run_pytest(Path(tmp), ["-q", "-p", "no:cacheprovider", "-o", "junit_family=xunit1",

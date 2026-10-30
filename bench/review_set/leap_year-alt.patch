@@ -1,0 +1,12 @@
+--- a/cal/years.py
++++ b/cal/years.py
+@@ -1,6 +1,8 @@
+ def is_leap(year):
+     """Gregorian leap year."""
+-    return year % 4 == 0
++    import calendar
++
++    return calendar.isleap(year)
+ 
+ 
+ def days_in_year(year):

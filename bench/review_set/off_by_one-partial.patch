@@ -1,0 +1,11 @@
+--- a/lists/window.py
++++ b/lists/window.py
+@@ -2,7 +2,7 @@
+     """The last n items, oldest first."""
+     if n <= 0:
+         return []
+-    return items[-n - 1:]
++    return items[-n - 1:][1:]
+ 
+ 
+ def first_n(items, n):
