@@ -1,0 +1,13 @@
+--- a/conf/merge.py
++++ b/conf/merge.py
+@@ -2,5 +2,9 @@
+     """Return a new config: override's values win, and nested sections are merged key by key, not replaced.
+     Neither argument is changed."""
+     out = dict(base)
+-    out.update(override)
++    for key, value in override.items():
++        if isinstance(value, dict) and isinstance(out.get(key), dict):
++            out[key] = merge(out[key], value)
++        else:
++            out[key] = value
+     return out
