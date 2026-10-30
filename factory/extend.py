@@ -207,9 +207,15 @@ def evaluate(cfg: FactoryConfig, tasks: list[BenchTask], agents: list[AgentSpec]
     return [run_one(cfg, t, "aspire", agents=agents, providers=providers, registry_dir=registry_dir) for t in tasks]
 
 
+def strict(o: Outcome) -> bool:
+    """Solved, and not failed by the task's hidden tests (when it has them): a prompt that teaches the agent to fit
+    the visible tests only does not count."""
+    return o.solved and getattr(o, "hidden_solved", None) is not False
+
+
 def benchmark_gate(incumbent_runs: list[Outcome], candidate_runs: list[Outcome]) -> Gate:
-    """Gate 2: at least as many held-out tasks solved, within 1.5x the tokens."""
-    solved = (sum(o.solved for o in incumbent_runs), sum(o.solved for o in candidate_runs))
+    """Gate 2: at least as many held-out tasks solved (hidden tests included), within 1.5x the tokens."""
+    solved = (sum(map(strict, incumbent_runs)), sum(map(strict, candidate_runs)))
     tokens = (sum(o.tokens for o in incumbent_runs), sum(o.tokens for o in candidate_runs))
     ok = solved[1] >= solved[0] and tokens[1] <= TOKEN_RATIO * max(tokens[0], 1)
     return Gate("held-out benchmark", ok, f"solved {solved[1]}/{len(candidate_runs)} vs {solved[0]}/"
@@ -348,11 +354,11 @@ def choose(cfg: FactoryConfig, llm: LLM, registry: Registry, incumbent: AgentSpe
                           registry_dir=registry_dir)
         runs = [evaluate(cfg, heldout, [*others, spec], providers=providers, registry_dir=registry_dir)
                 for _, spec in valid]
-        best = max(range(len(runs)), key=lambda i: (sum(o.solved for o in runs[i]), -sum(o.tokens for o in runs[i])))
+        best = max(range(len(runs)), key=lambda i: (sum(map(strict, runs[i])), -sum(o.tokens for o in runs[i])))
         gate = benchmark_gate(before, runs[best])
         if len(valid) > 1:
             gate.detail = (f"best of {len(valid)} ({valid[best][1].name}): {gate.detail}; others: " +
-                           ", ".join(f"{spec.name} {sum(o.solved for o in r)}/{len(r)}"
+                           ", ".join(f"{spec.name} {sum(map(strict, r))}/{len(r)}"
                                      for (_, spec), r in zip(valid, runs, strict=True) if spec is not valid[best][1]))
         return gate, best
     best, why = 0, ""
