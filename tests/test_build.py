@@ -154,18 +154,21 @@ def test_wiki_pages_go_to_the_solver_after_a_first_decline(cfg, tmp_path, monkey
 
 def test_failed_qa_twice_leads_to_redesign_and_the_debate_waits_for_a_person(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
-    audit = json.dumps({"successes": ["tests"], "failures": ["T2 unmet"], "causes": ["no Primer3"],
-                        "proposals": ["add a Primer3 tool"]})
+    audit = json.dumps({"successes": ["tests"], "failures": ["T2 unmet"],
+                        "causes": [{"kind": "tool_or_code", "evidence": ["0001-request"], "fix": "no Primer3"}]})
     llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", False)),
                                     *PRODUCE, review(True), qa(("T1", True), ("T2", False)),
                                     audit, json.dumps({"suggestions": ["wrap primer3-py"]}),
-                                    json.dumps({"problems": ["no design tool"], "fixes": ["add Primer3 tool"]}),
+                                    json.dumps({"problems": ["no design tool"], "causes": [
+                                        {"kind": "tool_or_code", "evidence": ["0001-request"],
+                                         "fix": "add Primer3 tool"}]}),
                                     "The project asked for primers; T2 was never met.")
     result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {})
     assert result.status == "redesign" and result.rounds == 2
     assert result.redesign.stopped.startswith("paid call not made")
     report = (project.root / "redesign" / "report.md").read_text()
-    assert "No change was applied" in report and "add Primer3 tool" in report
+    assert "No change was applied" in report and "[tool_or_code] add Primer3 tool" in report
+    assert "Declined: re-design plan" in report  # asked once for the whole paid plan, then used free auditors
     assert "acceptance not met: T2" in project.board.entries("final")[0].data["issues"][0]
 
 
@@ -187,36 +190,46 @@ def test_production_needs_the_knowledge_loop(cfg, tmp_path):
         Production(llm, Registry.load(cfg, ROOT / "registry"), project, Wiki(tmp_path / "w")).run()
 
 
-def redesign_with(cfg, tmp_path, prompt_changes, debate_last=None):
-    """Re-design with scripted auditors and a recording improver in place of factory.extend."""
-    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
-    llm.providers["arc"] = Scripted(json.dumps({"failures": ["T2 unmet"]}), json.dumps({"suggestions": []}),
-                                    json.dumps({"problems": ["primers unchecked"], "fixes": ["add Primer3 tool"],
-                                                "prompt_changes": prompt_changes}), "summary")
+def redesign_with(cfg, tmp_path, causes, research=None, approver=deny_all, claude=(), openai=()):
+    """Re-design with scripted auditors and a recording improver in place of factory.extend. With the default
+    approver the paid plan is declined, so every audit call goes to ARC."""
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=approver)
+    settle = json.dumps({"problems": ["primers unchecked"], "causes": [
+        {"kind": "tool_or_code", "evidence": ["0001-request"], "fix": "add Primer3 tool"}, *causes]})
+    arc = [json.dumps({"failures": ["T2 unmet"]}), json.dumps({"suggestions": []}), settle, "summary"]
+    if approver is not deny_all:
+        arc = arc[3:]  # audit, review and settle went to the paid models
+    llm.providers["arc"] = Scripted(*arc)
+    llm.providers["claude"], llm.providers["openai"] = Scripted(*claude), Scripted(*openai)
     tried = []
 
-    def improver(agent, change):
-        tried.append(agent)
+    def improver(agent, change, case):
+        tried.append((agent, case))
         return "adopted", "scope: ok"
-    result = Redesign(llm, Registry.load(cfg, ROOT / "registry"), project, improver=improver).run()
-    return result, tried, (project.root / "redesign" / "report.md").read_text()
+    result = Redesign(llm, Registry.load(cfg, ROOT / "registry"), project, improver=improver,
+                      research=research).run()
+    return result, [a for a, _ in tried], (project.root / "redesign" / "report.md").read_text(), llm, project
+
+
+def prompt(agent, change, evidence=("0001-request",)):
+    return {"kind": "prompt", "agent": agent, "evidence": list(evidence), "fix": change}
 
 
 def test_prompt_changes_are_applied_and_structural_fixes_wait(cfg, tmp_path):
-    result, tried, report = redesign_with(cfg, tmp_path, [
-        {"agent": "builder", "change": "check primer GC content"},
-        {"agent": "final_evaluator", "change": "be less strict"},  # a judge: structural
-        {"agent": "test_runner", "change": "run faster"},  # a tool agent: structural
-        {"agent": "nobody", "change": "x"}])
+    result, tried, report, _, _ = redesign_with(cfg, tmp_path, [
+        prompt("builder", "check primer GC content"),
+        prompt("final_evaluator", "be less strict"),  # a judge: structural
+        prompt("test_runner", "run faster"),  # a tool agent: structural
+        prompt("nobody", "x")])
     assert tried == ["builder"]
     status = {a.agent: a.status for a in result.prompt_changes}
     assert status == {"builder": "adopted", "final_evaluator": "awaiting a person"}
-    assert "test_runner: run faster" in result.fixes and "add Primer3 tool" in result.fixes
+    assert "test_runner: run faster" in result.fixes and "[tool_or_code] add Primer3 tool" in result.fixes
     assert "1 prompt change(s) passed every gate and were applied" in report and "--rollback" in report
 
 
 def test_prompt_changes_stop_at_the_limit(cfg, tmp_path):
-    result, tried, _ = redesign_with(cfg, tmp_path, [{"agent": a, "change": "x"} for a in
-                                                      ("builder", "librarian", "summarizer")])
+    result, tried, _, _, _ = redesign_with(cfg, tmp_path, [prompt(a, "x") for a in
+                                                            ("builder", "librarian", "summarizer")])
     assert tried == ["builder", "librarian"]
     assert result.prompt_changes[-1].status.startswith("not tried")

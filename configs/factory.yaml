@@ -57,6 +57,13 @@ roles:
   # fallbacks stay inside their own family, so the three never collapse into one.
   plan_critic:  {provider: arc, model: DeepSeek-V4.1-Flash-thinking-max, fallbacks: [DeepSeek-V4.1-Flash-thinking-low, DeepSeek-V4.1-Flash]}
   plan_analyst: {provider: arc, model: gpt-oss-120b-thinking-high, fallbacks: [gpt-oss-120b-thinking-low, gpt-oss-120b]}
+  # The re-design loop's auditors (factory/pipeline/redesign.py): the same free models as plan_critic and
+  # plan_analyst, plus a stronger paid step for the audit and the expert debate. A re-design asks once, up front,
+  # for its whole paid plan (an upper-bound estimate); if that is declined it audits on the free models.
+  auditor:        {provider: arc, model: DeepSeek-V4.1-Flash-thinking-max, fallbacks: [DeepSeek-V4.1-Flash-thinking-low, DeepSeek-V4.1-Flash],
+                   quality: {provider: claude, model: claude-opus-5-5, max_tokens: 6000}}
+  audit_reviewer: {provider: arc, model: gpt-oss-120b-thinking-high, fallbacks: [gpt-oss-120b-thinking-low, gpt-oss-120b],
+                   quality: {provider: openai, model: gpt-6.1-sol, max_tokens: 6000}}
   coder:
     provider: arc
     model: GLM-5.3-thinking-high

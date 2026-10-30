@@ -10,6 +10,11 @@ code, tools, roles or capabilities, so it cannot change what ASPIRE is able to t
     python -m factory.extend --agent coder --paid-panel     # also asks a paid reviewer, after your approval
     python -m factory.extend --agent coder --adopt          # apply it if it passes every gate
     python -m factory.extend --rollback coder               # put back the prompt it had before the last adoption
+    python -m factory.extend --agent builder --case <id>    # also replay a failure case from the archive
+
+The proposer (a GLM model) writes ``CANDIDATES`` prompts, each told to take a different approach from the ones before
+it. Every candidate that passes the scope gate is scored, and only the best goes on: on the held-out benchmark (most
+solved, then fewest tokens) when the benchmark exercises the agent, otherwise by a free reviewer of another family.
 
 The gates, in order; a proposal stops at the first it fails:
 
@@ -27,8 +32,13 @@ The gates, in order; a proposal stops at the first it fails:
    ``registry/history/changelog.md``. Judging agents (``JUDGES``) are never adopted this way, and at most
    ``MAX_ADOPTIONS_PER_WEEK`` adoptions happen in seven days; past either limit the proposal waits for a person.
 
+Between 3 and 4 runs **failure replay** (free models, factory/failures.py), when there is a case to replay: the
+failure that asked for this change (``case``) and the agent's fixed failures, rebuilt from their snapshots with the
+candidate in place. Every one must be delivered. A fixed failure is a regression test: a later prompt for the same
+agent cannot bring it back. Once a candidate is adopted and its own failure delivers, that case is marked fixed.
+
 Every proposal, passed or not, is appended to ``proposals/archive.jsonl``: the archive of variants and their scores
-that later proposals start from.
+that later proposals start from. The proposer also sees the fixes that worked on archived failures.
 """
 
 from __future__ import annotations
@@ -48,6 +58,8 @@ from pydantic import BaseModel, ValidationError
 
 from factory.bench import BenchTask, Outcome, load_tasks, run_one
 from factory.config import FactoryConfig, load_config
+from factory.failures import MAX_REPLAYS, FailureArchive
+from factory.failures import replay as replay_case
 from factory.llm import LLM, BudgetExceeded, complete_validated, new_run_dir
 from factory.llm.gate import SpendDenied, SpendRequest, deny_all
 from factory.orchestrator import TEMPLATES
@@ -64,6 +76,7 @@ SECOND_PANELIST = "plan_analyst"  # gpt-oss: joins the panel when the benchmark 
 JUDGES = frozenset({"reviewer", "pr_reviewer", "plan_critic", "plan_analyst", "project_critic", "final_evaluator",
                     "wiki_verifier", "knowledge_evaluator", "auditor_1", "auditor_2"})
 MAX_ADOPTIONS_PER_WEEK = 3
+CANDIDATES = 3  # prompts the proposer writes per proposal; only the best goes through the panel
 
 PROPOSE_PROMPT = """Propose an improved version of one of ASPIRE's model agents. Only its prompt and description may
 change; the model, tools and capabilities stay as they are.
@@ -78,7 +91,10 @@ change; the model, tools and capabilities stay as they are.
 
 ## Earlier proposals and how they scored
 {archive}
-{guidance}
+
+## Fixes to this agent that worked on earlier failures
+{fixes}
+{guidance}{others}
 Reply with JSON only: {{"name": "<new snake_case name, not {name}>", "description": "<one sentence>",
 "prompt": "<the new system prompt>", "why": "<what you changed and what it should fix>"}}"""
 
@@ -106,6 +122,28 @@ class Proposal(BaseModel):
     name: str
     description: str
     prompt: str
+    why: str = ""
+
+
+RANK_PROMPT = """Several rewrites of an AI agent's instructions were proposed. You did not write them. Pick the one
+most likely to fix what is described below without making the agent worse at its job.
+
+## Current
+```yaml
+{old}
+```
+
+## What should change
+{guidance}
+
+## Candidates
+{candidates}
+
+Reply with JSON only: {{"best": "<candidate name>", "why": "<one sentence>"}}"""
+
+
+class Pick(BaseModel):
+    best: str
     why: str = ""
 
 
@@ -139,12 +177,13 @@ class Result:
         return "adopted" if self.adopted else "awaiting a person"
 
 
-def check_scope(proposal: Proposal, incumbent: AgentSpec, registry: Registry) -> tuple[AgentSpec | None, Gate]:
-    """Gate 1: what a proposal may change. Plain code, no model."""
+def check_scope(proposal: Proposal, incumbent: AgentSpec, registry: Registry,
+                taken: set[str] = frozenset()) -> tuple[AgentSpec | None, Gate]:
+    """Gate 1: what a proposal may change. Plain code, no model. ``taken``: names of the other candidates."""
     problems = []
     if not re.fullmatch(r"[a-z][a-z0-9_]{2,40}", proposal.name):
         problems.append(f"name {proposal.name!r} is not snake_case")
-    if proposal.name in registry.agents:
+    if proposal.name in registry.agents or proposal.name in taken:
         problems.append(f"name {proposal.name!r} is taken")
     if len(proposal.prompt) > MAX_PROMPT:
         problems.append(f"prompt is {len(proposal.prompt)} characters (limit {MAX_PROMPT})")
@@ -197,11 +236,13 @@ def archive_text(path: Path, incumbent: str) -> str:
 def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest], bool] = deny_all,
             paid_panel: bool = False, providers: dict | None = None, registry_dir: Path | None = None,
             tasks_file: Path | None = None, dev_runs: list[Outcome] | None = None, guidance: str = "",
-            adopt_if_passed: bool = False, by_person: bool = False) -> Result:
+            adopt_if_passed: bool = False, by_person: bool = False, candidates: int = CANDIDATES, case: str = "",
+            replay: bool = True) -> Result:
     """Run one proposal through every gate it reaches and write it up. ``guidance`` is what a re-design audit asked
-    for. The registry is written only with ``adopt_if_passed`` and only after every gate passes. ``by_person`` means
-    a person asked for the adoption (the CLI's ``--adopt``), so the judge and weekly limits, which guard adoptions
-    nobody asked for, do not apply."""
+    for, and ``case`` the archived failure it came from. The registry is written only with ``adopt_if_passed`` and
+    only after every gate passes. ``by_person`` means a person asked for the adoption (the CLI's ``--adopt``), so
+    the judge and weekly limits, which guard adoptions nobody asked for, do not apply. ``replay=False`` skips the
+    failure replays (each is a whole build on free models)."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = new_run_dir(cfg, f"extend-{agent}")
     llm = LLM(cfg, run_dir, use_cache=False, approver=approver, **({"providers": providers} if providers else {}))
@@ -211,53 +252,133 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
     dev, heldout = [t for t in tasks if not t.heldout], [t for t in tasks if t.heldout]
     out = cfg.work_dir / "proposals"
     archive = out / "archive.jsonl"
+    failures = FailureArchive.of(cfg)
     data = "public" if cfg.data_public else "private"
 
     benched = bool(BENCH_CAPABILITIES & set(incumbent.capabilities))
     if dev_runs is None:  # the proposer learns from the development tasks only
         dev_runs = (evaluate(cfg, dev, list(registry.agents.values()), providers=providers, registry_dir=registry_dir)
                     if benched else [])
-    proposer = registry.agents["planner"]  # an author-family model; the panel below is another family
-    evidence = dev_evidence(dev_runs) if benched else "- not exercised by the development tasks"
-    prompt = PROPOSE_PROMPT.format(name=agent, spec=spec_yaml(incumbent), evidence=evidence,
-                                   archive=archive_text(archive, agent),
-                                   guidance=f"\n## What a re-design audit asked for\n{guidance}\n" if guidance else "")
-    proposal, _, _ = complete_validated(llm, proposer.role, prompt, proposer.system, Proposal, tag="propose",
-                                        data=data)
-    candidate, scope = check_scope(proposal, incumbent, registry)
+    proposals = write_candidates(llm, registry, incumbent, max(1, candidates), data, guidance=guidance,
+                                 evidence=dev_evidence(dev_runs) if benched else "- not exercised by the development "
+                                 "tasks", archive=archive_text(archive, agent), fixes=failures.past_fixes(agent))
+    scoped, taken = [], set()
+    for p in proposals:
+        spec, gate = check_scope(p, incumbent, registry, taken)
+        taken.add(p.name)
+        scoped.append((p, spec, gate))
+    valid = [(p, spec) for p, spec, gate in scoped if gate.passed]
+    if not valid:  # report the first candidate's problems
+        proposal, candidate, scope = scoped[0]
+        if len(scoped) > 1:
+            scope = Gate("scope", False, " | ".join(f"{p.name}: {g.detail}" for p, _, g in scoped))
+    else:
+        bench_gate, best = choose(cfg, llm, registry, incumbent, valid, benched, heldout, guidance, data,
+                                  providers=providers, registry_dir=registry_dir)
+        proposal, candidate = valid[best]
+        scope = next(g for p, _, g in scoped if p is proposal)
     result = Result(id=f"{stamp}-{proposal.name}", incumbent=agent, candidate=candidate, why=proposal.why,
                     gates=[scope])
     bench = "not run"
+    replayed: dict[str, Outcome] = {}
     if scope.passed:
-        if benched:
-            others = [a for a in registry.agents.values() if a.name != agent]
-            before = evaluate(cfg, heldout, list(registry.agents.values()), providers=providers,
-                              registry_dir=registry_dir)
-            after = evaluate(cfg, heldout, [*others, candidate], providers=providers, registry_dir=registry_dir)
-            gate = benchmark_gate(before, after)
-        else:
-            gate = Gate("held-out benchmark", True, "not exercised by the benchmark; two panel families judge it")
-        bench = gate.detail
-        result.gates.append(gate)
-        if gate.passed:
+        bench = bench_gate.detail
+        result.gates.append(bench_gate)
+        if bench_gate.passed:
             result.gates.append(panel(llm, registry, incumbent, candidate, bench, data, paid_panel,
                                       second_family=not benched))
+        cases = ([failures.get(case)] if case else []) + failures.regressions(agent, exclude=case)
+        if replay and cases and result.gates[-1].passed:
+            others = [a for a in registry.agents.values() if a.name != agent]
+            for c in cases[:MAX_REPLAYS]:
+                replayed[c.id] = replay_case(cfg, failures, c, [*others, candidate], providers=providers)
+            result.gates.append(replay_gate(replayed, target=case))
     if adopt_if_passed and result.status == "awaiting a person":
         if not by_person and (why := may_adopt(cfg, agent, registry_dir)):
             result.gates.append(Gate("automatic adoption", True, f"not applied: {why}; waits for a person"))
         else:
             result.adopted = adopt(cfg, incumbent, candidate, registry_dir, stamp, proposal.why)
+            if case and case in replayed and replayed[case].solved:
+                failures.record_fix(case, agent, result.id, guidance or proposal.why)
 
     result.folder = out / result.id
     result.folder.mkdir(parents=True, exist_ok=True)
-    if candidate:
-        (result.folder / f"{candidate.name}.yaml").write_text(spec_yaml(candidate), encoding="utf-8")
+    for _, spec in valid:  # every candidate that passed scope, for a person comparing them
+        (result.folder / f"{spec.name}.yaml").write_text(spec_yaml(spec), encoding="utf-8")
     (result.folder / "report.md").write_text(report(result, incumbent), encoding="utf-8")
     with archive.open("a", encoding="utf-8") as f:
         f.write(json.dumps({"at": stamp, "incumbent": agent, "name": proposal.name, "status": result.status,
-                            "benchmark": bench, "gates": [g.__dict__ for g in result.gates]}) + "\n")
+                            "benchmark": bench, "candidates": [p.name for p in proposals], "case": case,
+                            "gates": [g.__dict__ for g in result.gates]}) + "\n")
     llm.write_summary()
     return result
+
+
+def write_candidates(llm: LLM, registry: Registry, incumbent: AgentSpec, n: int, data: str, *, guidance: str,
+                     evidence: str, archive: str, fixes: str) -> list[Proposal]:
+    """Ask the proposer for ``n`` candidates, each after seeing the ones before it. A candidate that never parses is
+    skipped; at least one must."""
+    proposer = registry.agents["planner"]  # an author-family model; the panel is another family
+    out: list[Proposal] = []
+    for i in range(n):
+        others = ("\n## Candidates already written (take a clearly different approach)\n" +
+                  "\n".join(f"- {p.name}: {p.why}" for p in out) + "\n") if out else ""
+        prompt = PROPOSE_PROMPT.format(name=incumbent.name, spec=spec_yaml(incumbent), evidence=evidence,
+                                       archive=archive, fixes=fixes, others=others,
+                                       guidance=f"\n## What a re-design audit asked for\n{guidance}\n" if guidance
+                                       else "")
+        try:
+            p, _, _ = complete_validated(llm, proposer.role, prompt, proposer.system, Proposal,
+                                         tag=f"propose-{i + 1}", data=data)
+        except RuntimeError:
+            if not out and i == n - 1:
+                raise
+            continue
+        out.append(p)
+    return out
+
+
+def choose(cfg: FactoryConfig, llm: LLM, registry: Registry, incumbent: AgentSpec,
+           valid: list[tuple[Proposal, AgentSpec]], benched: bool, heldout: list[BenchTask], guidance: str, data: str,
+           *, providers: dict | None, registry_dir: Path | None) -> tuple[Gate, int]:
+    """Score the candidates and return gate 2 for the best one, with its index in ``valid``."""
+    if benched:
+        others = [a for a in registry.agents.values() if a.name != incumbent.name]
+        before = evaluate(cfg, heldout, list(registry.agents.values()), providers=providers,
+                          registry_dir=registry_dir)
+        runs = [evaluate(cfg, heldout, [*others, spec], providers=providers, registry_dir=registry_dir)
+                for _, spec in valid]
+        best = max(range(len(runs)), key=lambda i: (sum(o.solved for o in runs[i]), -sum(o.tokens for o in runs[i])))
+        gate = benchmark_gate(before, runs[best])
+        if len(valid) > 1:
+            gate.detail = (f"best of {len(valid)} ({valid[best][1].name}): {gate.detail}; others: " +
+                           ", ".join(f"{spec.name} {sum(o.solved for o in r)}/{len(r)}"
+                                     for (_, spec), r in zip(valid, runs, strict=True) if spec is not valid[best][1]))
+        return gate, best
+    best, why = 0, ""
+    if len(valid) > 1:  # no benchmark to score them: a free reviewer of another family picks
+        reviewer = registry.agents["reviewer"]
+        shown = "\n\n".join(f"### {spec.name}\n```yaml\n{spec_yaml(spec)}```" for _, spec in valid)
+        try:
+            pick, _, _ = complete_validated(llm, reviewer.role, RANK_PROMPT.format(
+                old=spec_yaml(incumbent), guidance=guidance or "- make it better at its job", candidates=shown),
+                reviewer.system, Pick, tag="rank", data=data)
+            names = [spec.name for _, spec in valid]
+            best, why = (names.index(pick.best), pick.why) if pick.best in names else (0, "reviewer named none")
+        except RuntimeError as e:
+            why = f"no usable pick ({str(e)[:80]}); kept the first"
+    detail = "not exercised by the benchmark; two panel families judge it"
+    if len(valid) > 1:
+        detail += f"; the reviewer picked {valid[best][1].name} of {len(valid)}" + (f" ({why})" if why else "")
+    return Gate("held-out benchmark", True, detail), best
+
+
+def replay_gate(replayed: dict[str, Outcome], target: str = "") -> Gate:
+    """Gate 3b: every replayed failure is delivered with the candidate in place."""
+    ok = all(o.solved for o in replayed.values())
+    parts = [f"{cid}{' (this failure)' if cid == target else ' (fixed before)'}: "
+             f"{'delivered' if o.solved else o.why}" for cid, o in replayed.items()]
+    return Gate("failure replay", ok, "; ".join(parts))
 
 
 def may_adopt(cfg: FactoryConfig, agent: str, registry_dir: Path | None = None) -> str:
@@ -307,7 +428,9 @@ def rollback(cfg: FactoryConfig, agent: str, registry_dir: Path | None = None) -
     target = directory / "agents" / f"{agent}.yaml"
     target.write_text(saved[-1].read_text(encoding="utf-8"), encoding="utf-8")
     saved[-1].unlink()
-    log_change(directory, f"rolled back `{agent}` to its prompt of {saved[-1].stem}")
+    reopened = FailureArchive.of(cfg).revert_fixes(agent)
+    log_change(directory, f"rolled back `{agent}` to its prompt of {saved[-1].stem}" +
+               (f"; reopened {', '.join(reopened)}" if reopened else ""))
     return target
 
 
@@ -360,6 +483,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rollback", metavar="AGENT", help="restore the agent's spec from before its last adoption")
     ap.add_argument("--config", default="configs/factory.yaml")
     ap.add_argument("--paid-panel", action="store_true", help="also ask the paid reviewer (asks before spending)")
+    ap.add_argument("--case", default="", help="an archived failure (workspace/failures/<id>) the change should fix")
+    ap.add_argument("--candidates", type=int, default=CANDIDATES, help="candidate prompts to write and compare")
+    ap.add_argument("--no-replay", action="store_true", help="skip replaying archived failures (each is a full build)")
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     if args.rollback:
@@ -372,7 +498,8 @@ def main(argv: list[str] | None = None) -> int:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
     result = propose(cfg, args.agent, approver=approver, paid_panel=args.paid_panel, guidance=args.guidance,
-                     adopt_if_passed=args.adopt, by_person=args.adopt)
+                     adopt_if_passed=args.adopt, by_person=args.adopt, case=args.case, candidates=args.candidates,
+                     replay=not args.no_replay)
     for g in result.gates:
         print(f"{'passed' if g.passed else 'FAILED':<7} {g.name}: {g.detail}")
     print(f"\n{result.status}: {result.folder / 'report.md'}")

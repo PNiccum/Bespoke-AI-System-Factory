@@ -1,7 +1,7 @@
 name: auditor_1
 description: "Audits a failed project: successes, failures, causes, and proposals to change the system."
 kind: llm
-role: plan_critic
+role: auditor
 capabilities: [audit_project]
 risk: low
 prompt: >

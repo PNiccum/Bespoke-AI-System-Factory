@@ -1,7 +1,7 @@
 name: auditor_2
 description: "Evaluates the first auditor's proposals and suggests better ones."
 kind: llm
-role: plan_analyst
+role: audit_reviewer
 capabilities: [review_audit]
 risk: low
 prompt: >

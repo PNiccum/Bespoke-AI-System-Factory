@@ -33,7 +33,8 @@ class BuildResult(BaseModel):
 
 
 def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
-          on_stage=lambda stage: None) -> BuildResult:
+          on_stage=lambda stage: None, redesign: bool = True) -> BuildResult:
+    """``redesign=False`` (a replay of an archived failure, factory/failures.py) stops where re-design would start."""
     production = Production(llm, registry, project, wiki)
     knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
@@ -51,5 +52,8 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
         if result.approved:
             return BuildResult(status="delivered", final=result, rounds=rnd)
         feedback = "\n".join(f"- {i}" for i in result.issues)
+    if not redesign:
+        return BuildResult(status="stopped", final=result, rounds=rnd)
     on_stage("re-design")
-    return BuildResult(status="redesign", final=result, redesign=Redesign(llm, registry, project).run(), rounds=rnd)
+    return BuildResult(status="redesign", final=result, rounds=rnd,
+                       redesign=Redesign(llm, registry, project, research=knowledge.research).run())

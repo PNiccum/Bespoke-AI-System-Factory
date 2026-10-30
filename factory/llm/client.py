@@ -349,7 +349,8 @@ class LLM:
 
 
 def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls, tag: str,
-                       attempts: int = 3, data: DataClass = "private", max_tokens: int | None = None):
+                       attempts: int = 3, data: DataClass = "private", max_tokens: int | None = None,
+                       escalate: bool = False):
     """Call the model until the output parses and validates, or give up.
 
     A reply that does not parse is still cached, so a retry must change the request: it names the problem and
@@ -360,7 +361,7 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         p = prompt if i == 0 else (f"{prompt}\n\nYour previous reply could not be used ({errors[-1][:160]}). "
                                    "Reply again with only the corrected JSON, nothing else.")
         try:
-            c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens)
+            c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate)
             return model_cls.model_validate(c.json()), c, errors
         except TruncatedError as e:
             errors.append(str(e))
