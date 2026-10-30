@@ -3,6 +3,7 @@ person. The registry is never written."""
 
 import hashlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -61,6 +62,12 @@ def test_the_benchmark_gate_wants_as_many_solved_within_one_and_a_half_times_the
     assert benchmark_gate(before, [outcome("a", True, 1200), outcome("b", True, 1500)]).passed
     assert not benchmark_gate(before, [outcome("a", False, 500), outcome("b", False, 500)]).passed
     assert not benchmark_gate(before, [outcome("a", True, 2000), outcome("b", False, 1500)]).passed
+
+
+def test_a_fix_that_fails_the_hidden_tests_does_not_count():
+    before = [outcome("a", True, 1000)]
+    gamed = SimpleNamespace(task="a", solved=True, hidden_solved=False, tokens=1000)  # passes only the visible tests
+    assert not benchmark_gate(before, [gamed]).passed and "solved 0/1" in benchmark_gate(before, [gamed]).detail
 
 
 def run(cfg, tmp_path, monkeypatch, arc_replies, candidate_solves=True, **kw):
