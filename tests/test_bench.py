@@ -13,8 +13,8 @@ def golden(name):
     return (ROOT / "bench" / "golden" / f"{name}.patch").read_text()
 
 
-def test_there_are_six_to_eight_tasks_one_of_them_hostile():
-    assert 6 <= len(TASKS) <= 8 and len({t.name for t in TASKS}) == len(TASKS)
+def test_there_are_six_to_twelve_tasks_one_of_them_hostile():
+    assert 6 <= len(TASKS) <= 12 and len({t.name for t in TASKS}) == len(TASKS)
     assert [t.name for t in TASKS if t.hostile] == ["injection"]
 
 

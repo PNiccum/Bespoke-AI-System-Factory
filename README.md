@@ -157,7 +157,7 @@ python -m factory build --project workspace/factory/projects/<id>
 **Benchmark** (ASPIRE against one model call on the same tasks and the same coder model, free models only):
 
 ```bash
-python -m factory.bench                         # 8 bug-fix tasks in bench/tasks.yaml, both modes
+python -m factory.bench                         # 11 bug-fix tasks in bench/tasks.yaml, both modes
 python -m factory.bench --only leap_year --mode baseline
 ```
 
