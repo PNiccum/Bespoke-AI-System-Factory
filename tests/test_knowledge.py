@@ -89,6 +89,8 @@ def test_missing_topic_is_researched_written_verified_then_rechecked(cfg, tmp_pa
     assert kinds[-1] == "file" and kinds[-2] == "knowledge" and "wiki_check" in kinds
     with pytest.raises(RuntimeError, match="already approved"):
         kl.run()
+    arc.texts.append(topics(enough=True))
+    assert kl.run(again=True).ok and project.board.latest("knowledge").data["rounds"] == 1
 
 
 def test_a_topic_the_wiki_covers_needs_no_research(cfg, tmp_path):

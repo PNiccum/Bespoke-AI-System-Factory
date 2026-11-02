@@ -196,11 +196,12 @@ class KnowledgeLoop:
                                        data="public" if public else "private")
         return out
 
-    def run(self) -> KnowledgeResult:
+    def run(self, again: bool = False) -> KnowledgeResult:
+        """``again`` reruns a project whose knowledge is already approved; the new result is the one build reads."""
         if self.board.latest("decision") is None:
             raise RuntimeError("the knowledge loop starts from the planning loop's plan; run that first")
-        if (k := self.board.latest("knowledge")) and k.data.get("ok"):
-            raise RuntimeError("this project's knowledge is already approved")  # a failed loop may run again
+        if (k := self.board.latest("knowledge")) and k.data.get("ok") and not again:
+            raise RuntimeError("this project's knowledge is already approved (rerun with --again)")
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         plan = (self.project.root / "plan.json").read_text(encoding="utf-8")
         covered: dict[str, str] = {}
