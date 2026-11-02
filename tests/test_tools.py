@@ -1,6 +1,9 @@
 """Plain-code agents: locating code from an issue, and running tests on a throwaway copy."""
 
+import shutil
 from pathlib import Path
+
+import pytest
 
 from factory.tools.repo import LocateIn, issue_names, locate
 from factory.tools.sandbox import RunTestsIn, prove_fix, run_tests, scrubbed_env
@@ -94,3 +97,29 @@ def test_a_multi_file_patch_applies():
 +    return round(amount * (1 + rate), 3)
 """
     assert run_tests(RunTestsIn(repo_path=str(REPO), patch=PATCH + money)).patch_applied
+
+
+LEAP = Path(__file__).resolve().parents[1] / "bench" / "repos" / "leap_year"
+LEAP_FIX = ('     """Gregorian leap year."""\n-    return year % 4 == 0\n'
+            '+    return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)\n')
+
+
+@pytest.mark.parametrize("header", [
+    "--- cal/years.py\n+++ cal/years.py\n@@ -1,3 +1,3 @@\n",  # no a/ b/ prefixes
+    "--- a/cal/years.py\n+++ b/cal/years.py\n@@ -10,3 +10,3 @@\n",  # line numbers past the end of the file
+    "--- a/cal/years.py\n+++ b/cal/years.py\n@@\n",  # a bare @@
+])
+def test_hunks_git_refuses_are_placed_by_their_text(header):
+    report = run_tests(RunTestsIn(repo_path=str(LEAP), patch=header + " def is_leap(year):\n" + LEAP_FIX))
+    assert report.patch_applied and report.ok and len(report.passed) == 3
+
+
+def test_context_that_is_not_in_the_file_is_still_refused(tmp_path):
+    from factory.tools.sandbox import apply_by_search
+
+    shutil.copytree(LEAP, tmp_path / "r")
+    bad = "--- a/cal/years.py\n+++ b/cal/years.py\n@@\n def is_leap(y):\n" + LEAP_FIX
+    assert apply_by_search(tmp_path / "r", bad)[0] is False
+    escape = "--- a/../x.py\n+++ b/../x.py\n@@\n-a\n+b\n"
+    assert apply_by_search(tmp_path / "r", escape) == (False, "path outside the repository: ../x.py")
+    assert (tmp_path / "r" / "cal" / "years.py").read_text() == (LEAP / "cal" / "years.py").read_text()

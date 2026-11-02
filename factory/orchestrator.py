@@ -14,7 +14,8 @@ For a bug fix the run is:
 5. ``review_patch``: a reviewer from a different model family reads the patch and the test report.
 
 A failed check or a rejected review goes back to step 3 with the reason, up to ``max_attempts``. The last attempt
-escalates the coder to its paid model, which waits on the spend gate. Every step is announced to ``on_event`` so the
+escalates the coder to its paid model, which waits on the spend gate; if the gate declines, that attempt runs on the
+free model instead of ending the run. Every step is announced to ``on_event`` so the
 Streamlit app can show what each agent is doing, and recorded in the run's provenance log.
 """
 
@@ -277,10 +278,20 @@ class Orchestrator:
             coder = bids["patch"].agent
             self.emit(result, "patch", coder.name, "started",
                       f"attempt {attempt}" + (" on the paid model" if escalate else ""))
+            prompt = self.coder_prompt(task, locations, failing, feedback)
             try:
-                reply = self.llm.complete(coder.role, self.coder_prompt(task, locations, failing, feedback),
-                                          system=coder.system, tag=f"patch-{attempt}", data=self.data,
-                                          escalate=escalate)
+                try:
+                    reply = self.llm.complete(coder.role, prompt, system=coder.system, tag=f"patch-{attempt}",
+                                              data=self.data, escalate=escalate)
+                except SpendDenied as e:
+                    if not escalate:
+                        raise
+                    # A declined escalation is a "no" to paying, not to fixing: the last attempt stays free.
+                    self.emit(result, "patch", coder.name, "waiting", f"{e}; trying once more on the free model")
+                    self.provenance.record(ProvenanceEvent(kind="approval", actor="spend_gate",
+                                                           detail={"declined": str(e), "fallback": "free model"}))
+                    reply = self.llm.complete(coder.role, prompt, system=coder.system, tag=f"patch-{attempt}",
+                                              data=self.data)
             except (SpendDenied, BudgetExceeded) as e:
                 return self.stop(result, "patch", coder.name, str(e))
             except TruncatedError as e:
@@ -329,6 +340,10 @@ class Orchestrator:
                              f"({check.skipped} vs {base.skipped})") if shrank and not (still or new)
                        else f"still failing: {still}; newly failing: {new}\n{check.output_tail}")
                 self.emit(result, "check", checker.agent.name, "failed", why[:300])
+                # Kept so a failed run can be read afterwards: the hash alone cannot say why a patch did not work.
+                self.provenance.record(ProvenanceEvent(kind="tool_call", actor=checker.agent.name,
+                                                       inputs=[sha12(patch)],
+                                                       detail={"failed_check": why[-3000:], "patch": patch[:8000]}))
                 feedback = f"\n## Your previous patch failed (not applied)\n```diff\n{patch}```\n{why[-3000:]}\n"
                 continue
             self.emit(result, "check", checker.agent.name, "done", f"{len(check.passed)} tests pass")

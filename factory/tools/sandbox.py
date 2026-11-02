@@ -130,7 +130,9 @@ def scrubbed_env() -> dict[str, str]:
 def apply_patch(work: Path, patch: str) -> tuple[bool, str]:
     """Apply a unified diff. Models often get hunk line counts wrong, so a diff that fails as written is tried once
     more with the counts recomputed (``--recount``, which only suits single-file diffs: it would read the next
-    file's ``---`` header as a removed line)."""
+    file's ``---`` header as a removed line). If git still refuses, ``apply_by_search`` places each hunk by its text
+    instead of its line numbers, which covers the other mistakes models make with headers (no ``a/`` prefix, a bare
+    ``@@``, numbers past the end of the file). Context that does not match the file is still refused."""
     errors = ""
     for extra in ([], ["--recount"]):
         r = subprocess.run(["git", "apply", *extra, "--whitespace=nowarn", "-"], cwd=work, input=patch, text=True,
@@ -138,7 +140,71 @@ def apply_patch(work: Path, patch: str) -> tuple[bool, str]:
         if r.returncode == 0:
             return True, ""
         errors = r.stderr
-    return False, errors
+    applied, why = apply_by_search(work, patch)
+    return (True, "") if applied else (False, f"{errors.strip()}\n(placing hunks by their text: {why})")
+
+
+def _strip_prefix(path: str) -> str:
+    path = path.split("\t")[0].strip()
+    return path[2:] if path.startswith(("a/", "b/")) else path
+
+
+def apply_by_search(work: Path, patch: str) -> tuple[bool, str]:
+    """Apply a diff by finding each hunk's old lines (context and removals) in the file, ignoring the hunk header's
+    numbers. Every hunk must match exactly once after the previous one (trailing spaces aside), or nothing is
+    written."""
+    root = work.resolve()
+    files: list[tuple[str, str, list[list[str]]]] = []  # (old path, new path, hunks)
+    for line in patch.splitlines():
+        if line.startswith("--- "):
+            files.append((_strip_prefix(line[4:]), "", []))
+        elif line.startswith("+++ ") and files and not files[-1][1]:
+            files[-1] = (files[-1][0], _strip_prefix(line[4:]), files[-1][2])
+        elif line.startswith("@@") and files:
+            files[-1][2].append([])
+        elif files and files[-1][2] and (line[:1] in (" ", "-", "+") or line == ""):
+            files[-1][2][-1].append(line if line else " ")
+    if not files:
+        return False, "no file headers"
+    writes: dict[Path, str | None] = {}
+    for old_path, new_path, hunks in files:
+        target = new_path if new_path != "/dev/null" else old_path
+        dest = (root / target).resolve()
+        if not dest.is_relative_to(root) or dest == root:
+            return False, f"path outside the repository: {target}"
+        if old_path == "/dev/null":
+            writes[dest] = "\n".join(h[1:] for hunk in hunks for h in hunk if h[0] == "+") + "\n"
+            continue
+        if new_path == "/dev/null":
+            writes[dest] = None
+            continue
+        if not dest.is_file():
+            return False, f"no such file: {target}"
+        text = dest.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        pos = 0
+        for hunk in hunks:
+            old = [h[1:] for h in hunk if h[0] in " -"]
+            new = [h[1:] for h in hunk if h[0] in " +"]
+            while old and not old[-1].strip() and new and not new[-1].strip():  # trailing blank context
+                old, new = old[:-1], new[:-1]
+            if not old:
+                return False, f"a hunk in {target} has no context to place it by"
+            found = [i for i in range(pos, len(lines) - len(old) + 1)
+                     if [x.rstrip() for x in lines[i:i + len(old)]] == [x.rstrip() for x in old]]
+            if len(found) != 1:
+                return False, f"a hunk's context in {target} matches {len(found)} places, not 1"
+            i = found[0]
+            lines[i:i + len(old)] = new
+            pos = i + len(new)
+        writes[dest] = "\n".join(lines) + ("\n" if text.endswith("\n") or not text else "")
+    for dest, content in writes.items():
+        if content is None:
+            dest.unlink(missing_ok=True)
+        else:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_text(content, encoding="utf-8")
+    return True, ""
 
 
 def node_id(case: ET.Element) -> str:

@@ -53,10 +53,11 @@ def test_a_paid_call_waits_for_a_click_and_proceeds_when_approved(cfg, tmp_path)
 
 
 def test_no_answer_in_time_counts_as_a_refusal(cfg, tmp_path):
-    s, p = session(cfg, tmp_path, arc=[diff(WRONG), diff(WRONG)], answer_timeout_s=0.2)
+    s, p = session(cfg, tmp_path, arc=[diff(WRONG), diff(WRONG), diff(WRONG)], answer_timeout_s=0.2)
     s.start(Task(description=ISSUE, repo_path=str(REPO)))
     s.wait(60)
-    assert s.result.status == "stopped" and p["openai"].requests == [] and s.bundle is None
+    assert s.result.status == "failed" and p["openai"].requests == [] and s.bundle is None
+    assert any("declined" in e.detail and "free model" in e.detail for e in s.events)
 
 
 def test_only_one_run_at_a_time(cfg, tmp_path):

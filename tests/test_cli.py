@@ -55,11 +55,11 @@ def test_fix_without_an_issue_is_a_usage_error(scripted):
     assert e.value.code == 2
 
 
-def test_a_declined_paid_step_ends_the_run_with_exit_1_and_nothing_spent(scripted, tmp_path, capsys):
-    scripted.texts += ["no diff here", "still none"]  # two free attempts fail; the third would be paid
+def test_a_declined_paid_step_falls_back_to_free_and_spends_nothing(scripted, tmp_path, capsys):
+    scripted.texts += ["no diff here", "still none", "none again"]  # the third would be paid; declined, it runs free
     assert run("fix", "--repo", str(REPO), "--issue", ISSUE, "--out", str(tmp_path / "x")) == 1
     out = capsys.readouterr().out
-    assert "Result: stopped" in out and "'real_usd': 0.0" in out and "Bundle:" not in out
+    assert "Result: failed" in out and "trying once more on the free model" in out and "'real_usd': 0.0" in out and "Bundle:" not in out
 
 
 def test_ask_records_a_request_no_workflow_covers(scripted, tmp_path, capsys):
