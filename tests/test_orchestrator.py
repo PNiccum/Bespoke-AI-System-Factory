@@ -207,3 +207,32 @@ def test_a_run_without_a_patch_has_nothing_to_export(cfg, tmp_path):
     result, _, _, _ = run(cfg, tmp_path, arc=["I can't.", "Still can't.", "No."], approver=deny_all)
     with pytest.raises(ValueError, match="nothing to export"):
         export_bundle(result, Task(description=ISSUE, repo_path=str(REPO)), tmp_path, tmp_path / "out")
+
+
+def test_the_coder_sees_the_code_the_failing_tests_import_even_when_locate_finds_nothing(cfg, tmp_path):
+    from factory.tools.repo import Locations
+
+    bench = ROOT / "bench" / "repos"
+    o = Orchestrator.__new__(Orchestrator)
+    o.max_file_lines = 400
+    issue = "The visited-pages summary lists pages alphabetically; it should list them in the order first visited."
+    shown = o.shown_files(Task(description=issue, repo_path=str(bench / "dedupe_order")), Locations(names=[], hits=[]),
+                          ["tests/test_summary.py::test_visited"])
+    assert [rel for rel, _ in shown] == ["report/clean.py", "report/summary.py", "tests/test_summary.py"]
+    assert "sorted(set(items))" in shown[0][1]
+
+
+def test_in_a_large_repository_the_failing_tests_imports_still_reach_the_coder(tmp_path):
+    from factory.orchestrator import SMALL_REPO_FILES
+    from factory.tools.repo import Locations
+
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "tests").mkdir()
+    for i in range(SMALL_REPO_FILES + 2):
+        (tmp_path / "pkg" / f"m{i}.py").write_text(f"X = {i}\n")
+    (tmp_path / "tests" / "test_m.py").write_text("from pkg.m7 import X\n\n\ndef test_x():\n    assert X == 0\n")
+    o = Orchestrator.__new__(Orchestrator)
+    o.max_file_lines = 400
+    shown = o.shown_files(Task(description="X is wrong", repo_path=str(tmp_path)), Locations(names=[], hits=[]),
+                          ["tests/test_m.py::test_x"])
+    assert [rel for rel, _ in shown] == ["pkg/m7.py", "tests/test_m.py"]

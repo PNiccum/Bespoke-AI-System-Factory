@@ -36,7 +36,7 @@ from factory.llm.gate import SpendDenied
 from factory.mcp import McpTools, mcp_function
 from factory.records import ProvenanceEvent, ProvenanceLog
 from factory.registry import Announcement, Bid, Registry
-from factory.tools.repo import LocateIn, Locations, is_test_file
+from factory.tools.repo import LocateIn, Locations, imported_files, is_test_file, python_files
 from factory.tools.sandbox import RunTestsIn, TestReport
 
 
@@ -181,6 +181,8 @@ PROTECTED = ("factory/llm/", "factory/config.py", "configs/", "factory/tools/san
              "factory/planner.py", "factory/bench.py", "factory/extend.py", "factory/pipeline/", "bench/", "registry/",
              ".env")
 ASPIRE_ROOT = Path(__file__).resolve().parents[1]
+# What the coder is shown besides the files locate ranks: a repository this small is shown whole.
+SMALL_REPO_FILES, SMALL_REPO_CHARS, MAX_SHOWN_FILES = 15, 40_000, 8
 
 
 def patched_paths(patch: str) -> set[str]:
@@ -388,12 +390,28 @@ class Orchestrator:
         return result
 
     def coder_prompt(self, task: Task, locations: Locations, failing: list[str], feedback: str) -> str:
-        root = Path(task.repo_path)
-        shown = [h for h in locations.hits if not h.is_test][:3] + [h for h in locations.hits if h.is_test][:1]
-        files = []
-        for h in shown:
-            lines = (root / h.path).read_text(errors="replace", encoding="utf-8").splitlines()[:self.max_file_lines]
-            files.append(f"### {h.path}\n```python\n" + "\n".join(lines) + "\n```")
+        files = [f"### {rel}\n```python\n{text}\n```" for rel, text in self.shown_files(task, locations, failing)]
         loc = "\n".join(f"- {h.path}:{h.line} ({'; '.join(h.why)})" for h in locations.hits[:8]) or "- none found"
         return CODER_PROMPT.format(issue=task.description, failing="\n".join(failing) or "none known",
                                    locations=loc, files="\n\n".join(files) or "(none)", feedback=feedback)
+
+    def shown_files(self, task: Task, locations: Locations, failing: list[str]) -> list[tuple[str, str]]:
+        """The files the coder sees: the code the issue points to, the code the failing tests import, and, in a small
+        repository, every source file. The 2026-11-02 benchmark showed why: locate found nothing for one issue and
+        missed the buggy module for another, so the coder guessed at code it had never seen."""
+        root = Path(task.repo_path)
+        test_files = list(dict.fromkeys(t.split("::")[0] for t in failing))
+        sources = [h.path for h in locations.hits if not h.is_test][:3]
+        for rel in test_files:
+            sources += imported_files(root, rel)
+        everything = sorted(p.relative_to(root).as_posix() for p in python_files(root))
+        own = [p for p in everything if not is_test_file(p)]
+        if len(own) <= SMALL_REPO_FILES and sum((root / p).stat().st_size for p in own) <= SMALL_REPO_CHARS:
+            sources += own
+        tests = [t for t in test_files if (root / t).is_file()][:1] or [h.path for h in locations.hits if h.is_test][:1]
+        shown = []
+        for rel in list(dict.fromkeys(sources))[:MAX_SHOWN_FILES] + tests:
+            lines = (root / rel).read_text(errors="replace", encoding="utf-8").splitlines()[:self.max_file_lines]
+            if lines or not rel.endswith("__init__.py"):
+                shown.append((rel, "\n".join(lines)))
+        return shown
