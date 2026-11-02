@@ -203,3 +203,14 @@ def test_the_evaluator_is_told_to_leave_out_general_software_topics(cfg, tmp_pat
     kl, arc, _, _ = knowledge(cfg, tmp_path, topics(enough=True))
     kl.run()
     assert "Leave out general software engineering" in arc.requests[0].messages[-1]["content"]
+
+
+def test_only_verified_pages_count_toward_enough_and_an_approval_names_them(cfg, tmp_path):
+    wiki = Wiki(tmp_path / "wiki")
+    wiki.save(WikiPage(topic="NCBI E-utilities usage", summary="efetch", body="b", sources=["a", "b"], verified=True))
+    wiki.save(WikiPage(topic="Primer Tm calculation", summary="rejected", body="b", sources=["a"], verified=False))
+    kl, arc, _, _ = knowledge(cfg, tmp_path, topics(enough=True), wiki=wiki)
+    result = kl.run()
+    shown = arc.requests[0].messages[-1]["content"]
+    assert "NCBI E-utilities usage" in shown and "Primer Tm calculation" not in shown
+    assert result.ok and result.covered == {"NCBI E-utilities usage": "ncbi-e-utilities-usage"}

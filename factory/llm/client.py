@@ -356,15 +356,21 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
     A reply that does not parse is still cached, so a retry must change the request: it names the problem and
     asks for the corrected JSON. (Repeating the identical request would only return the cached bad reply.)
     """
-    errors = []
+    errors, cut_off = [], False
     for i in range(attempts):
-        p = prompt if i == 0 else (f"{prompt}\n\nYour previous reply could not be used ({errors[-1][:160]}). "
-                                   "Reply again with only the corrected JSON, nothing else.")
+        p = prompt if i == 0 else (
+            f"{prompt}\n\nYour previous reply was cut off at the output limit. Reply again with only the JSON, "
+            "much shorter: keep only what is asked for, drop comments, docstrings and repetition, and cover fewer "
+            "cases if you must." if cut_off else
+            f"{prompt}\n\nYour previous reply could not be used ({errors[-1][:160]}). "
+            "Reply again with only the corrected JSON, nothing else.")
         try:
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate)
             return model_cls.model_validate(c.json()), c, errors
         except TruncatedError as e:
             errors.append(str(e))
+            cut_off = True
         except (ValueError, ValidationError) as e:
             errors.append(f"{type(e).__name__}: {str(e)[:200]}")
+            cut_off = False
     raise RuntimeError(f"{tag}: no valid output after {attempts} attempts: {errors}")

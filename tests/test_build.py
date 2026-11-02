@@ -233,3 +233,25 @@ def test_prompt_changes_stop_at_the_limit(cfg, tmp_path):
                                                             ("builder", "librarian", "summarizer")])
     assert tried == ["builder", "librarian"]
     assert result.prompt_changes[-1].status.startswith("not tried")
+
+
+def test_a_work_order_with_no_usable_reply_is_recorded_and_the_build_goes_on(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(design(), orders("T1", "primer.py"), "not json", "still not", "nope",
+                                    orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    checks = Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    first, second = project.board.entries("build")
+    assert first.data["written"] == [] and "no valid output after 3 attempts" in first.data["failed"]
+    assert second.data["written"] == ["tests/test_primer.py"] and checks.tests_ran
+
+
+def test_a_stage_that_crashes_goes_to_redesign_not_out_of_build(cfg, tmp_path, monkeypatch):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+
+    def crash(self, feedback=""):
+        raise RuntimeError("design: no valid output after 3 attempts")
+    monkeypatch.setattr(Production, "run", crash)
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.status == "stopped" and result.rounds == 1
+    note = project.board.latest("note").data
+    assert note == {"stage": "production, round 1", "error": "design: no valid output after 3 attempts"}

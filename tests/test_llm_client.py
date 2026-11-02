@@ -274,3 +274,21 @@ def test_a_zero_dollar_cap_stops_paid_calls_but_never_free_ones(cfg, tmp_path):
     with pytest.raises(Exception, match="cost cap"):
         llm.complete("agent", "a Claude role", data="public")
     assert p["claude"].calls == 0
+
+
+def test_a_cut_off_reply_is_retried_with_a_request_for_a_shorter_one(cfg, tmp_path):
+    from pydantic import BaseModel
+
+    from factory.llm import complete_validated
+
+    class Out(BaseModel):
+        a: int
+
+    seen = []
+    cut = RawResult('{"a": ', "", "max_tokens", Usage(10, 10))
+    llm, p = make_llm(cfg, tmp_path, arc=[cut, ok('{"a": 1}')])
+    real = p["arc"].complete
+    p["arc"].complete = lambda req: seen.append(req.messages[-1]["content"]) or real(req)
+    out, _, errors = complete_validated(llm, "writer", "write it", "", Out, tag="t", data="public")
+    assert out.a == 1 and len(errors) == 1
+    assert "cut off at the output limit" in seen[1] and "much shorter" in seen[1]
