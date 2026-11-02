@@ -14,3 +14,9 @@ def test_other_quoted_fields():
 def test_column_with_two_quoted_names():
     text = 'name,city\n"Lee, A",Roanoke\n"Kim, B",Radford\n'
     assert column(text, "city") == ["Roanoke", "Radford"]
+
+
+def test_an_empty_line_is_not_an_error():
+    # The original returned [""] here; a fix may return [] or [""], but must not raise.
+    assert parse_line("") in ([], [""])
+    assert parse_line("\n") in ([], [""])
