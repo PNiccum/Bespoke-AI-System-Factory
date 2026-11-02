@@ -196,19 +196,20 @@ class KnowledgeLoop:
                                        data="public" if public else "private")
         return out
 
-    def run(self) -> KnowledgeResult:
+    def run(self, again: bool = False) -> KnowledgeResult:
+        """``again`` reruns a project whose knowledge is already approved; the new result is the one build reads."""
         if self.board.latest("decision") is None:
             raise RuntimeError("the knowledge loop starts from the planning loop's plan; run that first")
-        if (k := self.board.latest("knowledge")) and k.data.get("ok"):
-            raise RuntimeError("this project's knowledge is already approved")  # a failed loop may run again
+        if (k := self.board.latest("knowledge")) and k.data.get("ok") and not again:
+            raise RuntimeError("this project's knowledge is already approved (rerun with --again)")
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         plan = (self.project.root / "plan.json").read_text(encoding="utf-8")
         covered: dict[str, str] = {}
         missing: list[str] = []
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
         for rnd in range(1, MAX_ROUNDS + 1):
-            if rnd == 1:
-                pages = self.wiki.pages()[:40]
+            if rnd == 1:  # only verified pages: one the verifier rejected must not count toward "enough"
+                pages = [p for p in self.wiki.pages() if p.verified][:40]
                 again = ""
             else:
                 pages = [p for p in (self.wiki.find(t) for t in covered) if p]
@@ -225,6 +226,8 @@ class KnowledgeLoop:
             have = {t.name: self.wiki.covers(t.name) for t in topics}
             missing = [t.name for t in topics if have[t.name] is None]
             covered |= {name: page.slug for name, page in have.items() if page}
+            if needs.enough and not topics:  # approved on the pages shown, so those are what the builders get
+                covered |= {p.topic: p.slug for p in pages}
             self.board.post("coverage", LIBRARIAN, {"covered": {n: p.slug for n, p in have.items() if p},
                                                     "missing": missing}, refs=[ev.id])
             if not missing or rnd == MAX_ROUNDS:  # the last round only checks; it starts no new research

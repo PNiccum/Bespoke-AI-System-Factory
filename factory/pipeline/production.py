@@ -105,7 +105,9 @@ ORDERS_PROMPT = """Break this task into work orders for builders. Each order wri
 {files}
 
 Reply with JSON only: {{"orders": [{{"id": "{task_id}.1", "write": ["<path>"], "read": ["<existing path>"], \
-"instructions": "<what the files must do, precisely>"}}]}}, at most {max_orders} orders."""
+"instructions": "<what the files must do, precisely>"}}]}}, at most {max_orders} orders.
+Keep each order small enough to write in one reply: at most two files, each under about 300 lines. Split a large \
+test suite into several test files, one order each."""
 
 BUILD_PROMPT = """Carry out this work order. Write every file it names in full.
 
@@ -189,10 +191,15 @@ class Production:
             path = (self.out / rel).resolve()
             if path.is_relative_to(self.out.resolve()) and path.is_file():
                 reads.append(f"### {rel}\n```\n{path.read_text(errors='replace', encoding='utf-8')[:MAX_READ_CHARS]}\n```")
-        built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
-                                                        order=order.model_dump_json(indent=1), wiki=wiki,
-                                                        reads="\n\n".join(reads) or "(none)"), Built,
-                           f"build-{order.id}", pages)
+        try:
+            built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
+                                                            order=order.model_dump_json(indent=1), wiki=wiki,
+                                                            reads="\n\n".join(reads) or "(none)"), Built,
+                               f"build-{order.id}", pages)
+        except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
+            self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
+                                               "failed": str(e)[:1000], "notes": ""}, refs=[ref])
+            return
         written, refused = [], []
         for f in built.files:
             rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")

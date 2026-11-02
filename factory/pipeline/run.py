@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from factory.llm import LLM
+from factory.llm import LLM, BudgetExceeded
+from factory.llm.gate import SpendDenied
 from factory.pipeline.blackboard import Project
 from factory.pipeline.critique import CriticLoop
 from factory.pipeline.final import FinalEvaluator, FinalResult
@@ -45,16 +46,22 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
     knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
     final = FinalEvaluator(llm, registry, project, production)
-    feedback, result = "", None
+    feedback, result, stage = "", None, ""
     for rnd in range(1, BUILD_ROUNDS + 1):
-        on_stage(f"production, round {rnd}")
-        checks = production.run(feedback)
-        on_stage("critic loop")
-        reviewed = critic.run(checks)
-        if reviewed.redesign:
+        try:
+            on_stage(stage := f"production, round {rnd}")
+            checks = production.run(feedback)
+            on_stage(stage := "critic loop")
+            reviewed = critic.run(checks)
+            if reviewed.redesign:
+                break
+            on_stage(stage := "final QA")
+            result = final.run(critic.shown_files())
+        except (SpendDenied, BudgetExceeded):
+            raise  # a person said no to spending, or the cap was reached: stop, do not re-design
+        except RuntimeError as e:  # a stage that crashed is a failure re-design should study, not a lost run
+            project.board.post("note", "code", {"stage": stage, "error": str(e)[:2000]})
             break
-        on_stage("final QA")
-        result = final.run(critic.shown_files())
         if result.approved:
             return BuildResult(status="delivered", final=result, rounds=rnd)
         feedback = "\n".join(f"- {i}" for i in result.issues)

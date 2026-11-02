@@ -95,7 +95,7 @@ def run_research(args) -> int:
     llm = LLM(cfg, new_run_dir(cfg, "research"), approver=ask_on_terminal)
     loop = KnowledgeLoop(llm, Registry.load(cfg), project, Wiki(cfg.work_dir / "wiki"),
                          default_searchers(cfg.work_dir / "research-cache"))
-    result = loop.run()
+    result = loop.run(again=args.again)
     for topic, slug in result.covered.items():
         print(f"  covered: {topic} ({cfg.work_dir / 'wiki' / slug}.md)")
     for topic in result.missing:
@@ -156,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
     plan.add_argument("--config", default="configs/factory.yaml")
     research = sub.add_parser("research", help="run the knowledge loop on a project whose plan is decided")
     research.add_argument("--project", required=True)
+    research.add_argument("--again", action="store_true",
+                          help="run again on a project whose knowledge is already approved (its new result replaces it)")
     research.add_argument("--config", default="configs/factory.yaml")
     build = sub.add_parser("build", help="build, critique, check and deliver a project whose knowledge is approved")
     build.add_argument("--project", required=True)
