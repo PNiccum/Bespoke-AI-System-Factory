@@ -148,10 +148,16 @@ def test_a_rejected_review_sends_the_defects_back_to_the_coder(cfg, tmp_path):
 
 
 def test_the_last_attempt_escalates_and_waits_on_the_spend_gate(cfg, tmp_path):
-    result, p, events, _ = run(cfg, tmp_path, arc=[diff(WRONG), diff(WRONG)], approver=deny_all)
-    assert result.status == "stopped" and "declined" in result.stop_reason
+    result, p, events, _ = run(cfg, tmp_path, arc=[diff(WRONG), diff(WRONG), diff(WRONG)], approver=deny_all)
+    assert result.status == "failed" and result.attempts == 3 and "after 3 attempts" in result.stop_reason
     assert p["openai"].requests == []  # nothing paid was sent
-    assert events[-1].status == "failed" and events[-1].step == "patch"
+    assert any(e.status == "waiting" and "declined" in e.detail and "free model" in e.detail for e in events)
+
+
+def test_a_declined_escalation_still_gets_its_free_attempt(cfg, tmp_path):
+    result, p, _, _ = run(cfg, tmp_path, arc=[diff(WRONG), diff(WRONG), diff(GOOD), ACCEPT], approver=deny_all)
+    assert result.status == "fixed" and result.attempts == 3
+    assert p["openai"].requests == []
 
 
 def test_an_approved_escalation_uses_the_paid_coder_and_a_free_reviewer(cfg, tmp_path):
@@ -198,6 +204,6 @@ def test_the_exported_bundle_reruns_the_fix_without_the_factory(cfg, tmp_path):
 def test_a_run_without_a_patch_has_nothing_to_export(cfg, tmp_path):
     from factory.export import export_bundle
 
-    result, _, _, _ = run(cfg, tmp_path, arc=["I can't.", "Still can't."], approver=deny_all)
+    result, _, _, _ = run(cfg, tmp_path, arc=["I can't.", "Still can't.", "No."], approver=deny_all)
     with pytest.raises(ValueError, match="nothing to export"):
         export_bundle(result, Task(description=ISSUE, repo_path=str(REPO)), tmp_path, tmp_path / "out")
