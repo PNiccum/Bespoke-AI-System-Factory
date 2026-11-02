@@ -216,3 +216,19 @@ def test_only_verified_pages_count_toward_enough_and_an_approval_names_them(cfg,
     shown = arc.requests[0].messages[-1]["content"]
     assert "NCBI E-utilities usage" in shown and "Primer Tm calculation" not in shown
     assert result.ok and result.covered == {"NCBI E-utilities usage": "ncbi-e-utilities-usage"}
+
+
+def test_one_reference_manual_is_enough_sources_for_a_page():
+    from factory.pipeline.wiki import enough_sources
+
+    assert enough_sources(["docs:ncbi_eutils_indepth"]) and enough_sources(["europepmc:1", "openalex:2"])
+    assert not enough_sources(["europepmc:1"]) and not enough_sources([])
+
+
+def test_a_topic_first_asked_for_in_the_last_round_is_deferred_not_missing(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Primer rules"), queries(), queries(),
+                                  topics("Retry strategy"), docs=())
+    result = kl.run()
+    assert result.ok and result.missing == [] and result.deferred == ["Retry strategy"]
+    assert project.board.latest("topics").data["deferred"] == ["Retry strategy"]
