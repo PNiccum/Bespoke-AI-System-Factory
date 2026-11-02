@@ -33,8 +33,14 @@ class BuildResult(BaseModel):
 
 
 def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
-          on_stage=lambda stage: None, redesign: bool = True) -> BuildResult:
-    """``redesign=False`` (a replay of an archived failure, factory/failures.py) stops where re-design would start."""
+          on_stage=lambda stage: None, redesign: bool = True, allow_unapproved: bool = False) -> BuildResult:
+    """``redesign=False`` (a replay of an archived failure, factory/failures.py) stops where re-design would start.
+    A project whose knowledge loop did not approve its knowledge is refused, unless ``allow_unapproved`` (to exercise
+    the later stages on purpose; such a run is not a fair end-to-end result)."""
+    k = project.board.latest("knowledge")
+    if k is not None and not k.data.get("ok") and not allow_unapproved:
+        raise RuntimeError(f"the knowledge loop did not approve this project's knowledge (missing: "
+                           f"{', '.join(k.data.get('missing', [])) or 'unknown'}); rerun research first")
     production = Production(llm, registry, project, wiki)
     knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
