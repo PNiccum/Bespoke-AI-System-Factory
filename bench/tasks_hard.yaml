@@ -1,0 +1,31 @@
+# ASPIRE hard tier (added 2026-11-02): repository tasks a step beyond bench/tasks.yaml. Each needs more than a
+# one-line change: two bugs in one class, a cause two modules away from the symptom, a small feature built to tests
+# that already exist, or a parser or algorithm rewritten to a written spec. Judged exactly like the main benchmark
+# (the patch applies, leaves tests alone, the whole suite passes, then the hidden tests in bench/hidden/<name>/).
+# Kept in its own file so the main benchmark's numbers and self-extension's held-out gate are unchanged:
+#     python -m factory.bench --tasks bench/tasks_hard.yaml --repeat 3
+tasks:
+  - name: lru_cache
+    repo: bench/repos/lru_cache
+    issue: 'LRUCache(2): after put(''a''), put(''b''), put(''c'') the cache still holds ''a'' and has lost ''b''. It should drop the least recently used key, and reading a key with get() should count as using it.'
+  - name: interval_merge
+    repo: bench/repos/interval_merge
+    issue: 'merge([[5, 7], [1, 3], [2, 4]]) returns [[5, 4]] instead of [[1, 4], [5, 7]]. Touching intervals such as [1, 2] and [2, 3] should merge too.'
+  - name: report_tz
+    repo: bench/repos/report_tz
+    issue: 'The daily sales report counts an order placed at 9:30 pm store time on March 1 (02:30Z on March 2) under March 2, and an order of "$1,200.00" crashes it with ValueError.'
+  - name: inventory_remove
+    repo: bench/repos/inventory_remove
+    issue: 'Feature request: Inventory needs remove(sku, qty). It should take units out of stock, raise OutOfStock (stock/errors.py) when asked for more than is on hand, and reject a quantity that is not a positive integer the way add() does. A SKU with no units left should no longer appear in skus().'
+  - name: toposort_cycle
+    repo: bench/repos/toposort_cycle
+    issue: 'build_order({"a": ["b"], "b": ["a"], "c": []}) returns ["c"] and silently drops a and b; it should raise CycleError naming the loop. Ties are also wrong: build_order({"b": ["a"], "c": ["a"], "a": [], "d": []}) gives a, d, b, c instead of a, b, c, d.'
+  - name: ini_parser
+    repo: bench/repos/ini_parser
+    issue: 'conf.ini.parse() treats ''; comment'' lines as settings and drops indented continuation lines: in "[db]\nhosts = a\n  b" the hosts value should be "a\nb". The docstring lists the rules it should follow.'
+  - name: retry_decorator
+    repo: bench/repos/retry_decorator
+    issue: '@retry(on=(TimeoutError,)) also retries a KeyError, and when every attempt fails the call returns None instead of raising the last error. The docstring describes the intended behavior, including the backoff.'
+  - name: bill_split
+    repo: bench/repos/bill_split
+    issue: 'split(100, 3) returns [3333, 3333, 3333], a cent short of the $100 bill, and split(0.29, 1) returns [28]. Shares must always add up to the bill.'

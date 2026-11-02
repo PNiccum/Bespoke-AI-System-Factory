@@ -1,0 +1,19 @@
+--- a/sales/clock.py
++++ b/sales/clock.py
+@@ -6,4 +6,4 @@
+ def to_local(ts_utc):
+     """'2026-03-02T02:30:00Z' (a UTC timestamp) as a naive datetime on the store's clock."""
+     t = datetime.strptime(ts_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+-    return (t - timedelta(hours=STORE_UTC_OFFSET_HOURS)).replace(tzinfo=None)
++    return (t + timedelta(hours=STORE_UTC_OFFSET_HOURS)).replace(tzinfo=None)
+--- a/sales/orders.py
++++ b/sales/orders.py
+@@ -6,7 +6,7 @@
+ 
+ def parse_amount(text):
+     """'$1,234.50' or '12' -> amount in dollars as a float."""
+-    return float(text.strip().lstrip("$"))
++    return float(text.strip().lstrip("$").replace(",", ""))
+ 
+ 
+ def read_orders(csv_text):

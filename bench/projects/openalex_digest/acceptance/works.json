@@ -1,0 +1,13 @@
+{"meta": {"count": 5}, "results": [
+ {"id": "https://openalex.org/W1", "title": "Primer design at scale", "publication_year": 2019, "cited_by_count": 120,
+  "doi": "https://doi.org/10.1000/a1",
+  "authorships": [{"author": {"display_name": "Ada Lovelace"}}, {"author": {"display_name": "Alan Turing"}}],
+  "abstract_inverted_index": {"Designing": [0], "primers": [1, 4], "is": [2], "hard;": [3], "matter.": [5]}},
+ {"id": "https://openalex.org/W2", "title": "A newer primer tool", "publication_year": 2023, "cited_by_count": 120,
+  "doi": null, "authorships": [{"author": {"display_name": "Grace Hopper"}}], "abstract_inverted_index": null},
+ {"id": "https://openalex.org/W3", "title": "Melting temperature models", "publication_year": 2021,
+  "cited_by_count": 45, "doi": "https://doi.org/10.1000/c3", "authorships": []},
+ {"id": "https://openalex.org/W4", "title": null, "publication_year": 2024, "cited_by_count": 999},
+ {"id": "https://openalex.org/W5", "title": "Old PCR survey", "publication_year": 1998, "cited_by_count": 300,
+  "doi": "https://doi.org/10.1000/e5", "authorships": [{"author": {"display_name": "Kary Mullis"}}]}
+]}

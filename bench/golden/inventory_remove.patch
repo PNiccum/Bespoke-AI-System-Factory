@@ -1,0 +1,28 @@
+--- a/stock/inventory.py
++++ b/stock/inventory.py
+@@ -1,3 +1,6 @@
++from stock.errors import OutOfStock
++
++
+ class Inventory:
+     """Units on hand per SKU."""
+ 
+@@ -10,6 +13,18 @@
+             raise ValueError("qty must be a positive integer")
+         self._units[sku] = self._units.get(sku, 0) + qty
+ 
++    def remove(self, sku, qty):
++        """Take ``qty`` units (a positive int) of ``sku`` out of stock."""
++        if not isinstance(qty, int) or qty <= 0:
++            raise ValueError("qty must be a positive integer")
++        available = self.count(sku)
++        if qty > available:
++            raise OutOfStock(sku, qty, available)
++        if qty == available:
++            del self._units[sku]
++        else:
++            self._units[sku] = available - qty
++
+     def count(self, sku):
+         return self._units.get(sku, 0)
+ 

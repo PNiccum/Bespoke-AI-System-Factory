@@ -1,0 +1,29 @@
+--- a/deps/graph.py
++++ b/deps/graph.py
+@@ -1,3 +1,6 @@
++import bisect
++
++
+ class CycleError(ValueError):
+     """The dependencies loop. ``cycle`` lists the looping tasks so that each one depends on the next, with the
+     first task repeated at the end, e.g. ["a", "b", "a"]."""
+@@ -26,5 +29,18 @@
+         for u in users[n]:
+             waiting[u] -= 1
+             if waiting[u] == 0:
+-                ready.append(u)
++                bisect.insort(ready, u)
++    if len(order) < len(nodes):
++        raise CycleError(_find_cycle(deps, set(nodes) - set(order)))
+     return order
++
++
++def _find_cycle(deps, stuck):
++    """Every stuck task needs another stuck task, so walking needs from any of them must loop."""
++    path, seen = [], {}
++    n = min(stuck)
++    while n not in seen:
++        seen[n] = len(path)
++        path.append(n)
++        n = min(d for d in deps.get(n, []) if d in stuck)
++    return path[seen[n]:] + [n]

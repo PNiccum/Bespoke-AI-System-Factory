@@ -1,0 +1,126 @@
+# ASPIRE project tier (added 2026-11-02): small tools built from nothing by the whole pipeline (planning loop,
+# knowledge loop, production, critic loop, final QA), run by factory/bench_projects.py.
+#
+# Each project starts from a written request and Plan A in place of the Interviewer's conversation (the person
+# approved these by approving the task list), so every run starts from the same plan. The request fixes the public
+# interface, because the acceptance tests in bench/projects/<name>/acceptance/ are run against the delivered output/
+# folder and no model ever sees them. bench/projects/<name>/reference/ is a known-good solution, used only to check
+# the acceptance tests themselves (tests/test_bench_projects.py).
+common: >-
+  Deliver it as Python 3.11 code using the standard library only, with the main module at the top level of the
+  output folder (helper modules and tests may sit beside it). The functions and command-line options named here are
+  the interface other code depends on: keep their names, arguments and output formats exactly.
+projects:
+  - name: wordstats
+    request: >-
+      A command-line tool that lists the most frequent words in a text file, leaving out common English stopwords.
+      Main module: wordstats.py. Function top_words(text, n=10, stopwords=None) returns a list of (word, count)
+      tuples: words are runs of letters and apostrophes, lower-cased, with apostrophes at either end stripped;
+      stopwords=None means a built-in English list that includes at least a, and, in, is, of, the, to; any other
+      set replaces that list; the most frequent come first and ties are in alphabetical order; at most n are
+      returned. Command line: python wordstats.py FILE [--top N] [--json] [--keep-stopwords]. It prints one
+      "word<TAB>count" line per word, or with --json a JSON list of {"word": ..., "count": ...} objects;
+      --keep-stopwords counts every word. A file that cannot be read gives a message on stderr and a nonzero exit
+      code.
+    plan:
+      title: Word frequency CLI
+      goal: Count the most frequent non-stopword words in a text file from the command line.
+      deliverable: wordstats.py with top_words() and a command-line interface, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write top_words(text, n, stopwords) with tokenizing, stopwords and tie order",
+           acceptance: "top_words on a sample text returns the expected (word, count) list, ties alphabetical"}
+        - {id: T2, title: "Add the command line: --top, --json, --keep-stopwords, unreadable file handling",
+           acceptance: "python wordstats.py sample.txt --top 2 prints two word<TAB>count lines; --json prints a JSON list; a missing file exits nonzero",
+           depends_on: [T1]}
+        - {id: T3, title: "Write pytest tests and a README with usage examples",
+           acceptance: "pytest passes and the README shows each option", depends_on: [T1, T2]}
+      assumptions: ["Input files are UTF-8 text"]
+      out_of_scope: ["Stemming or lemmatizing", "Languages other than English"]
+
+  - name: csv_profile
+    request: >-
+      A tool that profiles every column of a CSV file and writes the profile as a markdown report. Main module:
+      csvprofile.py. Function profile(path) reads the CSV (quoted fields may contain commas; the first row is the
+      header) and returns a dict keyed by column name, in the file's column order. Each value is a dict with "type"
+      ("int" when every non-empty cell parses as an int, else "float" when every one parses as a float, else
+      "str", and "empty" when the column has no non-empty cells), "missing" (the number of empty or whitespace-only
+      cells), "unique" (the number of distinct non-empty values), and for int and float columns "min", "max" and
+      "mean" as numbers. Function to_markdown(profile) returns a markdown table with a header row that names at
+      least column, type and missing, a separator row, and one row per column. Command line: python csvprofile.py
+      FILE [-o OUT] writes the report to OUT, or to standard output without -o.
+    plan:
+      title: CSV column profiler
+      goal: Summarize each column of a CSV file (type, missing values, distinct values, numeric range) in markdown.
+      deliverable: csvprofile.py with profile(), to_markdown() and a command-line interface, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write profile(path): CSV reading, type inference, missing, unique, numeric stats",
+           acceptance: "profile on a sample CSV with int, float, text and empty columns returns the expected dict"}
+        - {id: T2, title: "Write to_markdown(profile) and the command line with -o",
+           acceptance: "python csvprofile.py sample.csv prints a markdown table with one row per column; -o writes it to a file",
+           depends_on: [T1]}
+        - {id: T3, title: "Write pytest tests and a README with an example report",
+           acceptance: "pytest passes and the README shows an example report", depends_on: [T1, T2]}
+      assumptions: ["The file is UTF-8 with a header row", "The whole file fits in memory"]
+      out_of_scope: ["Excel files", "Charts"]
+
+  - name: log_spikes
+    request: >-
+      A tool that finds the time windows where a web server's error rate spikes, from an access log in the combined
+      log format, for example: 203.0.113.7 - - [02/Nov/2026:10:07:13 +0000] "GET /index.html HTTP/1.1" 500 512 "-"
+      "curl/8.0". Main module: logspikes.py. Function parse_line(line) returns {"time": a timezone-aware datetime,
+      "status": int, "path": str}, or None for a line that does not parse. Function error_windows(lines,
+      window_minutes=5, threshold=0.2, min_requests=10) takes an iterable of log lines, skips the ones that do not
+      parse, groups requests into windows of window_minutes aligned to the clock in UTC (10:00, 10:05, ...), and
+      returns, sorted by time, one dict per window with at least min_requests requests whose error rate is at least
+      threshold: {"start": the window's start in UTC as an ISO 8601 string, "requests": int, "errors": int,
+      "rate": errors / requests}. An error is a status of 500 or more. Command line: python logspikes.py FILE
+      [--window N] [--threshold X] [--min-requests N] [--json] prints one line per spike, or with --json the list
+      as JSON.
+    plan:
+      title: Access-log error spike finder
+      goal: Report the windows of time in which a web server's 5xx error rate crosses a threshold.
+      deliverable: logspikes.py with parse_line(), error_windows() and a command-line interface, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write parse_line for the combined log format, with timezone-aware times",
+           acceptance: "parse_line returns time, status and path for a valid line and None for garbage"}
+        - {id: T2, title: "Write error_windows: UTC-aligned windows, error rate, threshold and minimum requests",
+           acceptance: "on a synthetic log with one bad 5-minute window, error_windows returns exactly that window",
+           depends_on: [T1]}
+        - {id: T3, title: "Add the command line and its --json output",
+           acceptance: "python logspikes.py access.log --json prints the spike windows as JSON", depends_on: [T2]}
+        - {id: T4, title: "Write pytest tests and a README",
+           acceptance: "pytest passes and the README explains the options", depends_on: [T1, T2, T3]}
+      assumptions: ["Logs fit in memory or are read line by line"]
+      out_of_scope: ["Alerting or dashboards", "Log formats other than combined"]
+
+  - name: openalex_digest
+    request: >-
+      A tool that builds a ranked, cited reading list on a research topic from the OpenAlex works API
+      (https://api.openalex.org/works). Main module: digest.py. Function fetch(topic, n=25, mailto=None) searches
+      the API and returns its list of work records (the response's "results"). Function rank(works, top=10,
+      since_year=None) drops works with no title, keeps only works whose publication_year is at least since_year
+      when it is given, sorts by cited_by_count (highest first), then publication_year (newest first), then title,
+      and returns at most top works. Function reconstruct_abstract(inverted_index) turns OpenAlex's
+      abstract_inverted_index back into the abstract text, and returns "" for None. Function render(works, topic)
+      returns markdown: a first line that is a heading naming the topic, then one numbered line per work ("1. ...")
+      giving its title, publication year, up to three author names (from authorships[].author.display_name),
+      cited_by_count, and its DOI URL when it has one. Command line: python digest.py TOPIC [--top N] [--since
+      YEAR] [--from-file FILE] [-o OUT]; --from-file reads a saved API response ({"results": [...]}) instead of
+      calling the API, and -o writes the markdown to OUT instead of standard output.
+    plan:
+      title: OpenAlex reading-list digest
+      goal: Turn a research topic into a ranked, cited markdown reading list using OpenAlex.
+      deliverable: digest.py with fetch(), rank(), reconstruct_abstract(), render() and a command-line interface, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write fetch() against the OpenAlex works search API",
+           acceptance: "fetch builds a works search URL with the topic and page size and returns the results list"}
+        - {id: T2, title: "Write rank() and reconstruct_abstract() over OpenAlex work records",
+           acceptance: "on saved work records, rank orders by citations, then year, then title, and honors top and since_year",
+           depends_on: [T1]}
+        - {id: T3, title: "Write render() and the command line with --from-file and -o",
+           acceptance: "python digest.py TOPIC --from-file saved.json -o out.md writes a numbered, cited list",
+           depends_on: [T2]}
+        - {id: T4, title: "Write pytest tests on saved records (no network) and a README",
+           acceptance: "pytest passes without network access and the README shows an example", depends_on: [T1, T2, T3]}
+      assumptions: ["OpenAlex needs no key; a mailto address is optional"]
+      out_of_scope: ["Full-text download", "Other bibliographic APIs"]

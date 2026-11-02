@@ -1,0 +1,15 @@
+--- a/spans/merge.py
++++ b/spans/merge.py
+@@ -2,9 +2,9 @@
+     """Merge overlapping or touching closed intervals [start, end]. The input may be in any order and is not
+     changed; the result is a new list of [start, end] lists sorted by start."""
+     out = []
+-    for start, end in intervals:
+-        if out and start < out[-1][1]:
+-            out[-1][1] = end
++    for start, end in sorted(intervals):
++        if out and start <= out[-1][1]:
++            out[-1][1] = max(out[-1][1], end)
+         else:
+             out.append([start, end])
+     return out
