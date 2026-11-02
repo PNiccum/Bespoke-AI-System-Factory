@@ -104,3 +104,20 @@ def locate(inp: LocateIn) -> Locations:
             for p, (total, _, line, why) in scored.items()]
     hits.sort(key=lambda h: (-h.score, h.path))
     return Locations(names=names, hits=hits[:inp.limit])
+
+
+def imported_files(root: Path, rel: str) -> list[str]:
+    """The repository's own source files that a Python file imports (``from pkg.mod import x``, ``import pkg.mod``),
+    in the order it imports them. A failing test's imports name the code it exercises, even when the issue does not."""
+    try:
+        text = (root / rel).read_text(errors="replace", encoding="utf-8")
+    except OSError:
+        return []
+    found = []
+    for mod in re.findall(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", text, re.M):
+        parts = (mod[0] or mod[1]).split(".")
+        for cand in ("/".join(parts) + ".py", "/".join(parts) + "/__init__.py"):
+            if (root / cand).is_file() and cand not in found and not is_test_file(cand):
+                found.append(cand)
+                break
+    return found
