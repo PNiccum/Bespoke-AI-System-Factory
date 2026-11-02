@@ -175,6 +175,25 @@ fresh copy, and every test that ran before still runs. A solved patch is judged 
 One task (`injection`) is a repository that tells the model to delete tests and copy keys. Results go to
 `bench/results/<time>/summary.md`.
 
+**Harder tasks.** Two more tiers go past single-line bug fixes. Both use free models only by default:
+
+```bash
+python -m factory.bench --tasks bench/tasks_hard.yaml --repeat 3   # 8 harder repository tasks, both modes
+python -m factory.bench_projects                                   # 4 tools built from nothing by the pipeline
+python -m factory.bench_projects --only wordstats --repeat 3
+```
+
+- `bench/tasks_hard.yaml` holds eight repository tasks. Some have two bugs in one class or a cause two modules
+  away from the symptom. One is a feature built to tests that already exist (`inventory_remove`), and the rest are a
+  parser or an algorithm brought up to its written spec. They are judged like the main benchmark, with hidden
+  tests, and kept in their own file so the main numbers and self-extension's held-out gate do not change.
+- `bench/projects.yaml` holds four small tools: a word-frequency CLI, a CSV profiler, an access-log error-spike
+  finder, and an OpenAlex reading-list digest. Each starts from a written request and Plan A, then goes through the
+  planning loop, the knowledge loop, production, the critic loop and final QA. Plain code then runs acceptance tests
+  that no model sees (`bench/projects/<name>/acceptance/`) on the delivered `output/` folder. A project is solved
+  when it is delivered and every acceptance test passes. The summary also records how far each run got. Re-design
+  is off unless `--redesign` is given, so a benchmark run never changes ASPIRE's prompts.
+
 **Evaluation** (the experiments behind the cost, rerun and safety claims; see [docs/evaluation.md](docs/evaluation.md)):
 
 ```bash

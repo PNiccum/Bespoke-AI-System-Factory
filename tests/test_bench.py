@@ -2,7 +2,7 @@
 
 import pytest
 
-from factory.bench import judge, load_tasks, run_one, summarize
+from factory.bench import judge, judge_hidden, load_tasks, run_one, summarize
 from factory.tools.sandbox import RunTestsIn, run_tests
 from tests.test_orchestrator import ACCEPT, ROOT, Scripted, cfg, diff  # noqa: F401
 
@@ -51,3 +51,20 @@ def test_a_crash_is_a_failed_task_not_a_failed_benchmark(cfg):
     o = run_one(cfg, task, "baseline", providers={"arc": Scripted(), "openai": Scripted(), "claude": Scripted()},
                 registry_dir=ROOT / "registry")
     assert not o.solved and "IndexError" in o.why
+
+
+HARD = load_tasks(ROOT / "bench" / "tasks_hard.yaml", ROOT)
+
+
+def test_the_hard_tier_is_separate_and_every_task_has_hidden_tests():
+    assert len(HARD) == 8 and not {t.name for t in HARD} & {t.name for t in TASKS}
+    assert all((ROOT / "bench" / "hidden" / t.name).is_dir() for t in HARD)
+
+
+@pytest.mark.parametrize("task", HARD, ids=[t.name for t in HARD])
+def test_each_hard_task_fails_as_given_and_its_known_fix_passes_the_hidden_tests_too(task):
+    assert not run_tests(RunTestsIn(repo_path=task.repo)).ok
+    solved, why = judge(task.repo, golden(task.name))
+    assert solved, why
+    assert judge_hidden(task.name, task.repo, golden(task.name))[0] is True
+    assert judge_hidden(task.name, task.repo, "")[0] is False
