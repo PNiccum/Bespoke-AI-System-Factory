@@ -29,6 +29,7 @@ from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage
+from factory.pipeline.wiki import words as wiki_words
 from factory.registry import Registry
 
 EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER = ("knowledge_evaluator", "research_orchestrator", "librarian",
@@ -86,7 +87,9 @@ class KnowledgeResult(BaseModel):
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
-engineer would not already know: facts, methods, data sources, file formats, project templates.
+engineer would not already know: facts, methods, data sources, file formats, project templates. Leave out general \
+software engineering (packaging, command-line parsing, HTTP clients and caching, testing tools, mocking): the builders \
+already know it, and research cannot add to it. Ask for the domain knowledge the task turns on.
 
 ## Task
 {task}
@@ -99,7 +102,8 @@ engineer would not already know: facts, methods, data sources, file formats, pro
 
 {again}Reply with JSON only: {{"enough": true or false, "topics": [{{"name": "<short topic name>", "why": "<one \
 sentence>", "needed_for": ["T1"], "hints": ["<search terms>"]}}]}}
-List at most {max_topics} topics, most important first. Set "enough" to true, with no topics, only when the pages \
+List at most {max_topics} topics, most important first. When a topic is the same as one asked for earlier, use the \
+earlier name exactly, so the work already done on it counts. Set "enough" to true, with no topics, only when the pages \
 above cover everything the plan needs."""
 
 QUERIES_PROMPT = """Write searches that will find sources for this topic.
@@ -112,6 +116,8 @@ Search hints: {hints}
 - openalex: scholarly papers in every field
 - europepmc: biomedical and life-science papers (PubMed, PubMed Central)
 - ncbi_gene: genes by symbol or name, with organism, e.g. "BRCA1[sym] AND human[orgn]"
+- docs: reference manuals and API documentation (NCBI E-utilities, RefSeq, Primer3, Biopython); use it for how a \
+tool, API or format works, and keyword queries such as "efetch rettype fasta nucleotide"
 {previous}
 Reply with JSON only: {{"queries": [{{"connector": one of {connectors}, "query": "<search>"}}]}}, at most \
 {max_queries}."""
@@ -158,6 +164,16 @@ inference follows from the facts before it. A sentence is accurate only when its
 Reply with JSON only: {{"accurate": true or false, "issues": ["<claim>: <what is wrong>"]}}"""
 
 
+def same_topic(name: str, earlier: list[str]) -> str:
+    """The earlier name of a topic the evaluator has reworded (most of the words shared), else the name as given. The
+    first live run renamed its topics between rounds, so the pages written for the first names never counted."""
+    new = wiki_words(name)
+    best = max(earlier, key=lambda e: len(new & wiki_words(e)) / max(len(new | wiki_words(e)), 1), default=None)
+    if best and new and len(new & wiki_words(best)) / len(new | wiki_words(best)) >= 0.5:
+        return best
+    return name
+
+
 def show_docs(docs: list[Doc]) -> str:
     return "\n\n".join(f"### {d.id}\n{d.title} ({d.year})\n{d.text}" for d in docs)
 
@@ -183,12 +199,13 @@ class KnowledgeLoop:
     def run(self) -> KnowledgeResult:
         if self.board.latest("decision") is None:
             raise RuntimeError("the knowledge loop starts from the planning loop's plan; run that first")
-        if self.board.latest("knowledge"):
-            raise RuntimeError("this project's knowledge loop already ran")
+        if (k := self.board.latest("knowledge")) and k.data.get("ok"):
+            raise RuntimeError("this project's knowledge is already approved")  # a failed loop may run again
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         plan = (self.project.root / "plan.json").read_text(encoding="utf-8")
         covered: dict[str, str] = {}
         missing: list[str] = []
+        asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
         for rnd in range(1, MAX_ROUNDS + 1):
             if rnd == 1:
                 pages = self.wiki.pages()[:40]
@@ -196,11 +213,13 @@ class KnowledgeLoop:
             else:
                 pages = [p for p in (self.wiki.find(t) for t in covered) if p]
                 again = ("Research has run on the topics you asked for; the pages now available are listed. Name only "
-                         "what is still missing, including specifics the new pages show the work depends on.\n\n")
+                         "what is still missing, including specifics the new pages show the work depends on.\n"
+                         f"Topics asked for earlier: {'; '.join(asked)}\n\n")
             listing = "\n".join(f"- {p.topic}: {p.summary[:300]}" for p in pages) or "(none)"
             needs = self._call(EVALUATOR, EVALUATE_PROMPT.format(task=task, plan=plan, pages=listing, again=again,
                                                                  max_topics=MAX_TOPICS), Needs, f"knowledge-{rnd}")
-            topics = needs.topics[:MAX_TOPICS]
+            topics = [t.model_copy(update={"name": same_topic(t.name, asked)}) for t in needs.topics[:MAX_TOPICS]]
+            asked += [t.name for t in topics if t.name not in asked]
             ev = self.board.post("topics", EVALUATOR, {"round": rnd, "enough": needs.enough,
                                                        "topics": [t.model_dump() for t in topics]})
             have = {t.name: self.wiki.covers(t.name) for t in topics}

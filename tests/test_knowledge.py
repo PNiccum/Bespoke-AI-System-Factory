@@ -87,7 +87,7 @@ def test_missing_topic_is_researched_written_verified_then_rechecked(cfg, tmp_pa
     assert "How to pick PCR primers" in arc.requests[5].messages[-1]["content"]  # the re-check sees the new page
     kinds = [e.kind for e in project.board.entries()]
     assert kinds[-1] == "file" and kinds[-2] == "knowledge" and "wiki_check" in kinds
-    with pytest.raises(RuntimeError, match="already ran"):
+    with pytest.raises(RuntimeError, match="already approved"):
         kl.run()
 
 
@@ -171,3 +171,35 @@ def test_helpers():
     assert cited("x [a:1] y [b:2]", ["a:1", "b:2", "c:3"]) == ["a:1", "b:2"]
     wiki_page = WikiPage(topic="PCR primer design", summary="", body="", sources=[])
     assert wiki_page.slug == "pcr-primer-design"
+
+
+def test_a_reworded_topic_keeps_its_first_name():
+    from factory.pipeline.knowledge import same_topic
+    earlier = ["SantaLucia nearest-neighbor Tm calculation", "NCBI E-utilities gene to mRNA workflow"]
+    assert same_topic("Nearest-neighbor Tm calculation (SantaLucia)", earlier) == earlier[0]
+    assert same_topic("Primer scoring heuristics", earlier) == "Primer scoring heuristics"
+
+
+def test_a_page_written_under_the_first_name_counts_when_the_topic_is_reworded(cfg, tmp_path):
+    kl, arc, _, _ = knowledge(cfg, tmp_path, topics("PCR primer design rules"), queries(), review(1, 2),
+                              draft(1, 2), check(True), topics("Rules for PCR primer design"))
+    result = kl.run()
+    assert result.ok and result.covered == {"PCR primer design rules": "pcr-primer-design-rules"}
+    assert "Topics asked for earlier: PCR primer design rules" in arc.requests[-1].messages[-1]["content"]
+
+
+def test_a_failed_knowledge_loop_can_run_again_and_build_refuses_until_it_passes(cfg, tmp_path, monkeypatch):
+    from factory.pipeline.run import build
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 1)
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design"))
+    assert not kl.run().ok
+    with pytest.raises(RuntimeError, match="did not approve"):
+        build(kl.llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {})
+    arc.texts.append(topics(enough=True))
+    assert kl.run().ok  # a failed loop may run again
+
+
+def test_the_evaluator_is_told_to_leave_out_general_software_topics(cfg, tmp_path):
+    kl, arc, _, _ = knowledge(cfg, tmp_path, topics(enough=True))
+    kl.run()
+    assert "Leave out general software engineering" in arc.requests[0].messages[-1]["content"]

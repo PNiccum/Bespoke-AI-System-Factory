@@ -118,7 +118,8 @@ def run_build(args) -> int:
     project = Project.open(Path(args.project))
     llm = LLM(cfg, new_run_dir(cfg, "build"), approver=ask_on_terminal)
     result = build(llm, Registry.load(cfg), project, Wiki(cfg.work_dir / "wiki"),
-                   default_searchers(cfg.work_dir / "research-cache"), on_stage=lambda s: print(f"[{s}]"))
+                   default_searchers(cfg.work_dir / "research-cache"), on_stage=lambda s: print(f"[{s}]"),
+                   allow_unapproved=args.allow_unapproved)
     if result.status == "delivered":
         print(f"Delivered: {result.final.deliverable}")
     else:
@@ -159,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
     build = sub.add_parser("build", help="build, critique, check and deliver a project whose knowledge is approved")
     build.add_argument("--project", required=True)
     build.add_argument("--config", default="configs/factory.yaml")
+    build.add_argument("--allow-unapproved", action="store_true",
+                       help="build even though the knowledge loop did not approve the knowledge (not a fair run)")
     for p in (fix, tests, review, ask):
         p.add_argument("--config", default="configs/factory.yaml")
         p.add_argument("--out", default="exports")

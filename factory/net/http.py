@@ -91,6 +91,26 @@ class CachedAPI:
                                           "data": data}), encoding="utf-8")
         return data
 
+    def get_text(self, url: str, accept: str = "text/html") -> str:
+        """A web page or XML document as text, cached like ``get``. "" for a page that is not there."""
+        cache_path = self.cache / f"{hashlib.sha1(url.encode(), usedforsecurity=False).hexdigest()}.txt.json"
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if datetime.fromisoformat(cached["fetched_at"]) > datetime.now(UTC) - self.max_age:
+                return cached["text"]
+        r = self._request(url, {"Accept": accept, "User-Agent": "Mozilla/5.0 (bespoke-ai-system-factory)",
+                                **self.headers})
+        if r.status_code == 404:
+            text = ""
+        elif r.status_code >= 400:
+            raise httpx.HTTPStatusError(f"{r.status_code} {r.text[:300]}", request=r.request, response=r)
+        else:
+            text = r.text
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({"url": url, "fetched_at": datetime.now(UTC).isoformat(), "text": text}),
+                              encoding="utf-8")
+        return text
+
     def download(self, url: str, accept: str = "application/pdf", headers: dict | None = None) -> bytes | None:
         """A file, uncached (the caller files it). None unless the reply is a PDF."""
         r = self._request(url, {"Accept": accept, "User-Agent": "Mozilla/5.0 (bespoke-ai-system-factory)",
