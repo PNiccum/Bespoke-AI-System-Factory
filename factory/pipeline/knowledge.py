@@ -28,7 +28,7 @@ from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher
-from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage
+from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
 from factory.pipeline.wiki import words as wiki_words
 from factory.registry import Registry
 
@@ -84,12 +84,15 @@ class KnowledgeResult(BaseModel):
     covered: dict[str, str]  # topic -> wiki page slug
     missing: list[str]
     rounds: int
+    deferred: list[str] = []  # first asked for in the last round, which researches nothing: left to the critic loop
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
 engineer would not already know: facts, methods, data sources, file formats, project templates. Leave out general \
-software engineering (packaging, command-line parsing, HTTP clients and caching, testing tools, mocking): the builders \
-already know it, and research cannot add to it. Ask for the domain knowledge the task turns on.
+software engineering (packaging, command-line parsing, HTTP clients, caching and retries, testing tools, mocking) and \
+textbook facts any practitioner knows (a reverse complement, a well-known identifier such as human taxonomy ID 9606, \
+scoring and tie-breaking rules the plan can simply state): the builders already know them, and research cannot add to \
+them. Ask for the domain knowledge the task turns on.
 
 ## Task
 {task}
@@ -207,6 +210,7 @@ class KnowledgeLoop:
         covered: dict[str, str] = {}
         missing: list[str] = []
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
+        deferred: list[str] = []
         for rnd in range(1, MAX_ROUNDS + 1):
             if rnd == 1:  # only verified pages: one the verifier rejected must not count toward "enough"
                 pages = [p for p in self.wiki.pages() if p.verified][:40]
@@ -220,9 +224,14 @@ class KnowledgeLoop:
             needs = self._call(EVALUATOR, EVALUATE_PROMPT.format(task=task, plan=plan, pages=listing, again=again,
                                                                  max_topics=MAX_TOPICS), Needs, f"knowledge-{rnd}")
             topics = [t.model_copy(update={"name": same_topic(t.name, asked)}) for t in needs.topics[:MAX_TOPICS]]
+            if rnd == MAX_ROUNDS and rnd > 1:  # the last round researches nothing, so a topic new here cannot be met
+                new = [t.name for t in topics if t.name not in asked]
+                deferred = [n for n in new if self.wiki.covers(n) is None]
+                topics = [t for t in topics if t.name not in deferred]
             asked += [t.name for t in topics if t.name not in asked]
             ev = self.board.post("topics", EVALUATOR, {"round": rnd, "enough": needs.enough,
-                                                       "topics": [t.model_dump() for t in topics]})
+                                                       "topics": [t.model_dump() for t in topics],
+                                                       "deferred": deferred})
             have = {t.name: self.wiki.covers(t.name) for t in topics}
             missing = [t.name for t in topics if have[t.name] is None]
             covered |= {name: page.slug for name, page in have.items() if page}
@@ -236,7 +245,7 @@ class KnowledgeLoop:
                 if topic.name in missing and (page := self.research(topic)) and page.verified:
                     covered[topic.name] = page.slug
         ok = not missing
-        result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd)
+        result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred)
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
@@ -283,9 +292,9 @@ class KnowledgeLoop:
                                                              "topic": topic.name, "why": v.why}, license=d.license)
                 else:
                     rejected.append(f"{d.title[:60]}: {v.why if v else 'no verdict'}")
-            if len(approved) >= MIN_SOURCES:
+            if enough_sources(approved):
                 break
-        if len(approved) < MIN_SOURCES:
+        if not enough_sources(approved):
             self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": f"only {len(approved)} approved "
                                                    f"sources after {RESEARCH_ROUNDS} rounds"})
             return None
@@ -311,8 +320,9 @@ class KnowledgeLoop:
             lost = cite.dropped(paragraphs)
             self.board.post("note", "code", {"topic": topic.name, "attempt": attempt, "quote_check": lost or "all kept"},
                             license=license)
-            issues = [] if len(sources) >= MIN_SOURCES else [
-                f"after the quote check the page cites {len(sources)} documents; it needs {MIN_SOURCES}",
+            issues = [] if enough_sources(sources) else [
+                f"after the quote check the page cites {len(sources)} documents; it needs {MIN_SOURCES} (or one "
+                "reference manual)",
                 *[f"dropped {x}" for x in lost]]
             if not issues:
                 check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(), quotes=cite.quotes(paragraphs),

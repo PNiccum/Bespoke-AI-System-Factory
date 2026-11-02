@@ -17,6 +17,14 @@ from pydantic import BaseModel
 from factory.pipeline.blackboard import License
 
 MIN_SOURCES = 2
+
+
+def enough_sources(ids) -> bool:
+    """MIN_SOURCES documents, or one reference manual (a ``docs:`` id): for how a tool, API or format works, the
+    manual is the authority, and a second source rarely exists (the 2026-11-02 primer run lost the NCBI query-syntax
+    topic to this rule with the E-utilities manual approved)."""
+    ids = list(ids)
+    return len(ids) >= MIN_SOURCES or any(str(i).startswith("docs:") for i in ids)
 STOP = frozenset("a an and for in of on the to with".split())
 
 
@@ -90,4 +98,4 @@ class Wiki:
     def covers(self, topic: str) -> WikiPage | None:
         """A verified page with enough sources for this topic, or None."""
         page = self.find(topic)
-        return page if page and page.verified and len(page.sources) >= MIN_SOURCES else None
+        return page if page and page.verified and enough_sources(page.sources) else None
