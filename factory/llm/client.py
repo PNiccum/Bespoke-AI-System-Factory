@@ -350,23 +350,25 @@ class LLM:
 
 def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls, tag: str,
                        attempts: int = 3, data: DataClass = "private", max_tokens: int | None = None,
-                       escalate: bool = False):
+                       escalate: bool = False, parse=None, fmt: str = "JSON"):
     """Call the model until the output parses and validates, or give up.
 
     A reply that does not parse is still cached, so a retry must change the request: it names the problem and
     asks for the corrected JSON. (Repeating the identical request would only return the cached bad reply.)
+    ``parse`` turns the completion into the data to validate (default: its first JSON object); ``fmt`` names the
+    format in the retry request.
     """
     errors, cut_off = [], False
     for i in range(attempts):
         p = prompt if i == 0 else (
-            f"{prompt}\n\nYour previous reply was cut off at the output limit. Reply again with only the JSON, "
+            f"{prompt}\n\nYour previous reply was cut off at the output limit. Reply again with only the {fmt}, "
             "much shorter: keep only what is asked for, drop comments, docstrings and repetition, and cover fewer "
             "cases if you must." if cut_off else
             f"{prompt}\n\nYour previous reply could not be used ({errors[-1][:160]}). "
-            "Reply again with only the corrected JSON, nothing else.")
+            f"Reply again with only the corrected {fmt}, nothing else.")
         try:
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate)
-            return model_cls.model_validate(c.json()), c, errors
+            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
         except TruncatedError as e:
             errors.append(str(e))
             cut_off = True
