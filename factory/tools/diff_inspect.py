@@ -95,7 +95,7 @@ def syntax_errors(repo_path: str, patch: str, files: list[FileChange]) -> tuple[
         shutil.copytree(Path(repo_path).resolve(), work,
                         ignore=shutil.ignore_patterns(".git", ".venv*", "__pycache__", ".env", ".env.*"))
         applied = any(subprocess.run(["git", "apply", *extra, "--whitespace=nowarn", "-"], cwd=work, input=patch,
-                                     text=True, capture_output=True).returncode == 0
+                                     text=True, encoding="utf-8", errors="replace", capture_output=True).returncode == 0
                       for extra in ([], ["--recount"]))
         if not applied:
             return False, []

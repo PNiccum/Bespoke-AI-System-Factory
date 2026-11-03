@@ -143,7 +143,7 @@ def scrubbed_env() -> dict[str, str]:
 
 def _git_apply(work: Path, patch: str) -> bool:
     for extra in ([], ["--recount"]):
-        if subprocess.run(["git", "apply", *extra, "--whitespace=nowarn", "-"], cwd=work, input=patch, text=True,
+        if subprocess.run(["git", "apply", *extra, "--whitespace=nowarn", "-"], cwd=work, input=patch, text=True, encoding="utf-8", errors="replace",
                           capture_output=True).returncode == 0:
             return True
     return False
@@ -159,7 +159,7 @@ def _passes(work: Path, tests: list[str], timeout_s: float) -> bool:
         return code == 0 and not timed_out
     try:
         r = subprocess.run([sys.executable, "-m", "pytest", *args], cwd=work, env=scrubbed_env(),
-                           capture_output=True, text=True, timeout=timeout_s)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout_s)
     except subprocess.TimeoutExpired:
         return False
     return r.returncode == 0

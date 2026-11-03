@@ -42,8 +42,8 @@ def main(repo):
         work = Path(tmp) / "repo"
         shutil.copytree(repo, work, ignore=shutil.ignore_patterns(".git", ".venv*", "__pycache__", ".env"))
         patch = (HERE / "fix.patch").read_text(encoding="utf-8")
-        if subprocess.run(["git", "apply", "-"], cwd=work, input=patch, text=True).returncode != 0:
-            subprocess.run(["git", "apply", "--recount", "-"], cwd=work, input=patch, text=True, check=True)
+        if subprocess.run(["git", "apply", "-"], cwd=work, input=patch, text=True, encoding="utf-8", errors="replace").returncode != 0:
+            subprocess.run(["git", "apply", "--recount", "-"], cwd=work, input=patch, text=True, encoding="utf-8", errors="replace", check=True)
         for label, args in (("target tests", targets), ("whole suite", [])):
             if label == "target tests" and not targets:
                 continue

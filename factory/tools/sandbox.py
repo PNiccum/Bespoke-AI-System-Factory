@@ -78,7 +78,7 @@ def run_pytest(tmp: Path, pytest_args: list[str], timeout_s: float) -> tuple[int
     if env is not None:
         env = env | {"PYTHONDONTWRITEBYTECODE": "1"}  # a same-size rewrite in the same second would hit a stale .pyc
     try:
-        r = subprocess.run(cmd, cwd=tmp / "repo", env=env, capture_output=True, text=True, timeout=timeout_s)
+        r = subprocess.run(cmd, cwd=tmp / "repo", env=env, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout_s)
         return r.returncode, r.stdout + r.stderr, False
     except subprocess.TimeoutExpired as e:
         if container:  # stopping the client leaves the container running
@@ -166,7 +166,7 @@ def apply_patch(work: Path, patch: str) -> tuple[bool, str]:
     ``@@``, numbers past the end of the file). Context that does not match the file is still refused."""
     errors = ""
     for text in dict.fromkeys((recount(patch), patch)):
-        r = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], cwd=work, input=text, text=True,
+        r = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], cwd=work, input=text, text=True, encoding="utf-8", errors="replace",
                            capture_output=True)
         if r.returncode == 0:
             return True, ""
