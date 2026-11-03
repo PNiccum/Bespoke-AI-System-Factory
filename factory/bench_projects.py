@@ -36,6 +36,7 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel
 
+from factory.bench import safe_stdout
 from factory.config import FactoryConfig, load_config
 from factory.llm import LLM, new_run_dir
 from factory.llm.gate import SpendRequest, deny_all
@@ -194,6 +195,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--redesign", action="store_true", help="run re-design on a failed project (off by default)")
     ap.add_argument("--repeat", type=int, default=1, help="trials per project")
     args = ap.parse_args(argv)
+    safe_stdout()
 
     cfg = load_config(args.config)
     tasks = [t for t in load_projects(Path(args.projects)) if not args.only or t.name in args.only]
@@ -207,13 +209,14 @@ def main(argv: list[str] | None = None) -> int:
     for trial in range(1, args.repeat + 1):
         for task in tasks:
             o = run_project(cfg, task, approver=approver, redesign=args.redesign, trial=trial)
-            acc = f"{o.acceptance.passed}/{o.acceptance.expected} acceptance" if o.acceptance else "no acceptance run"
-            print(f"{task.name:<16} {'solved' if o.solved else 'failed':<7} reached {o.reached}, {acc}: {o.why[:200]}"
-                  f"  ({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds / 60:.1f} min)")
-            outcomes.append(o)
+            outcomes.append(o)  # saved before anything is printed, so a console error cannot lose a result
             (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1),
                                               encoding="utf-8")
-    (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
+            (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
+            acc = f"{o.acceptance.passed}/{o.acceptance.expected} acceptance" if o.acceptance else "no acceptance run"
+            print(f"{task.name:<16} {'solved' if o.solved else 'failed':<7} reached {o.reached}, {acc}: {o.why[:200]}"
+                  f"  ({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds / 60:.1f} min)",
+                  flush=True)
     print(f"\n{summarize(outcomes)}\nResults: {out}")
     return 0
 
