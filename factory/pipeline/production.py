@@ -17,6 +17,10 @@ Stop rules: MAX_FILES files, MAX_ORDERS work orders a task, MAX_FILE_CHARS chara
 from __future__ import annotations
 
 import json
+import re
+import shutil
+from datetime import UTC, datetime
+from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -28,8 +32,10 @@ from factory.registry import Registry
 from factory.tools.sandbox import RunTestsIn, run_tests
 
 HEAD, SUB, BUILDER = "head_orchestrator", "sub_orchestrator", "builder"
-MAX_FILES, MAX_ORDERS, MAX_FILE_CHARS, MAX_READ_CHARS = 30, 6, 60_000, 12_000
+# 60 files: the 2026-11-03 primer build hit 30 with core modules unwritten (part of the 30 was a stale tree)
+MAX_FILES, MAX_ORDERS, MAX_FILE_CHARS, MAX_READ_CHARS = 60, 6, 60_000, 12_000
 OUTPUT = "output"
+SETUP_FAILURE = re.compile(r"(ModuleNotFoundError|ImportError)[^\n]{0,160}")
 
 
 class Design(BaseModel):
@@ -70,6 +76,7 @@ class Checks(BaseModel):
     passed: list[str] = []
     failed: list[str] = []
     output_tail: str = ""
+    setup_error: str = ""  # the tests could not even be imported (a package or path problem, not a failing test)
 
     @property
     def ok(self) -> bool:
@@ -151,6 +158,19 @@ class Production:
         if not self.out.exists():
             return []
         return sorted(p.relative_to(self.out).as_posix() for p in self.out.rglob("*") if p.is_file())
+
+    def start_clean(self) -> Path | None:
+        """Move what an earlier build left in output/ to superseded/<time>/, so a new build starts from an empty
+        folder. The 2026-11-03 primer build inherited a stale package tree from two earlier builds, and its tests
+        imported the wrong one. Returns where the old files went, or None when output/ was empty."""
+        if not self.files():
+            return None
+        dest = self.project.root / "superseded" / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(self.out), str(dest))
+        self.board.post("note", "code", {"text": f"moved the earlier build's {OUTPUT}/ to "
+                                                 f"{dest.relative_to(self.project.root).as_posix()}"})
+        return dest
 
     def inside(self, rel: str) -> bool:
         """Whether a path a model gave stays inside output/ (no "..", no absolute path)."""
@@ -238,10 +258,19 @@ class Production:
         has_tests = any(r.startswith("tests/") and r.endswith(".py") for r in self.files())
         if not has_tests:
             return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
-        report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300))  # on a throwaway copy
+        # a src layout imports without an install: pytest gets src/ (and the root) on its path
+        paths = ["src", "."] if (self.out / "src").is_dir() else ["."]
+        report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300, pythonpath=paths))  # throwaway copy
+        tail = report.output_tail[-2000:]
+        setup = ""
+        m = next((x for x in (re.search(r"ModuleNotFoundError[^\n]{0,160}", tail), SETUP_FAILURE.search(tail)) if x),
+                 None)
+        if not report.passed and not report.failed and m:
+            setup = (f"the tests could not be imported ({m.group(0)}): fix the package layout or imports so that "
+                     f"`pytest` run inside {OUTPUT}/ with {' and '.join(paths)} on the path can import them")
         return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
-                      passed=report.passed, failed=report.failed + report.errors,
-                      output_tail=report.output_tail[-2000:])
+                      passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
+                      setup_error=setup)
 
 
 def _license(pages: list[WikiPage]) -> str:
