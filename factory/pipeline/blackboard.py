@@ -127,6 +127,30 @@ class Project:
         raise FileExistsError(f"too many projects named {stem}")
 
     @classmethod
+    def restart(cls, src: Project, base: Path) -> Project:
+        """A new project that starts again from ``src``'s approved Plan A: its blackboard up to the latest approval
+        and the files written by then (task.txt and the like). Planning, research and build then run fresh, under
+        the agents and rules as they are now; the person is not asked again."""
+        approval = src.board.latest("approval")
+        if approval is None:
+            raise RuntimeError(f"{src.root} has no approved plan to start again from")
+        lines = src.board.path.read_text(encoding="utf-8").splitlines()
+        keep = []
+        for line in lines:
+            if line.strip():
+                keep.append(line)
+                if Entry.model_validate_json(line).id == approval.id:
+                    break
+        new = cls.create(base, src.root.name.split("-", 1)[-1])
+        for e in (Entry.model_validate_json(x) for x in keep):
+            if e.kind == "file" and (path := (src.root / e.data["path"])).is_file():
+                dest = new.root / e.data["path"]
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(path.read_bytes())
+        new.board.path.write_text("\n".join(keep) + "\n", encoding="utf-8")
+        return new
+
+    @classmethod
     def open(cls, root: Path) -> Project:
         if not (root / "blackboard.jsonl").exists():
             raise FileNotFoundError(f"{root} is not a project (no blackboard.jsonl)")

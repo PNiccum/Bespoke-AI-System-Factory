@@ -164,6 +164,10 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--config", default="configs/factory.yaml")
     build.add_argument("--allow-unapproved", action="store_true",
                        help="build even though the knowledge loop did not approve the knowledge (not a fair run)")
+    restart = sub.add_parser("restart", help="start a project again from its approved Plan A, in a new project "
+                             "folder (planning, research and build then run fresh)")
+    restart.add_argument("--project", required=True)
+    restart.add_argument("--config", default="configs/factory.yaml")
     wiki = sub.add_parser("wiki", help="rewrite the wiki's index.md and list problems (broken links, orphans, "
                           "unverified pages); no model calls")
     wiki.add_argument("--config", default="configs/factory.yaml")
@@ -179,6 +183,12 @@ def main(argv: list[str] | None = None) -> int:
         return run_research(args)
     if args.command == "build":
         return run_build(args)
+    if args.command == "restart":
+        from factory.pipeline.blackboard import Project
+        src = Project.open(Path(args.project))
+        new = Project.restart(src, src.root.parent)
+        print(f"new project: {new.root}\nnext: python -m factory plan --project {new.root}")
+        return 0
     if args.command == "wiki":
         from factory.pipeline.wiki import Wiki
         w = Wiki(load_config(args.config).work_dir / "wiki")
