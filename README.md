@@ -58,6 +58,15 @@ ends the run with an error that names the missing variable.
 streamlit run app.py
 ```
 
+The sidebar also has read-only inspection pages, none of which calls a model:
+
+- **Wiki**: browse and search the shared wiki, see each claim's verbatim quote and source, the verifier's issues on
+  pages that did not pass, links and backlinks between pages, the health check (`python -m factory wiki`) and the
+  change log. `?page=<slug>` opens a page directly.
+- **Projects**: each project's stage, files and blackboard, filterable by entry kind and author.
+- **Runs and spend**: paid credit left per provider, and each run's model calls by model, cache hits, errors,
+  approval-gate events and cost.
+
 **Terminal** (asks before any paid call; the bundle lands in `exports/`):
 
 ```bash
