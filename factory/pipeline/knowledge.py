@@ -98,8 +98,10 @@ EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide wh
 engineer would not already know: facts, methods, data sources, file formats, project templates. Leave out general \
 software engineering (packaging, command-line parsing, HTTP clients, caching and retries, testing tools, mocking) and \
 textbook facts any practitioner knows (a reverse complement, a well-known identifier such as human taxonomy ID 9606, \
-scoring and tie-breaking rules the plan can simply state): the builders already know them, and research cannot add to \
-them. Ask for the domain knowledge the task turns on.
+scoring and tie-breaking rules the plan can simply state), and rules the task or plan sets for itself (an output \
+format, how to tokenise or validate input, a stopword list, escaping, error handling, window or bucket sizes): the \
+builders already know or are told them, and research cannot add to them. Ask for the domain knowledge the task turns \
+on: facts about the outside world, its data sources and its file formats.
 
 ## Task
 {task}

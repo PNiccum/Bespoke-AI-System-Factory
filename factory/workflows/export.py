@@ -78,7 +78,7 @@ def broken(repo, patch):
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "repo"
         shutil.copytree(repo, work, ignore=shutil.ignore_patterns(".git", ".venv*", "__pycache__", ".env"))
-        if patch and all(subprocess.run(["git", "apply", *x, "-"], cwd=work, input=patch, text=True,
+        if patch and all(subprocess.run(["git", "apply", *x, "-"], cwd=work, input=patch, text=True, encoding="utf-8", errors="replace",
                                         capture_output=True).returncode for x in ([], ["--recount"])):
             return None
         junit = Path(tmp) / "junit.xml"

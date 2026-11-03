@@ -243,7 +243,7 @@ def rerun_bundle(bundle: Path, repo: Path) -> tuple[bool, str, float]:
     env |= {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
     t0 = time.monotonic()
     r = subprocess.run([sys.executable, "-I", "-c", NO_MODEL, str(bundle / "rerun.py"), str(repo)], env=env,
-                       capture_output=True, text=True, timeout=600)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     blocked = next((line for line in r.stderr.splitlines() if line.startswith("BLOCKED")), "")
     return r.returncode == 0 and "whole suite: PASS" in r.stdout, blocked, round(time.monotonic() - t0, 2)
 
