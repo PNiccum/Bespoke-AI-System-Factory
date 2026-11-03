@@ -17,6 +17,8 @@ Stop rules: MAX_ROUNDS critic reviews, MAX_ISSUES issues a round, the three esca
 
 from __future__ import annotations
 
+import re
+from types import SimpleNamespace
 from typing import Literal
 
 from pydantic import BaseModel
@@ -24,7 +26,7 @@ from pydantic import BaseModel
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.knowledge import KnowledgeLoop, Topic
-from factory.pipeline.production import OUTPUT, Checks, NewFile, Production
+from factory.pipeline.production import OUTPUT, Checks, NewFile, Production, parse_files
 from factory.pipeline.wiki import Wiki, WikiPage, words
 from factory.registry import Registry
 
@@ -101,8 +103,35 @@ SOLVE_PROMPT = """Fix these issues in the solution. For each issue, give whole r
 ## Files
 {files}
 {knowledge}
-Reply with JSON only: {{"fixes": [{{"issue": "I1", "explanation": "<what changes and why>", "files": [{{"path": \
-"<path under output/>", "content": "<whole file>"}}]}}]}}"""
+Reply in plain text blocks, not JSON, so code needs no escaping. For each issue:
+
+=== FIX: <issue id, e.g. I1> ===
+EXPLANATION: <what changes and why, one line>
+=== FILE: <path under output/> ===
+<the whole replacement file>
+=== END FILE ===
+=== END FIX ===
+
+A fix may hold several FILE blocks. Fix a setup failure (tests that cannot be imported) first."""
+
+FIX_BLOCK = re.compile(r"^=== FIX: *(.+?) *===[ \t]*\n(.*?)^=== END FIX ===[ \t]*$", re.M | re.S)
+
+
+def parse_fixes(completion) -> dict:
+    """The solver's reply as Fixes data: ``=== FIX: id ===`` blocks holding FILE blocks (see production.parse_files;
+    the 2026-11-03 primer build's solver lost fixes to JSON escaping too). A JSON reply in the old shape is accepted."""
+    text = completion.text
+    blocks = FIX_BLOCK.findall(text)
+    if not blocks:
+        if "=== FIX:" in text:
+            raise ValueError("a FIX block has no closing '=== END FIX ===' line")
+        return completion.json()
+    fixes = []
+    for issue, body in blocks:
+        why = re.search(r"^EXPLANATION: *(.*)$", body, re.M)
+        fixes.append({"issue": issue.strip(), "explanation": why.group(1).strip() if why else "",
+                      "files": parse_files(SimpleNamespace(text=body, json=lambda: {"files": []}))["files"]})
+    return {"fixes": fixes}
 
 JUDGE_PROMPT = """You raised these issues; another engineer proposes the fixes below. Accept a fix only if it solves \
 its issue without breaking anything else. When a fix fails because its author lacks some knowledge (a method, a \
@@ -125,11 +154,11 @@ class CriticLoop:
         self.production, self.knowledge = production, knowledge
         self.agents = {n: registry.agents[n] for n in (CRITIC, SOLVER)}
 
-    def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = ()):
+    def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = (), **parse):
         public = self.llm.cfg.data_public and all(p.license == "public" for p in pages)
         spec = self.agents[agent]
         out, _, _ = complete_validated(self.llm, spec.role, prompt, spec.system, model_cls, tag=tag,
-                                       data="public" if public else "private")
+                                       data="public" if public else "private", **parse)
         return out
 
     def shown_files(self) -> str:
@@ -161,7 +190,8 @@ class CriticLoop:
             if pages:
                 knowledge = "\n## Knowledge (wiki)\n" + "\n\n".join(f"### {p.topic}\n{p.body[:3000]}" for p in pages)
             fixes = self._call(SOLVER, SOLVE_PROMPT.format(task=task, issues=_show(issues), files=self.shown_files(),
-                                                           knowledge=knowledge), Fixes, f"solve-{rnd}", pages)
+                                                           knowledge=knowledge), Fixes, f"solve-{rnd}", pages,
+                               parse=parse_fixes, fmt="FIX blocks")
             verdicts = self._call(CRITIC, JUDGE_PROMPT.format(issues=_show(issues), fixes=fixes.model_dump_json(
                 indent=1)[:MAX_SHOWN_CHARS]), Verdicts, f"judge-{rnd}", pages)
             accepted = {v.issue for v in verdicts.verdicts if v.accept}

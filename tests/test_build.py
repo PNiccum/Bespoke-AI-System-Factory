@@ -276,3 +276,38 @@ def test_tests_that_cannot_import_are_a_setup_failure(cfg, tmp_path):
     checks = Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
     assert "could not be imported" in checks.setup_error and "missing_pkg" in checks.setup_error
     assert critique_module.json_checks(checks).startswith("setup failure, fix this first")
+
+
+def test_builder_files_come_as_raw_blocks():
+    from factory.pipeline.production import parse_files
+
+    class C:
+        def __init__(self, text):
+            self.text = text
+
+        def json(self):
+            return json.loads(self.text)
+
+    body = 'print("a \\\\ b")\nx = {"k": 1}\n'
+    reply = f"Here you go.\n=== FILE: output/tool.py ===\n{body}=== END FILE ===\n" \
+            "=== FILE: `tests/test_tool.py` ===\ndef test_x():\n    assert True\n=== END FILE ===\nNOTES: two files"
+    data = parse_files(C(reply))
+    assert data["files"][0] == {"path": "output/tool.py", "content": body}
+    assert data["files"][1]["path"] == "tests/test_tool.py" and data["notes"] == "two files"
+    assert parse_files(C(built(("a.py", "x = 1\n"))))["files"][0]["path"] == "a.py"  # the old JSON shape
+    with pytest.raises(ValueError, match="END FILE"):
+        parse_files(C("=== FILE: a.py ===\nx = 1\n"))
+
+
+def test_solver_fixes_come_as_raw_blocks():
+    from types import SimpleNamespace
+
+    from factory.pipeline.critique import parse_fixes
+    reply = ("=== FIX: I1 ===\nEXPLANATION: add salt\n=== FILE: primer.py ===\n" + CODE + "=== END FILE ===\n"
+             "=== END FIX ===\n=== FIX: I2 ===\nEXPLANATION: none needed\n=== END FIX ===")
+    data = parse_fixes(SimpleNamespace(text=reply, json=lambda: {}))
+    assert data["fixes"][0] == {"issue": "I1", "explanation": "add salt",
+                                "files": [{"path": "primer.py", "content": CODE}]}
+    assert data["fixes"][1]["files"] == []
+    assert parse_fixes(SimpleNamespace(text=fixes("I1"), json=lambda: json.loads(fixes("I1"))))["fixes"][0]["issue"] \
+        == "I1"

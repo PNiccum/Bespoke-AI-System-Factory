@@ -133,7 +133,30 @@ BUILD_PROMPT = """Carry out this work order. Write every file it names in full.
 ## Existing files you need
 {reads}
 
-Reply with JSON only: {{"files": [{{"path": "<path under output/>", "content": "<whole file>"}}], "notes": "<one line>"}}"""
+Reply with the files as plain text blocks, not JSON, so code needs no escaping:
+
+=== FILE: <path under output/> ===
+<the whole file, exactly as it should be saved>
+=== END FILE ===
+
+One block per file, then a last line: NOTES: <one line>"""
+
+FILE_BLOCK = re.compile(r"^=== FILE: *(.+?) *===[ \t]*\n(.*?)^=== END FILE ===[ \t]*$", re.M | re.S)
+
+
+def parse_files(completion) -> dict:
+    """The builder's reply as Built data: ``=== FILE: path ===`` blocks (file bodies are written raw, since bodies
+    embedded in JSON strings broke on escaping in the 2026-11-03 primer build: T1.6, T4.2, T4.4 and T5.5 failed three
+    times each). A JSON reply in the old shape is still accepted."""
+    text = completion.text
+    blocks = FILE_BLOCK.findall(text)
+    if not blocks:
+        if "=== FILE:" in text:
+            raise ValueError("a FILE block has no closing '=== END FILE ===' line")
+        return completion.json()
+    notes = re.search(r"^NOTES: *(.*)$", text, re.M)
+    return {"files": [{"path": p.strip().strip("`"), "content": body} for p, body in blocks],
+            "notes": notes.group(1).strip() if notes else ""}
 
 
 class Production:
@@ -142,11 +165,11 @@ class Production:
         self.agents = {n: registry.agents[n] for n in (HEAD, SUB, BUILDER)}
         self.out = project.root / OUTPUT
 
-    def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = ()):
+    def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = (), **parse):
         public = self.llm.cfg.data_public and all(p.license == "public" for p in pages)
         spec = self.agents[agent]
         out, _, _ = complete_validated(self.llm, spec.role, prompt, spec.system, model_cls, tag=tag,
-                                       data="public" if public else "private")
+                                       data="public" if public else "private", **parse)
         return out
 
     def pages(self) -> list[WikiPage]:
@@ -215,7 +238,7 @@ class Production:
             built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                             order=order.model_dump_json(indent=1), wiki=wiki,
                                                             reads="\n\n".join(reads) or "(none)"), Built,
-                               f"build-{order.id}", pages)
+                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks")
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": ""}, refs=[ref])
