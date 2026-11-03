@@ -1,0 +1,8 @@
+{
+ "PMID:90000101": {"title": "CDK1 activity after serum release (synthetic fixture)", "abstract": "Serum-starved MCF7 cells re-entered the cycle and CDK1 rose by 24 h."},
+ "PMID:90000102": {"title": "CDK10 in breast cancer (synthetic fixture)", "abstract": "Loss of CDK10 is linked to endocrine resistance."},
+ "UniProt:P06493": {"title": "CDK1_HUMAN", "abstract": "Cyclin-dependent kinase 1 (CDK1) plays a key role in the control of the eukaryotic cell cycle."},
+ "DOI:10.1000/xyz1": {"title": "Cyclin B1 and mitotic entry (synthetic fixture)", "abstract": "CCNB1 accumulates in G2 and pairs with CDK1."},
+ "PMID:90000103": {"title": "ER-alpha signalling (synthetic fixture)", "abstract": "ESR1-positive cells proliferate in response to estrogen; PCNA is a replication marker."},
+ "PMID:90000104": {"title": "Mesenchymal markers (synthetic fixture)", "abstract": "Vimentin is low in luminal lines."}
+}

@@ -1,0 +1,6 @@
+pathway_id	pathway_name	gene
+hsa04110	Cell cycle	CDK1
+hsa04110	Cell cycle	CCNB1
+hsa04110	Cell cycle	PCNA
+hsa03030	DNA replication	PCNA
+hsa04210	Apoptosis	CASP3

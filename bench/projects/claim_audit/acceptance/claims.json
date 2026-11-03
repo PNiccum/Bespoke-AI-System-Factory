@@ -1,0 +1,12 @@
+[
+ {"id": "c1", "protein": "CDK1", "statement": "CDK1 is up, consistent with cell-cycle re-entry.", "direction": "up", "citations": ["PMID:90000101"]},
+ {"id": "c2", "protein": "CDC2", "statement": "CDC2 drives G2/M.", "direction": "up", "citations": ["UniProt:P06493"]},
+ {"id": "c3", "protein": "ESR1", "statement": "ESR1 is upregulated.", "direction": "up", "citations": ["PMID:90000103"]},
+ {"id": "c4", "protein": "HER3", "statement": "HER3 signalling is active.", "direction": "up", "citations": ["PMID:90000101"]},
+ {"id": "c5", "protein": "PCNA", "statement": "PCNA marks S phase.", "direction": "up", "citations": []},
+ {"id": "c6", "protein": "MKI67", "statement": "Ki-67 shows proliferation.", "direction": "up", "citations": ["PMID:abc", "PMID:90000999"]},
+ {"id": "c7", "protein": "CDK1", "statement": "CDK1 predicts endocrine resistance.", "direction": null, "citations": ["PMID:90000102"]},
+ {"id": "c8", "protein": "CCNB1", "statement": "CCNB1 sits in the cell cycle pathway.", "direction": "up", "pathway": "cell cycle", "citations": ["doi:10.1000/XYZ1"]},
+ {"id": "c9", "protein": "PCNA", "statement": "PCNA is an apoptosis protein.", "direction": "up", "pathway": "Apoptosis", "citations": ["PMID:90000103"]},
+ {"id": "c10", "protein": "VIM", "statement": "VIM stays low, as expected for a luminal line.", "direction": null, "citations": ["PMID:90000104"]}
+]

@@ -1,0 +1,70 @@
+{
+ "entryType": "UniProtKB reviewed (Swiss-Prot)",
+ "primaryAccession": "P14635",
+ "organism": {
+  "scientificName": "Homo sapiens",
+  "taxonId": 9606
+ },
+ "genes": [
+  {
+   "geneName": {
+    "value": "CCNB1"
+   },
+   "synonyms": [
+    {
+     "value": "CCNB"
+    }
+   ]
+  }
+ ],
+ "comments": [
+  {
+   "commentType": "SUBCELLULAR LOCATION",
+   "subcellularLocations": []
+  },
+  {
+   "commentType": "FUNCTION",
+   "texts": [
+    {
+     "value": "Essential for the control of the cell cycle at the G2/M transition (fixture text)."
+    }
+   ]
+  }
+ ],
+ "uniProtKBCrossReferences": [
+  {
+   "database": "GO",
+   "id": "GO:0051301",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "P:cell division"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69275",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "G2/M Transition"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69278",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "Cell Cycle, Mitotic"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,80 @@
+{
+ "entryType": "UniProtKB reviewed (Swiss-Prot)",
+ "primaryAccession": "P12004",
+ "organism": {
+  "scientificName": "Homo sapiens",
+  "taxonId": 9606
+ },
+ "genes": [
+  {
+   "geneName": {
+    "value": "PCNA"
+   },
+   "synonyms": []
+  }
+ ],
+ "comments": [
+  {
+   "commentType": "SUBCELLULAR LOCATION",
+   "subcellularLocations": []
+  },
+  {
+   "commentType": "FUNCTION",
+   "texts": [
+    {
+     "value": "Auxiliary protein of DNA polymerase delta (fixture text)."
+    }
+   ]
+  }
+ ],
+ "uniProtKBCrossReferences": [
+  {
+   "database": "GO",
+   "id": "GO:0006260",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "P:DNA replication"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "GO",
+   "id": "GO:0005654",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "C:nucleoplasm"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69278",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "Cell Cycle, Mitotic"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69306",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "DNA Replication"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,122 @@
+{
+ "entryType": "UniProtKB reviewed (Swiss-Prot)",
+ "primaryAccession": "P06493",
+ "organism": {
+  "scientificName": "Homo sapiens",
+  "taxonId": 9606
+ },
+ "genes": [
+  {
+   "geneName": {
+    "value": "CDK1"
+   },
+   "synonyms": [
+    {
+     "value": "CDC2"
+    }
+   ]
+  }
+ ],
+ "comments": [
+  {
+   "commentType": "SUBCELLULAR LOCATION",
+   "subcellularLocations": []
+  },
+  {
+   "commentType": "FUNCTION",
+   "texts": [
+    {
+     "value": "Plays a key role in the control of the eukaryotic cell cycle (fixture text)."
+    }
+   ]
+  }
+ ],
+ "uniProtKBCrossReferences": [
+  {
+   "database": "GO",
+   "id": "GO:0051301",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "P:cell division"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "GO",
+   "id": "GO:0000086",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "P:G2/M transition of mitotic cell cycle"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "GO",
+   "id": "GO:0005634",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "C:nucleus"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "GO",
+   "id": "GO:0004693",
+   "properties": [
+    {
+     "key": "GoTerm",
+     "value": "F:cyclin-dependent protein serine/threonine kinase activity"
+    },
+    {
+     "key": "GoEvidenceType",
+     "value": "IDA:UniProtKB"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69278",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "Cell Cycle, Mitotic"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69275",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "G2/M Transition"
+    }
+   ]
+  },
+  {
+   "database": "Reactome",
+   "id": "R-HSA-69278",
+   "properties": [
+    {
+     "key": "PathwayName",
+     "value": "Cell Cycle, Mitotic"
+    }
+   ]
+  }
+ ]
+}

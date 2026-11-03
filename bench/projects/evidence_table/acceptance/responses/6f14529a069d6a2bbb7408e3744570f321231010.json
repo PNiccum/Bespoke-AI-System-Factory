@@ -1,0 +1,44 @@
+{
+ "version": "6.9",
+ "hitCount": 412,
+ "request": {},
+ "resultList": {
+  "result": [
+   {
+    "id": "90000201",
+    "source": "MED",
+    "pmid": "90000201",
+    "title": "CDK1 after serum release (fixture)",
+    "pubYear": "2021",
+    "doi": "10.1000/f201"
+   },
+   {
+    "id": "90000202",
+    "source": "MED",
+    "pmid": "90000202",
+    "title": "CDK1 and ER signalling (fixture)",
+    "pubYear": "2019"
+   },
+   {
+    "id": "PPR123",
+    "source": "PPR",
+    "title": "A preprint with no PMID (fixture)",
+    "pubYear": "2024"
+   },
+   {
+    "id": "90000203",
+    "source": "MED",
+    "pmid": "90000203",
+    "title": "Third (fixture)",
+    "pubYear": "2015"
+   },
+   {
+    "id": "90000204",
+    "source": "MED",
+    "pmid": "90000204",
+    "title": "Fourth (fixture)",
+    "pubYear": "2012"
+   }
+  ]
+ }
+}

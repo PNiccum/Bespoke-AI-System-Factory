@@ -1,0 +1,16 @@
+gene	drug	max_phase	mechanism	source
+CDK4	PALBOCICLIB	4	CDK4/6 inhibitor	fixture
+CDK4	RIBOCICLIB	4	CDK4/6 inhibitor	fixture
+AURKA	ALISERTIB	3	Aurora A inhibitor	fixture
+PLK1	VOLASERTIB	3	PLK1 inhibitor	fixture
+PLK1	ONVANSERTIB	2	PLK1 inhibitor	fixture
+TOP2A	DOXORUBICIN	4	topoisomerase II poison	fixture
+TOP2A	ETOPOSIDE	4	topoisomerase II poison	fixture
+esr1	TAMOXIFEN	4	SERM	fixture
+ESR1	FULVESTRANT	4	SERD	fixture
+TYMS	FLUOROURACIL	4	thymidylate synthase inhibitor	fixture
+RRM2	HYDROXYUREA	4	ribonucleotide reductase inhibitor	fixture
+KIF11	ISPINESIB	2	kinesin spindle protein inhibitor	fixture
+PCNA	AOH1996	1	PCNA inhibitor	fixture
+PCNA	AOH1996	1	PCNA inhibitor	fixture duplicate row
+HMGB2	TOOL-COMPOUND-7	0	preclinical binder	fixture
