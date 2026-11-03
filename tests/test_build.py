@@ -311,3 +311,16 @@ def test_solver_fixes_come_as_raw_blocks():
     assert data["fixes"][1]["files"] == []
     assert parse_fixes(SimpleNamespace(text=fixes("I1"), json=lambda: json.loads(fixes("I1"))))["fixes"][0]["issue"] \
         == "I1"
+
+
+def test_accepted_fixes_that_change_nothing_escalate(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(critique_module, "MAX_ROUNDS", 1)
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE[:3], orders("T2", "tests/test_primer.py"),
+                                    built(("tests/test_primer.py", WRONG)))
+    _, production, critic = parts(cfg, llm, project, wiki)
+    checks = production.run()
+    llm.providers["arc"] = Scripted(review(False, "I1"), fixes("I1"), verdicts(I1=True))  # rewrites primer.py as is
+    result = critic.run(checks)
+    assert not result.accepted and result.step == "wiki"
+    assert any("unchanged" in e.data.get("text", "") for e in project.board.entries("note"))

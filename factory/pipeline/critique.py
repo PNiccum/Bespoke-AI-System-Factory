@@ -205,8 +205,17 @@ class CriticLoop:
             self.board.post("fixes", SOLVER, {"round": rnd, "accepted": sorted(accepted),
                                               "declined": [v.model_dump() for v in declined], "step": STEPS[step]},
                             refs=[c.id])
+            before = checks
             checks = self.production.check()
             self.board.post("checks", "code", checks.model_dump(), refs=[c.id])
+            # a round that leaves failing checks exactly as they were made no progress, whatever was accepted: it
+            # escalates like a declined fix (the 2026-11-03 primer build reran identical checks for three rounds)
+            stalled = not checks.ok and checks.model_dump() == before.model_dump()
+            if stalled and not declined:
+                declined = [Verdict(issue=i.id, accept=False, why="the checks did not change",
+                                    missing_knowledge=i.problem[:120]) for i in issues]
+                self.board.post("note", "code", {"round": rnd, "text": "fixes left the failing checks unchanged: "
+                                                 f"escalating from {STEPS[step]}"}, refs=[c.id])
             if not declined:
                 continue  # the critic looks again at the fixed solution
             if step == len(STEPS) - 1:  # declined after research: re-design
