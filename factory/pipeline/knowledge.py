@@ -45,9 +45,15 @@ class Topic(BaseModel):
     hints: list[str] = []  # search terms to start from
 
 
+class Dropped(BaseModel):
+    name: str
+    why: str  # why the work can go ahead without it: an explicit risk decision, recorded
+
+
 class Needs(BaseModel):
     enough: bool  # the evaluator approves what the wiki holds for this task
     topics: list[Topic] = []  # what is still needed; empty when enough
+    dropped: list[Dropped] = []  # earlier topics it no longer needs, each with a reason
 
 
 class Query(BaseModel):
@@ -85,6 +91,7 @@ class KnowledgeResult(BaseModel):
     missing: list[str]
     rounds: int
     deferred: list[str] = []  # first asked for in the last round, which researches nothing: left to the critic loop
+    dropped: dict[str, str] = {}  # topic -> why the evaluator let it go without a page
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
@@ -104,7 +111,8 @@ them. Ask for the domain knowledge the task turns on.
 {pages}
 
 {again}Reply with JSON only: {{"enough": true or false, "topics": [{{"name": "<short topic name>", "why": "<one \
-sentence>", "needed_for": ["T1"], "hints": ["<search terms>"]}}]}}
+sentence>", "needed_for": ["T1"], "hints": ["<search terms>"]}}], "dropped": [{{"name": "<earlier topic>", "why": \
+"<why the work can go ahead without it>"}}]}}
 List at most {max_topics} topics, most important first. When a topic is the same as one asked for earlier, use the \
 earlier name exactly, so the work already done on it counts. Set "enough" to true, with no topics, only when the pages \
 above cover everything the plan needs."""
@@ -218,15 +226,20 @@ class KnowledgeLoop:
         missing: list[str] = []
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
         deferred: list[str] = []
+        dropped: dict[str, str] = {}
         for rnd in range(1, MAX_ROUNDS + 1):
             if rnd == 1:  # only verified pages: one the verifier rejected must not count toward "enough"
                 pages = [p for p in self.wiki.pages() if p.verified][:40]
                 again = ""
             else:
                 pages = [p for p in (self.wiki.find(t) for t in covered) if p]
+                still = [n for n in asked if n not in covered and n not in dropped]
                 again = ("Research has run on the topics you asked for; the pages now available are listed. Name only "
                          "what is still missing, including specifics the new pages show the work depends on.\n"
-                         f"Topics asked for earlier: {'; '.join(asked)}\n\n")
+                         f"Topics asked for earlier: {'; '.join(asked)}\n"
+                         + (f"Still without a verified page: {'; '.join(still)}. Each stays missing until a page covers "
+                            "it or you list it under \"dropped\" with why the work can go ahead without it.\n"
+                            if still else "") + "\n")
             listing = "\n".join(f"- {p.topic}: {p.summary[:300]}" for p in pages) or "(none)"
             needs = self._call(EVALUATOR, EVALUATE_PROMPT.format(task=task, plan=plan, pages=listing, again=again,
                                                                  max_topics=MAX_TOPICS), Needs, f"knowledge-{rnd}")
@@ -236,11 +249,19 @@ class KnowledgeLoop:
                 deferred = [n for n in new if self.wiki.covers(n) is None]
                 topics = [t for t in topics if t.name not in deferred]
             asked += [t.name for t in topics if t.name not in asked]
+            for d in needs.dropped:
+                name = same_topic(d.name, asked)
+                if name in asked and name not in {t.name for t in topics}:
+                    dropped[name] = d.why
             ev = self.board.post("topics", EVALUATOR, {"round": rnd, "enough": needs.enough,
                                                        "topics": [t.model_dump() for t in topics],
-                                                       "deferred": deferred})
+                                                       "deferred": deferred, "dropped": dropped})
             have = {t.name: self.wiki.covers(t.name) for t in topics}
+            # an earlier topic stays missing until a page covers it or the evaluator drops it with a reason: the
+            # 2026-11-03 primer run lost an unresearched topic by simply not naming it again
             missing = [t.name for t in topics if have[t.name] is None]
+            missing += [n for n in asked if n not in missing and n not in have and n not in dropped
+                        and n not in covered and self.wiki.covers(n) is None]
             covered |= {name: page.slug for name, page in have.items() if page}
             if needs.enough and not topics:  # approved on the pages shown, so those are what the builders get
                 covered |= {p.topic: p.slug for p in pages}
@@ -248,11 +269,14 @@ class KnowledgeLoop:
                                                     "missing": missing}, refs=[ev.id])
             if not missing or rnd == MAX_ROUNDS:  # the last round only checks; it starts no new research
                 break
+            if not any(t.name in missing for t in topics):  # only earlier topics, already researched: no new work
+                break
             for topic in topics:
                 if topic.name in missing and (page := self.research(topic)) and page.verified:
                     covered[topic.name] = page.slug
         ok = not missing
-        result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred)
+        result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
+                                 dropped=dropped)
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result

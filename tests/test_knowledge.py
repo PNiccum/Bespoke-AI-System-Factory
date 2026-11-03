@@ -11,7 +11,7 @@ from factory.pipeline.sources import Doc, rebuild_abstract
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
 from tests.test_orchestrator import ROOT, Scripted, cfg  # noqa: F401
-from tests.test_planning import ANALYSIS, approved_project, critique, edit, vote
+from tests.test_planning import ANALYSIS, approved_project, critique, edit, recheck, vote
 
 
 def doc(i, license="public"):
@@ -29,9 +29,10 @@ class Engine:
         return self.docs[:n]
 
 
-def topics(*names, enough=False):
+def topics(*names, enough=False, dropped=()):
     return json.dumps({"enough": enough, "topics": [{"name": n, "why": "needed", "needed_for": ["T2"],
-                                                     "hints": ["primer"]} for n in names]})
+                                                     "hints": ["primer"]} for n in names],
+                       "dropped": [{"name": d, "why": "the plan states it"} for d in dropped]})
 
 
 def queries(connector="europepmc"):
@@ -58,7 +59,7 @@ def check(ok=True):
 
 def planned(cfg, tmp_path):
     llm, project = approved_project(cfg, tmp_path)
-    llm.providers["arc"] = Scripted(critique(), ANALYSIS, edit(), vote("A"), vote("A"))
+    llm.providers["arc"] = Scripted(critique(), ANALYSIS, edit(), recheck(), vote("A"), vote("A"))
     PlanningLoop(llm, Registry.load(cfg, ROOT / "registry"), project).run()
     return llm, project
 
@@ -147,8 +148,17 @@ def test_a_failing_engine_is_recorded_not_fatal(cfg, tmp_path):
         raise ConnectionError("no route")
     kl, _, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), queries(), topics(enough=True),
                                   engines={"europepmc": broken})
-    assert kl.run().ok
+    result = kl.run()
+    assert not result.ok and result.missing == ["Rare topic"]  # not named again is not the same as not needed
     assert "ConnectionError" in project.board.entries("query")[0].data["error"]
+
+
+def test_an_earlier_topic_goes_only_when_dropped_with_a_reason(cfg, tmp_path):
+    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), queries(),
+                                  topics(enough=True, dropped=["rare topic"]), docs=())
+    result = kl.run()
+    assert result.ok and result.dropped == {"Rare topic": "the plan states it"}
+    assert "Still without a verified page: Rare topic" in kl.llm.providers["arc"].requests[-1].messages[-1]["content"]
 
 
 def test_arc_only_sources_make_an_arc_only_page(cfg, tmp_path):
@@ -228,7 +238,7 @@ def test_one_reference_manual_is_enough_sources_for_a_page():
 def test_a_topic_first_asked_for_in_the_last_round_is_deferred_not_missing(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
     kl, _, project, _ = knowledge(cfg, tmp_path, topics("Primer rules"), queries(), queries(),
-                                  topics("Retry strategy"), docs=())
+                                  topics("Retry strategy", dropped=["Primer rules"]), docs=())
     result = kl.run()
     assert result.ok and result.missing == [] and result.deferred == ["Retry strategy"]
     assert project.board.latest("topics").data["deferred"] == ["Retry strategy"]

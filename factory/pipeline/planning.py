@@ -12,6 +12,11 @@ plan as it was before the edit. A plan with problems cannot win. Votes are count
 plan with fewer problems, then to Plan A, which the person approved. The loop runs once,
 plus one repair round when the winner fails its checks.
 
+The critic's weaknesses are blockers on Plan A (approved 2026-11-03 after the primer build, whose plan kept a
+weakness the critic had named: gene ESummary gives no RefSeq transcripts). The editor must say, for each one, what it
+changed; the critic then re-checks the edited Plan A, and every weakness it finds still open counts as a problem, so
+Plan A cannot win with it. The repair round gets the open weaknesses too, and the critic checks the repair once more.
+
 Every step is a blackboard entry, and the result is ``plan.json``: the refined plan with tasks and subtasks that the
 knowledge loop starts from.
 """
@@ -51,6 +56,16 @@ class Edited(BaseModel):
     plan_a: ProjectPlan
     plan_b: ProjectPlan
     changes: list[str] = []
+    resolved: dict[str, str] = {}  # weakness id -> what changed in Plan A for it
+
+
+class Open(BaseModel):
+    id: str
+    why: str
+
+
+class Recheck(BaseModel):
+    open: list[Open] = []  # weaknesses the edited Plan A still has
 
 
 class Vote(BaseModel):
@@ -110,7 +125,28 @@ approach: do not merge them. Every task and subtask needs an acceptance check an
 ## Pros and cons
 {analysis}
 
-Reply with JSON only: {{"plan_a": {shape}, "plan_b": {shape}, "changes": ["<one line per change>"]}}"""
+## Weaknesses the critic found in Plan A (each must be fixed in Plan A)
+{weaknesses}
+
+Reply with JSON only: {{"plan_a": {shape}, "plan_b": {shape}, "changes": ["<one line per change>"], "resolved": \
+{{"W1": "<what you changed in Plan A for it>"}}}}"""
+
+RECHECK_PROMPT = """You found these weaknesses in Plan A. It has been edited; for each weakness, decide whether the \
+edited plan really fixes it. A claimed change that the plan text does not show does not count.
+
+## The request
+{task}
+
+## Weaknesses
+{weaknesses}
+
+## What the editor says it changed
+{resolved}
+
+## Edited Plan A
+{plan_a}
+
+Reply with JSON only: {{"open": [{{"id": "W1", "why": "<what is still wrong>"}}]}} (empty when all are fixed)"""
 
 VOTE_PROMPT = """Choose the plan the team should carry out for this request: the one most likely to give the person \
 a working result they can run again, at the lowest cost.
@@ -149,6 +185,24 @@ class PlanningLoop:
         out, _, _ = complete_validated(self.llm, spec.role, prompt, spec.system, model_cls, tag=tag, data=self.data)
         return out
 
+    def recheck(self, task: str, weaknesses: dict[str, str], resolved: dict[str, str], plan: ProjectPlan,
+                ref: str) -> list[str]:
+        """The weaknesses the critic still finds in ``plan``, as problems ("W2 still open: ..."). No weaknesses, no
+        call. A recheck with no valid reply counts every weakness as open: an unverified fix is not a fix."""
+        if not weaknesses:
+            return []
+        try:
+            found = self._call(CRITIC, RECHECK_PROMPT.format(
+                task=task, weaknesses="\n".join(f"- {k}: {w}" for k, w in weaknesses.items()),
+                resolved="\n".join(f"- {k}: {v}" for k, v in resolved.items()) or "(nothing said)",
+                plan_a=show(plan)), Recheck, "plan-recheck")
+        except RuntimeError:
+            found = Recheck(open=[Open(id=k, why="the re-check gave no valid reply") for k in weaknesses])
+        left = _open(found, weaknesses)
+        self.board.post("recheck", CRITIC, {"open": [o.model_dump() for o in found.open], "problems": left},
+                        refs=[ref])
+        return left
+
     def run(self) -> Outcome:
         approval = self.board.latest("approval")
         if approval is None:
@@ -174,21 +228,28 @@ class PlanningLoop:
         an = self.board.post("analysis", ANALYST, analysis.model_dump(), refs=[c.id])
 
         # 3. Edits; an edit that breaks a plan's checks is dropped
+        weaknesses = {f"W{i}": w for i, w in enumerate(critique.weaknesses, 1)}
+        listed = "\n".join(f"- {k}: {w}" for k, w in weaknesses.items()) or "(none)"
         edited = self._call(EDITOR, EDITOR_PROMPT.format(task=task, plan_a=show(plan_a), plan_b=show(plan_b),
-                                                         analysis=json.dumps(analysis.model_dump()), shape=SHAPE),
+                                                         analysis=json.dumps(analysis.model_dump()), shape=SHAPE,
+                                                         weaknesses=listed),
                             Edited, "plan-edit")
         kept = {}
         for label, before, after in (("A", plan_a, edited.plan_a), ("B", plan_b, edited.plan_b)):
             kept[label] = after if not check_plan(after) or check_plan(before) else before
         plan_a, plan_b = kept["A"], kept["B"]
         ed = self.board.post("edit", EDITOR, {"plan_a": plan_a.model_dump(), "plan_b": plan_b.model_dump(),
-                                              "changes": edited.changes,
+                                              "changes": edited.changes, "resolved": edited.resolved,
                                               "dropped": [k for k, p in (("A", edited.plan_a), ("B", edited.plan_b))
                                                           if kept[k] is not p]}, refs=[an.id])
 
-        # 4. Votes, counted in code
+        # 4. The critic re-checks its weaknesses on the edited Plan A; open ones are problems
+        open_a = self.recheck(task, weaknesses, edited.resolved, plan_a, ed.id)
+
+        # 5. Votes, counted in code
         plans = {"A": plan_a, "B": plan_b}
         problems = {k: check_plan(p) for k, p in plans.items()}
+        problems["A"] += open_a
         vote_prompt = VOTE_PROMPT.format(task=task, plan_a=show(plan_a), plan_b=show(plan_b),
                                          analysis=json.dumps(analysis.model_dump()))
         votes = {}
@@ -205,19 +266,26 @@ class PlanningLoop:
                             refs=[ed.id])
         winner = decide(votes, problems)
 
-        # 5. One repair round when the winner still fails its checks
+        # 6. One repair round when the winner still fails its checks or keeps an open weakness
         plan = plans[winner]
         if left := problems[winner]:
             fixed = self._call(EDITOR, FIX_PROMPT.format(prompt=f"Fix this plan.\n\n{show(plan)}\n\nReply with JSON "
                                                          f"only: {SHAPE}", problems="; ".join(left)), ProjectPlan,
                                "plan-repair")
             if not check_plan(fixed):
-                plan, left = fixed, []
+                still = self.recheck(task, {k: w for k, w in weaknesses.items() if any(p.startswith(f"{k} ")
+                                                                                         for p in left)},
+                                     {}, fixed, ed.id) if winner == "A" else []
+                plan, left = fixed, still
         outcome = Outcome(winner=winner, plan=plan, votes=votes, problems=left)
         d = self.board.post("decision", "code", {"winner": winner, "votes": votes, "problems": left},
                             refs=[e.id for e in self.board.entries("vote")] or [ed.id])
         self.project.write_file("plan.json", json.dumps(plan.model_dump(), indent=1), "code", refs=[d.id])
         return outcome
+
+
+def _open(found: Recheck, weaknesses: dict[str, str]) -> list[str]:
+    return [f"{o.id} still open: {weaknesses[o.id]} ({o.why})" for o in found.open if o.id in weaknesses]
 
 
 def decide(votes: dict[str, str], problems: dict[str, list[str]]) -> Literal["A", "B"]:

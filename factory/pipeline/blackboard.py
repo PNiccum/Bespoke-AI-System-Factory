@@ -33,6 +33,7 @@ KINDS = frozenset({
     "critique",  # the plan critic's weaknesses of Plan A, and its Plan B
     "analysis",  # pros and cons of each plan
     "edit",  # the editor's versions of both plans
+    "recheck",  # the plan critic's check of which of its weaknesses the edited Plan A still has
     "vote",  # one agent's vote between the plans
     "decision",  # the winning plan, counted in code
     "topics",  # what the knowledge evaluator says the work needs
