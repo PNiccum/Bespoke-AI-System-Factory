@@ -1,0 +1,6 @@
+gene	pmid	note
+NUSAP1	90000003	proposed as a target in breast cancer (synthetic fixture row)
+NUSAP1	90000001	knockdown slows proliferation (synthetic)
+CENPF	90000002	putative target (synthetic)
+PLK1	90000004	also has literature (synthetic)
+NUSAP1	90000001	duplicate row (synthetic)

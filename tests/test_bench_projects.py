@@ -37,6 +37,28 @@ def test_acceptance_passes_on_the_reference_and_fails_without_it(name, tmp_path)
     assert not wrong.accepted and wrong.passed == 0 and wrong.failing
 
 
+PROTEOMICS = load_projects(ROOT / "bench" / "projects_proteomics.yaml")
+
+
+def test_the_proteomics_tier_is_separate_with_sound_plans():
+    assert [t.name for t in PROTEOMICS] == ["protein_qc", "evidence_table", "david_filter", "target_flags",
+                                            "claim_audit"]
+    assert not {t.name for t in PROTEOMICS} & {t.name for t in TASKS}
+    for t in PROTEOMICS:
+        assert check_plan(t.plan) == [] and "standard library only" in t.request
+        assert (PROJECTS / t.name / "acceptance" / "conftest.py").exists()
+
+
+@pytest.mark.parametrize("name", [t.name for t in PROTEOMICS])
+def test_proteomics_acceptance_passes_on_the_reference_and_fails_without_it(name, tmp_path):
+    a = accept(PROJECTS / name / "reference", name)
+    assert a.accepted and a.passed == a.expected >= 5, a
+    (tmp_path / "out").mkdir()
+    (tmp_path / "out" / "README.md").write_text("nothing here\n")
+    wrong = accept(tmp_path / "out", name)
+    assert not wrong.accepted and wrong.passed == 0 and wrong.failing
+
+
 def test_seed_leaves_what_an_approved_interview_leaves(tmp_path):
     project = Project.create(tmp_path, "bench wordstats")
     seed(project, TASKS[0])

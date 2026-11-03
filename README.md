@@ -193,6 +193,10 @@ python -m factory.bench_projects --only wordstats --repeat 3
   that no model sees (`bench/projects/<name>/acceptance/`) on the delivered `output/` folder. A project is solved
   when it is delivered and every acceptance test passes. The summary also records how far each run got. Re-design
   is off unless `--redesign` is given, so a benchmark run never changes ASPIRE's prompts.
+- `bench/projects_proteomics.yaml` holds five tools from the Lazar lab's protein-list workflow: list plausibility,
+  a sourced evidence table, DAVID chart filtering with recomputed statistics, drug-target tiers, and an audit of an
+  AI report's claims. Run it with `python -m factory.bench_projects --projects bench/projects_proteomics.yaml`.
+  The fixtures are public or synthetic; see [docs/proteomics-tasks.md](docs/proteomics-tasks.md).
 
 **Evaluation** (the experiments behind the cost, rerun and safety claims; see [docs/evaluation.md](docs/evaluation.md)):
 

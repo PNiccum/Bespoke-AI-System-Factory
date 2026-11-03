@@ -1,0 +1,227 @@
+# ASPIRE proteomics tier (added 2026-11-03): five small tools, one per step of the Lazar lab's workflow for
+# interpreting a protein list (here, MCF7 cells serum-starved for 48 h and released for 24 h). Run by
+# factory/bench_projects.py exactly like bench/projects.yaml:
+#     python -m factory.bench_projects --projects bench/projects_proteomics.yaml
+#
+# The workflow step each one covers (see docs/proteomics-tasks.md):
+#   protein_qc      (i)   is the list plausible: bad or duplicate IDs, wrong species, mixed-up gene symbols,
+#                         proteins the cell line does not express
+#   evidence_table  (ii-iv) per-protein facts from UniProt and Europe PMC, each with the URL it came from
+#   david_filter    (v)   narrow a DAVID annotation chart to well-supported terms and recompute its statistics
+#   target_flags    (iii) which proteins are approved, clinical or literature-suggested drug targets
+#   claim_audit     (6)   the deterministic check of an AI-written interpretation against the data and its sources
+#
+# Every fixture is public or synthetic. The lab's own protein list never goes into this repository or to a paid
+# model; run these tools on it on the laptop (ARC only). Fixture PMIDs 9xxxxxxx do not exist on purpose.
+common: >-
+  Deliver it as Python 3.11 code using the standard library only, with the main module at the top level of the
+  output folder (helper modules and tests may sit beside it). The functions and command-line options named here are
+  the interface other code depends on: keep their names, arguments and output formats exactly. Input tables are
+  UTF-8; a table is tab-separated when its header line contains a tab and comma-separated otherwise, and header
+  names are matched ignoring case and surrounding spaces. A file that cannot be read gives a message on stderr and
+  exit code 2.
+projects:
+  - name: protein_qc
+    request: >-
+      A tool that checks whether a proteomics protein list is plausible before anyone interprets it. Main module:
+      proteinqc.py. Function load_list(path) reads a table with columns accession, gene and log2fc and returns a
+      list of {"accession": str, "gene": str, "log2fc": float, or None when the cell is empty}, values stripped.
+      Function load_reference(path) reads a UniProt download table with columns Entry, Gene Names (space-separated,
+      the first is the primary name) and Organism, and returns {entry: {"genes": [names], "organism": str}}.
+      Function load_expression(path) reads a Human Protein Atlas style table with columns Gene, Cell line and nTPM.
+      Function check(rows, reference, expression=None, cell_line=None, organism="Homo sapiens", min_ntpm=1.0)
+      returns a list of issues, each {"row": the 1-based row number, "accession", "gene", "issue", "detail"},
+      sorted by row and, within a row, in this order of issue codes: "bad_accession" when the accession does not
+      match the UniProt accession format (an isoform suffix such as -2 is allowed), and then no other check runs
+      on that row except missing_value; "duplicate" when the same accession without its isoform suffix appeared in
+      an earlier row, with a detail that says "row N" for that earlier row; "not_in_reference" when it is not in
+      the reference, and then no later check runs; "wrong_organism" when the reference organism does not start
+      with organism, with the reference organism in the detail; "gene_mismatch" when a non-empty gene is none of
+      the reference's gene names (ignoring case), with the reference's primary name in the detail;
+      "not_expressed" when expression and cell_line are given and the expression table has the primary gene in
+      that cell line below min_ntpm (cell line names compare ignoring case, spaces and hyphens, so MCF-7 is MCF7;
+      no entry means no issue); "missing_value" when log2fc is None. Command line: python proteinqc.py LIST
+      --reference FILE [--expression FILE --cell-line NAME] [--json] prints one tab-separated
+      "row accession gene issue detail" line per issue, or with --json the list as JSON, and nothing for a clean
+      list; the exit code is 0 for no issues and 1 when there are any.
+    plan:
+      title: Protein list plausibility check
+      goal: Flag protein IDs that should not be in a list before the list is interpreted.
+      deliverable: proteinqc.py with load_list(), load_reference(), load_expression(), check() and a command line, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write the three loaders (list, UniProt reference, expression table)",
+           acceptance: "load_list on a sample CSV returns stripped values and None for an empty log2fc"}
+        - {id: T2, title: "Write check() with every issue code in the stated order and skip rules",
+           acceptance: "on a sample list with a bad ID, an isoform duplicate, a mouse entry, an unknown ID, a HER2/HER3 mix-up and an unexpressed protein, check returns exactly those issues in row order",
+           depends_on: [T1]}
+        - {id: T3, title: "Add the command line with --json and the 0/1/2 exit codes",
+           acceptance: "python proteinqc.py list.csv --reference ref.tsv --json prints the issues and exits 1; a clean list exits 0",
+           depends_on: [T2]}
+        - {id: T4, title: "Write pytest tests and a README",
+           acceptance: "pytest passes and the README explains every issue code", depends_on: [T1, T2, T3]}
+      assumptions: ["The reference and expression tables were downloaded beforehand; no network is needed"]
+      out_of_scope: ["Fetching UniProt or Protein Atlas live", "Mapping gene symbols to accessions"]
+
+  - name: evidence_table
+    request: >-
+      A tool that gathers evidence for each protein in a list from UniProt and Europe PMC and keeps the URL every
+      fact came from. Main module: evidence.py. Function uniprot_url(accession) returns
+      https://rest.uniprot.org/uniprotkb/ACCESSION.json. Function europepmc_url(gene, context="MCF7",
+      page_size=25) returns https://www.ebi.ac.uk/europepmc/webservices/rest/search with the query parameters
+      query (the text "GENE" AND "CONTEXT" with those double quotes), format=json and pageSize. Function
+      parse_uniprot(record) takes a UniProtKB JSON entry and returns {"accession": primaryAccession, "gene": the
+      first genes[].geneName.value, "function": the first text of the first comment whose commentType is FUNCTION,
+      or "", "go_bp": the sorted unique GO biological-process term names (uniProtKBCrossReferences with database GO
+      whose GoTerm property starts with "P:", without that prefix), "reactome": the sorted unique [id, PathwayName]
+      pairs of the Reactome cross-references}. Function parse_europepmc(resp) returns {"hits": hitCount as int,
+      "papers": [{"pmid", "doi" (None when absent), "title", "year" (int)}]} in the response's order, skipping
+      results that have no pmid. Function cache_name(url) returns the SHA-1 hex digest of the URL (UTF-8) plus
+      ".json". Class Fetcher(from_dir=None, cache_dir=None) is called with a URL and returns the parsed JSON: with
+      from_dir it only reads saved responses named by cache_name and raises for a missing one; otherwise it does
+      an HTTP GET, reusing and saving responses in cache_dir when given. Function load_list(path) reads columns
+      accession, gene and log2fc (float, or None when empty). Function build_table(rows, fetch, context="MCF7")
+      returns one dict per row, in order: {"accession", "gene" (UniProt's gene name, or the list's when UniProt
+      has none), "log2fc", "function", "go_bp", "reactome", "papers_hits", "top_pmids" (the first three pmids),
+      "sources" ([the UniProt URL, the Europe PMC URL]), "error" (None)}; the Europe PMC search uses the UniProt
+      gene name. When any fetch for a row fails, that row keeps its accession, gene and log2fc, gets empty
+      lists, 0 hits and an error message, and the other rows still run. Function pathway_counts(table,
+      min_proteins=2) returns (Reactome pathway name, number of proteins, sorted gene list) tuples for pathways
+      shared by at least min_proteins proteins, most proteins first, then by name. Command line: python
+      evidence.py LIST [--context TEXT] [--from-dir DIR] [--cache DIR] [-o OUT] writes the table as JSON to OUT or
+      standard output; the exit code is 1 when any row has an error and 0 otherwise.
+    plan:
+      title: Per-protein evidence table
+      goal: Collect function, GO process, Reactome pathway and literature evidence per protein, with sources.
+      deliverable: evidence.py with the URL builders, parsers, Fetcher, build_table(), pathway_counts() and a command line, its tests (no network), and a README.
+      tasks:
+        - {id: T1, title: "Write uniprot_url, europepmc_url and the two response parsers",
+           acceptance: "on saved UniProt and Europe PMC JSON, the parsers return the stated fields"}
+        - {id: T2, title: "Write Fetcher with --from-dir replay and an on-disk cache keyed by cache_name",
+           acceptance: "Fetcher(from_dir=saved) returns the saved response for a URL and raises for a URL with none"}
+        - {id: T3, title: "Write build_table and pathway_counts, with one failed protein not stopping the rest",
+           acceptance: "on saved responses, build_table returns one row per protein with sources, and an error row for a protein with no record",
+           depends_on: [T1, T2]}
+        - {id: T4, title: "Add the command line and write pytest tests on saved responses and a README",
+           acceptance: "python evidence.py list.csv --from-dir saved -o table.json writes the table; pytest passes without network",
+           depends_on: [T3]}
+      assumptions: ["UniProt and Europe PMC need no key", "Live runs are polite: one request at a time"]
+      out_of_scope: ["Full-text download", "KEGG, which needs a license for bulk use"]
+
+  - name: david_filter
+    request: >-
+      A tool that narrows a DAVID Functional Annotation Chart to well-supported terms and re-checks DAVID's
+      numbers. Main module: davidfilter.py. Function read_chart(path) reads DAVID's tab-separated chart export
+      (columns Category, Term, Count, %, PValue, Genes, List Total, Pop Hits, Pop Total, Fold Enrichment,
+      Bonferroni, Benjamini, FDR; rows with an empty Term, such as trailing blank lines, are skipped) and returns
+      a list of dicts with keys category, term, count, list_total, pop_hits, pop_total (ints), percent, pvalue,
+      fold, bonferroni, benjamini, fdr (floats) and genes (the comma-separated Genes, stripped and upper-cased).
+      Function filter_terms(terms, min_count=5, min_fold=1.5, max_benjamini=0.05, categories=None) keeps terms
+      with count at least min_count, fold at least min_fold and benjamini at most max_benjamini (all inclusive),
+      and, when categories is given, only terms whose category is one of them ignoring case; sorted by benjamini,
+      then fold from highest, then term. Function recheck(term, rel_tol=0.05) returns {"fold": (count /
+      list_total) / (pop_hits / pop_total), "p_hyper": the hypergeometric upper tail P(X >= count) for a draw of
+      list_total from pop_total holding pop_hits, "p_ease": DAVID's EASE score, the same upper tail at count - 1
+      with pop_total - 1, pop_hits - 1 and list_total - 1, "fold_ok": whether fold is within rel_tol (relative)
+      of the chart's, "p_ok": whether p_ease is within rel_tol of the chart's PValue}. Function
+      gene_counts(terms) returns (gene, number of the given terms that hold it) pairs, most first, then by gene.
+      Command line: python davidfilter.py CHART [--min-count N] [--min-fold X] [--max-benjamini X] [--category
+      NAME (repeatable)] [--json] [--recheck] prints the kept terms as a markdown table (columns Category, Term,
+      Count, Fold, Benjamini), or with --json as a JSON list; with --recheck it also prints "recheck failed: TERM"
+      on stderr for each kept term whose fold or p-value does not match and exits 1 if there are any.
+    plan:
+      title: DAVID chart filter and re-check
+      goal: Keep only enriched terms with enough proteins and enrichment, and catch numbers that do not add up.
+      deliverable: davidfilter.py with read_chart(), filter_terms(), recheck(), gene_counts() and a command line, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write read_chart for DAVID's chart export",
+           acceptance: "read_chart on a sample export returns typed terms with gene lists and skips blank rows"}
+        - {id: T2, title: "Write filter_terms and gene_counts with inclusive thresholds and the stated order",
+           acceptance: "on the sample, the default filter keeps exactly the terms with count >= 5, fold >= 1.5 and Benjamini <= 0.05",
+           depends_on: [T1]}
+        - {id: T3, title: "Write recheck: fold enrichment, hypergeometric tail and EASE score",
+           acceptance: "recheck reproduces a correct row's fold and PValue and flags a row with a misreported fold",
+           depends_on: [T1]}
+        - {id: T4, title: "Add the command line and write pytest tests and a README",
+           acceptance: "python davidfilter.py chart.tsv --recheck prints the table and exits 1 on a misreported row; pytest passes",
+           depends_on: [T2, T3]}
+      assumptions: ["The chart was exported from DAVID by hand; the DAVID web service is not called"]
+      out_of_scope: ["Functional annotation clustering", "Calling DAVID's API"]
+
+  - name: target_flags
+    request: >-
+      A tool that reports which proteins in a list are drug targets. Main module: targetflags.py. Function
+      load_list(path) reads columns accession, gene and log2fc (float, or None when empty). Function
+      load_targets(path) reads a drug-target table (as exported from ChEMBL or Open Targets) with columns gene,
+      drug, max_phase (an int from 0 to 4), mechanism and source. Function load_literature(path) reads a table with
+      columns gene, pmid and note for papers that propose a protein as a putative target. Function
+      classify(rows, targets, literature=()) returns one dict per gene in list order, keeping only the first row
+      of a gene that repeats (genes compare ignoring case and are returned upper-case): {"gene", "log2fc",
+      "tier", "max_phase" (the highest phase among the gene's drugs, or None), "drugs" (sorted unique drug
+      names), "pmids" (sorted unique pmids as strings)}; tier is "approved" for max_phase 4, "clinical" for 1 to
+      3, "preclinical" for 0, and for a gene with no drug "literature" when it has a literature row, else "none".
+      Function candidates(classified, min_abs_log2fc=1.0) returns the genes of tier literature or none whose
+      log2fc is known and at least min_abs_log2fc in size, largest change first, then by gene: proteins that
+      changed but nobody targets yet. Function report(classified, title="Drug-target status") returns markdown: a
+      first line "# " plus the title, then the sections "## Approved drug targets", "## In clinical trials",
+      "## Preclinical", "## Suggested in the literature" and "## No known targeting" in that order, each with one
+      "- GENE (log2FC X.XX)" line per gene of that tier followed by ": " and its drugs and then its pmids written as
+      PMID:N when it has any. Command line: python targetflags.py LIST --targets FILE [--literature FILE]
+      [--min-fc X] [--json] prints the report, or with --json {"proteins": the classified list, "candidates":
+      the candidates}.
+    plan:
+      title: Drug-target status report
+      goal: Sort a protein list into approved, clinical, preclinical, literature-only and untargeted proteins.
+      deliverable: targetflags.py with the loaders, classify(), candidates(), report() and a command line, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write the loaders and classify() with the tier rules",
+           acceptance: "classify on a sample list returns one entry per gene with the right tier, drugs and pmids"}
+        - {id: T2, title: "Write candidates() and the markdown report()",
+           acceptance: "report lists every gene once under its tier's heading, in the stated order", depends_on: [T1]}
+        - {id: T3, title: "Add the command line and write pytest tests and a README",
+           acceptance: "python targetflags.py list.csv --targets t.tsv --json prints proteins and candidates; pytest passes",
+           depends_on: [T2]}
+      assumptions: ["DrugBank academic downloads are paused, so the target table comes from ChEMBL or Open Targets"]
+      out_of_scope: ["Querying drug databases live", "Judging how good a target is"]
+
+  - name: claim_audit
+    request: >-
+      A tool that checks the claims in an AI-written interpretation of a protein list against the data and the
+      sources the claims cite, so a person reviews only what fails. Main module: claimaudit.py. A claim is a JSON
+      object {"id", "protein" (a gene symbol or alias), "statement", "direction" ("up", "down" or null),
+      "pathway" (optional), "citations" (a list of "PMID:digits", "DOI:10.xxxx/..." or "UniProt:ACCESSION",
+      prefixes in any case)}. Function load_dataset(path) reads columns gene and log2fc and returns {GENE: log2fc}
+      with upper-case genes. Function load_aliases(path) reads columns symbol and alias and returns {SYMBOL:
+      [aliases]}. Function load_pathways(path) reads columns pathway_id, pathway_name and gene. Function
+      audit(claims, dataset, sources, aliases=None, pathways=None), where sources maps citation ids to {"title",
+      "abstract"}, returns {"findings": [{"claim": id, "code", "detail"}], "claims": [{"id", "protein" (the
+      resolved upper-case symbol), "passed"}], "grounded": the fraction of claims that passed, 0.0 for none}. For
+      each claim the findings come in this order: "resolved_alias" (information only, not a failure) when the
+      protein is not in the dataset but is an alias, which then stands for its symbol; "not_in_dataset";
+      "direction_mismatch" when direction is up and log2fc is at most 0, or down and log2fc is at least 0;
+      "no_citation" when the list is empty; then for each citation in order "bad_citation" when it is not one of
+      the three forms, "citation_not_found" when it is not in sources, or "citation_off_topic" when neither the
+      source's title nor abstract mentions the symbol or one of its aliases as a whole word (ignoring case, so
+      CDK10 is not CDK1); and "pathway_not_supported" when a pathway is given (matched by id or name ignoring
+      case) and is unknown or does not contain the protein. Citation ids compare with the prefix written as PMID,
+      DOI or UniProt, DOIs lower-cased and accessions upper-cased, on both the claim and the sources side. A claim
+      passes when it has no finding other than resolved_alias. Command line: python claimaudit.py CLAIMS
+      --dataset FILE --sources FILE [--aliases FILE] [--pathways FILE] [--json] prints a markdown report with one
+      table row per claim id, or with --json the audit result; the exit code is 0 when every claim passes and 1
+      otherwise, so it can gate a pipeline.
+    plan:
+      title: Claim audit for AI interpretations
+      goal: Check every claim of an AI-written report against the fold changes, pathways and cited sources.
+      deliverable: claimaudit.py with the loaders, audit(), a markdown report and a command line, its tests, and a README.
+      tasks:
+        - {id: T1, title: "Write the loaders and citation id normalization",
+           acceptance: "doi:10.1000/XYZ1 and DOI:10.1000/xyz1 normalize to the same id and PMID:abc is rejected"}
+        - {id: T2, title: "Write audit() with every finding code in the stated order",
+           acceptance: "on sample claims, audit flags the wrong direction, the missing protein, the off-topic citation and the unsupported pathway, and passes the grounded ones",
+           depends_on: [T1]}
+        - {id: T3, title: "Add the markdown report and the command line with its gate exit code",
+           acceptance: "python claimaudit.py claims.json --dataset d.csv --sources s.json exits 1 when a claim fails and 0 when all pass",
+           depends_on: [T2]}
+        - {id: T4, title: "Write pytest tests and a README",
+           acceptance: "pytest passes and the README lists every finding code", depends_on: [T1, T2, T3]}
+      assumptions: ["The sources file was built beforehand from the cited abstracts (for example by evidence.py)"]
+      out_of_scope: ["Judging whether a claim is scientifically interesting", "Fetching sources live"]
