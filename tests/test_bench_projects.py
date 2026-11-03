@@ -116,3 +116,24 @@ def test_a_crash_is_a_failed_project(cfg, monkeypatch):
     monkeypatch.setattr(run_mod, "build", boom)
     o = go(cfg, TASKS[0])
     assert not o.solved and o.reached == "build" and "cut off" in o.why and o.acceptance.why == "no output"
+
+
+def test_results_are_saved_before_a_console_that_cannot_print_them(cfg, monkeypatch, tmp_path):
+    """A Windows cp1252 console (or a redirected file) and a model's U+2011 in the reason crashed the first live run
+    after the project finished, losing its result. Now the result is on disk first and the print replaces it."""
+    import io
+    import sys
+
+    import factory.bench_projects as bp
+
+    o = bp.ProjectOutcome(project="wordstats", reached="research", why="non‑breaking hyphen")
+    monkeypatch.setattr(bp, "run_project", lambda *a, **k: o)
+    monkeypatch.setattr(bp, "load_config", lambda path: cfg)
+    console = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")
+    monkeypatch.setattr(sys, "stdout", console)
+    assert bp.main(["--only", "wordstats", "--out", str(tmp_path)]) == 0
+    run = next(tmp_path.iterdir())
+    assert json.loads((run / "results.json").read_text(encoding="utf-8"))[0]["why"] == "non‑breaking hyphen"
+    assert "wordstats" in (run / "summary.md").read_text(encoding="utf-8")
+    console.flush()
+    assert b"non?breaking" in console.buffer.getvalue()

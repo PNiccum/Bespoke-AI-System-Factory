@@ -201,6 +201,14 @@ def summarize(outcomes: list[Outcome]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def safe_stdout() -> None:
+    """Never let a character the console cannot show (a Windows cp1252 console or redirected file, and a model's
+    U+2011 in a failure reason) crash a run: print it as '?' instead."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m factory.bench")
     ap.add_argument("--tasks", default="bench/tasks.yaml")
@@ -212,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ask", action="store_true", help="ask on the terminal before paid calls (default: refuse)")
     ap.add_argument("--repeat", type=int, default=1, help="trials per task and mode (models vary from run to run)")
     args = ap.parse_args(argv)
+    safe_stdout()
 
     cfg = load_config(args.config)
     tasks = [t for t in load_tasks(Path(args.tasks), Path.cwd()) if not args.only or t.name in args.only]
@@ -226,12 +235,12 @@ def main(argv: list[str] | None = None) -> int:
         for task in tasks:
             for mode in args.mode or MODES:
                 o = run_one(cfg, task, mode, approver=approver, use_cache=args.cache, trial=trial)
+                outcomes.append(o)  # saved before anything is printed, so a console error cannot lose a result
+                (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1), encoding="utf-8")
+                (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
                 strict = "" if o.hidden_solved is not False else f" but {o.hidden_why}"
                 print(f"{task.name:<16} {mode:<9} {'solved' if o.solved else 'failed':<7} {o.why}{strict}  "
-                      f"({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds}s)")
-                outcomes.append(o)
-                (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1), encoding="utf-8")
-    (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
+                      f"({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds}s)", flush=True)
     print(f"\n{summarize(outcomes)}\nResults: {out}")
     return 0
 
