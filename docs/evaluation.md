@@ -53,17 +53,24 @@ write-up is the evaluation report linked from the project.
 
 | Run | ASPIRE (hidden tests too) | Single call (hidden tests too) | Tokens, ASPIRE vs single call |
 |---|---|---|---|
-| Main tier, 11 tasks x 3 (main 6eebd5d) | 31/33 | 31/33 | 63,393 vs 16,281 (3.9x) |
+| Main tier, 11 tasks x 3 (main 36fe668) | 33/33 | 32/33 | 57,902 vs 16,312 (3.5x) |
 | Hard tier, 8 tasks x 3 (`bench/tasks_hard.yaml`) | 18/24 | 11/24 (paired 8 to 1, p = 0.04) | 271,405 vs 22,970 (12x) |
 | Reviewers, 54 patches each | cross-family: 0/21 wrong accepted; GLM (same family): 1/21 | 0/33 good rejected by any | DeepSeek 94k, gpt-oss 129k, GLM 27k |
 | Guards | 9/9 plain-code attacks blocked by the judge and the fix check | 2/2 test-passing attacks caught by hidden tests | - |
 | Rerun | 32/32 expected verdicts, 0 model calls | median 2.4 s | $0 |
 
-On one-file bugs the two modes tie and ASPIRE's extra tokens are earned back after about 5 reruns of its bundle; on
-harder bugs ASPIRE solves clearly more. Earlier runs are superseded: the first (26/33 each) gave ASPIRE only two free
-attempts, and the second (26/33 vs 32/33) came before the coder was shown the modules the failing tests import (#40).
+On one-file bugs the two modes tie (the single call's one miss was a patch that does not apply) and ASPIRE's extra
+tokens are earned back after about 4 reruns of its bundle; on harder bugs ASPIRE solves clearly more. Earlier runs
+are superseded: the first (26/33 each) gave ASPIRE only two free attempts, the second (26/33 vs 32/33) came before
+the coder was shown the modules the failing tests import (#40), and the third (31/33 each) lost two correct ASPIRE
+patches to short hunk counts (#44).
+
+End-to-end builds have not delivered yet. The gene-to-primers build (68 calls, 1.08M tokens) ended in re-design
+because every check failed to import the package (#48), and the four build-from-scratch tools went 0/4: three stopped
+at research and one passed its acceptance tests and then crashed on a Windows encoding error. Both will be rerun after
+the fixes; real spend was $0.
 
 ## Reading the numbers
 
-Eleven tasks is a small sample. The cost report gives 95% Wilson intervals: 31 of 33 is 80% to 98%, so the main tier
-cannot separate the modes; the hard tier's paired count can. Run with `--repeat 3` for variance across trials.
+Eleven tasks is a small sample. The cost report gives 95% Wilson intervals: 32 of 33 is 85% to 99% and 33 of 33 is 90% to
+100%, so the main tier cannot separate the modes; the hard tier's paired count can. Run with `--repeat 3` for variance across trials.
