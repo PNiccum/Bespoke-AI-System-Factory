@@ -46,10 +46,24 @@ GLM reviewer judging GLM's own work (the same-family case the config forbids) is
 on planted patches. The experiment builds its own reviewer config per model and skips the family rule on purpose;
 the real config is never changed.
 
+## Results (live, 2026-11-02 to 11-03)
+
+Free ARC models on the laptop, $0 real spend; raw notes in the project folder under `evaluation/live/`; the full
+write-up is the evaluation report linked from the project.
+
+| Run | ASPIRE (hidden tests too) | Single call (hidden tests too) | Tokens, ASPIRE vs single call |
+|---|---|---|---|
+| Main tier, 11 tasks x 3 (main 6eebd5d) | 31/33 | 31/33 | 63,393 vs 16,281 (3.9x) |
+| Hard tier, 8 tasks x 3 (`bench/tasks_hard.yaml`) | 18/24 | 11/24 (paired 8 to 1, p = 0.04) | 271,405 vs 22,970 (12x) |
+| Reviewers, 54 patches each | cross-family: 0/21 wrong accepted; GLM (same family): 1/21 | 0/33 good rejected by any | DeepSeek 94k, gpt-oss 129k, GLM 27k |
+| Guards | 9/9 plain-code attacks blocked by the judge and the fix check | 2/2 test-passing attacks caught by hidden tests | - |
+| Rerun | 32/32 expected verdicts, 0 model calls | median 2.4 s | $0 |
+
+On one-file bugs the two modes tie and ASPIRE's extra tokens are earned back after about 5 reruns of its bundle; on
+harder bugs ASPIRE solves clearly more. Earlier runs are superseded: the first (26/33 each) gave ASPIRE only two free
+attempts, and the second (26/33 vs 32/33) came before the coder was shown the modules the failing tests import (#40).
+
 ## Reading the numbers
 
-Eleven tasks is a small sample. The cost report gives 95% Wilson intervals: 8 of 8 solved is 68% to 100%, so
-"8/8 vs 7/8" alone does not show ASPIRE solves more. What the benchmark does show with certainty is the cost per
-solved task, the break-even against calling a model for every use (an ASPIRE bundle reruns for $0), and that every
-ASPIRE answer was checked by tests and a second model family before it was returned. Run with `--repeat 3` for
-variance across trials.
+Eleven tasks is a small sample. The cost report gives 95% Wilson intervals: 31 of 33 is 80% to 98%, so the main tier
+cannot separate the modes; the hard tier's paired count can. Run with `--repeat 3` for variance across trials.
