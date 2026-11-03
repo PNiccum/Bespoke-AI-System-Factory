@@ -123,3 +123,25 @@ def test_context_that_is_not_in_the_file_is_still_refused(tmp_path):
     escape = "--- a/../x.py\n+++ b/../x.py\n@@\n-a\n+b\n"
     assert apply_by_search(tmp_path / "r", escape) == (False, "path outside the repository: ../x.py")
     assert (tmp_path / "r" / "cal" / "years.py").read_text() == (LEAP / "cal" / "years.py").read_text()
+
+
+DEDUPE = Path(__file__).resolve().parents[1] / "bench" / "repos" / "dedupe_order"
+
+
+def test_hunk_counts_that_are_too_small_do_not_drop_lines():
+    # From the 2026-11-03 benchmark: git applied this "cleanly" and dropped `return result`, so dedupe returned None.
+    patch = ('--- a/report/clean.py\n+++ b/report/clean.py\n@@ -1,3 +1,8 @@\n def dedupe(items):\n'
+             '     """Drop repeats, keeping the first occurrence of each item in its original order."""\n'
+             '-    return sorted(set(items))\n+    seen = set()\n+    result = []\n+    for item in items:\n'
+             '+        if item not in seen:\n+            seen.add(item)\n+            result.append(item)\n'
+             '+    return result\n')
+    report = run_tests(RunTestsIn(repo_path=str(DEDUPE), patch=patch))
+    assert report.patch_applied and report.ok and len(report.passed) == 3
+
+
+def test_recount_fixes_every_hunk_in_a_multi_file_diff():
+    from factory.tools.sandbox import recount
+
+    patch = "--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n a\n-b\n+c\n+d\n--- a/y.py\n+++ b/y.py\n@@ -5,9 +5,9 @@ def f\n-e\n\n+g\n"
+    assert recount(patch) == ("--- a/x.py\n+++ b/x.py\n@@ -1,2 +1,3 @@\n a\n-b\n+c\n+d\n"
+                              "--- a/y.py\n+++ b/y.py\n@@ -5,2 +5,2 @@ def f\n-e\n \n+g\n")
