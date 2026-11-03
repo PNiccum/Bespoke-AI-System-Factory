@@ -125,3 +125,15 @@ def test_a_repair_that_leaves_the_blocker_open_is_reported(cfg, tmp_path):
                     vote("A"), vote("A"), json.dumps(PLAN), recheck("W1"))
     out = pl.run()
     assert out.winner == "A" and out.problems and out.problems[0].startswith("W1 still open")
+
+
+def test_restart_copies_the_project_up_to_its_approval(cfg, tmp_path):
+    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck(), vote("B"), vote("B"))
+    pl.run()
+    new = Project.restart(project, tmp_path / "projects")
+    assert new.root != project.root and new.board.latest("approval") is not None
+    assert new.board.latest("decision") is None and not (new.root / "plan.json").exists()
+    assert (new.root / "task.txt").read_text() == (project.root / "task.txt").read_text()
+    llm = pl.llm
+    llm.providers["arc"] = Scripted(critique(), ANALYSIS, edit(), recheck(), vote("A"), vote("A"))
+    assert PlanningLoop(llm, Registry.load(cfg, ROOT / "registry"), new).run().winner == "A"
