@@ -127,15 +127,44 @@ def scrubbed_env() -> dict[str, str]:
             if not any(m in k.upper() for m in SECRET_MARKERS) and not k.upper().startswith("GIT_CONFIG_")}
 
 
+def recount(patch: str) -> str:
+    """The diff with every hunk header's line counts recomputed from the hunk's own lines, in every file. Models often
+    get the counts wrong, and counts that are too small are the dangerous case: git applies the hunk without error
+    and drops the lines past the count (the 2026-11-03 benchmark lost a correct fix's ``return`` this way). Empty
+    lines inside a hunk are read as blank context, and blank lines that end a hunk are dropped."""
+    lines = patch.splitlines()
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        header = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$", line)
+        if not header:
+            out.append(line)
+            i += 1
+            continue
+        body: list[str] = []
+        i += 1
+        while i < len(lines) and not lines[i].startswith("@@") and not (
+                lines[i].startswith("--- ") and i + 1 < len(lines) and lines[i + 1].startswith("+++ ")):
+            body.append(lines[i] if lines[i] else " ")
+            i += 1
+        while body and body[-1] == " ":
+            body.pop()
+        old = sum(b[:1] in (" ", "-") for b in body)
+        new = sum(b[:1] in (" ", "+") for b in body)
+        out.append(f"@@ -{header[1]},{old} +{header[2]},{new} @@{header[3]}")
+        out += body
+    return "\n".join(out) + "\n"
+
+
 def apply_patch(work: Path, patch: str) -> tuple[bool, str]:
-    """Apply a unified diff. Models often get hunk line counts wrong, so a diff that fails as written is tried once
-    more with the counts recomputed (``--recount``, which only suits single-file diffs: it would read the next
-    file's ``---`` header as a removed line). If git still refuses, ``apply_by_search`` places each hunk by its text
+    """Apply a unified diff. Its hunk counts are recomputed first (``recount``), since a count that is too small
+    applies "cleanly" with lines missing. If git still refuses, ``apply_by_search`` places each hunk by its text
     instead of its line numbers, which covers the other mistakes models make with headers (no ``a/`` prefix, a bare
     ``@@``, numbers past the end of the file). Context that does not match the file is still refused."""
     errors = ""
-    for extra in ([], ["--recount"]):
-        r = subprocess.run(["git", "apply", *extra, "--whitespace=nowarn", "-"], cwd=work, input=patch, text=True,
+    for text in dict.fromkeys((recount(patch), patch)):
+        r = subprocess.run(["git", "apply", "--whitespace=nowarn", "-"], cwd=work, input=text, text=True,
                            capture_output=True)
         if r.returncode == 0:
             return True, ""
