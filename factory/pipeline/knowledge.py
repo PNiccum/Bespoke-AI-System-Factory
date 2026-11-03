@@ -141,7 +141,10 @@ one tag:
 {{{{q:{example}|...}}}}
 - a conclusion you draw from the facts just before it in the same paragraph: {{{{inference}}}}
 - something the documents do not settle: {{{{limit}}}}
-Code checks every quote against the document word for word and drops any sentence whose quote is not there.
+Code checks every quote against the document word for word and drops any sentence whose quote is not there. An \
+inference may not add numbers or names that its facts and their quotes lack. Use headings and bullet lists where they \
+help; a short list label such as "Inputs:" needs no tag. To point to another wiki page, write [[<slug>]]:
+{pages}
 
 ## Topic
 {topic}: {why}
@@ -179,6 +182,10 @@ def same_topic(name: str, earlier: list[str]) -> str:
 
 def show_docs(docs: list[Doc]) -> str:
     return "\n\n".join(f"### {d.id}\n{d.title} ({d.year})\n{d.text}" for d in docs)
+
+
+def page_list(pages: dict[str, str]) -> str:
+    return "\n".join(f"- [[{slug}]] {topic}" for slug, topic in sorted(pages.items())[:40]) or "(no other pages yet)"
 
 
 def cited(body: str, ids: list[str]) -> list[str]:
@@ -305,18 +312,21 @@ class KnowledgeLoop:
         license = "arc_only" if any(d.license == "arc_only" for d in docs) else "public"
         issues: list[str] = []
         page = None
+        # pages it may link to; an ARC-only page is listed only for an ARC-only page, so no link leaks its topic
+        others = {p.slug: p.topic for p in self.wiki.pages() if p.verified and p.topic != topic.name
+                  and (license == "arc_only" or p.license == "public")}
         for attempt in (1, 2):  # one rewrite when the checks find problems
             fix = f"\n## Fix these problems from the last draft\n{chr(10).join(issues)}\n" if issues else ""
             draft = self._call(LIBRARIAN, WRITE_PROMPT.format(topic=topic.name, why=topic.why, docs=show_docs(docs),
-                                                              example=ids[0], issues=fix), Draft,
-                               f"wiki-{topic.name}-{attempt}", docs)
+                                                              example=ids[0], issues=fix, pages=page_list(others)),
+                               Draft, f"wiki-{topic.name}-{attempt}", docs)
             paragraphs = cite.parse(draft.body)
             cite.check(paragraphs, {d.id: d.text for d in docs})
-            body = cite.render(paragraphs)
+            body = cite.render(paragraphs, others)
             sources = cited(body, ids)
             page = WikiPage(topic=topic.name, summary=draft.summary, body=body, sources=sources,
                             citations={d.id: d.citation for d in docs if d.id in sources}, license=license,
-                            projects=[self.project.id])
+                            projects=[self.project.id], links=cite.links(paragraphs, others))
             lost = cite.dropped(paragraphs)
             self.board.post("note", "code", {"topic": topic.name, "attempt": attempt, "quote_check": lost or "all kept"},
                             license=license)

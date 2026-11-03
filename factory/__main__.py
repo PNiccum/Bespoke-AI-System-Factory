@@ -164,6 +164,9 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--config", default="configs/factory.yaml")
     build.add_argument("--allow-unapproved", action="store_true",
                        help="build even though the knowledge loop did not approve the knowledge (not a fair run)")
+    wiki = sub.add_parser("wiki", help="rewrite the wiki's index.md and list problems (broken links, orphans, "
+                          "unverified pages); no model calls")
+    wiki.add_argument("--config", default="configs/factory.yaml")
     for p in (fix, tests, review, ask):
         p.add_argument("--config", default="configs/factory.yaml")
         p.add_argument("--out", default="exports")
@@ -176,6 +179,13 @@ def main(argv: list[str] | None = None) -> int:
         return run_research(args)
     if args.command == "build":
         return run_build(args)
+    if args.command == "wiki":
+        from factory.pipeline.wiki import Wiki
+        w = Wiki(load_config(args.config).work_dir / "wiki")
+        print(f"index: {w.write_index()}")
+        problems = w.lint()
+        print("\n".join(problems) or "no problems")
+        return 0
 
     if args.command == "fix":
         issue = Path(args.issue_file).read_text(encoding="utf-8") if args.issue_file else args.issue

@@ -4,6 +4,10 @@ A page is written by the librarian from approved sources and checked by a verifi
 a verified page with enough sources counts as covering its topic, so a later project on the same subject skips the
 research. Each page is two files: ``<slug>.json`` (the record) and ``<slug>.md`` (the same page for people to read).
 A page built from any ARC-only source is ARC-only itself.
+
+From the public "LLM wiki" pattern (Karpathy's gist and its implementations): ``index.md`` lists every page with its
+one-line summary and status and is rewritten on every save, ``log.md`` records each save in order, and ``lint()``
+reports broken links, orphan pages, pages that did not pass and pages with too few sources, in plain code.
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ class WikiPage(BaseModel):
     license: License = "public"
     verified: bool = False
     issues: list[str] = []  # what the verifier found, when it did not pass the page
+    links: list[str] = []  # slugs of other wiki pages the body links to
     projects: list[str] = []  # projects that needed it
     updated: str = ""
 
@@ -77,7 +82,38 @@ class Wiki:
         (self.root / f"{page.slug}.md").write_text(page.markdown(), encoding="utf-8")
         path = self.root / f"{page.slug}.json"
         path.write_text(page.model_dump_json(indent=1), encoding="utf-8")
+        self.write_index()
+        status = "verified" if page.verified else "not verified"
+        with (self.root / "log.md").open("a", encoding="utf-8") as log:
+            log.write(f"- {page.updated} saved [{page.topic}]({page.slug}.md), {status}, "
+                      f"{len(page.sources)} sources, projects {', '.join(page.projects) or '-'}\n")
         return path
+
+    def write_index(self) -> Path:
+        lines = ["# Wiki index", "", "| Page | Status | Sources | License | Summary |", "|---|---|---|---|---|"]
+        for p in self.pages():
+            summary = " ".join(p.summary.split())[:160].replace("|", "/")
+            lines.append(f"| [{p.topic}]({p.slug}.md) | {'verified' if p.verified else 'not verified'} | "
+                         f"{len(p.sources)} | {p.license} | {summary} |")
+        path = self.root / "index.md"
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return path
+
+    def lint(self) -> list[str]:
+        """Problems a person should look at: no model is called."""
+        pages = self.pages()
+        slugs = {p.slug for p in pages}
+        linked = {s for p in pages for s in p.links}
+        out = []
+        for p in pages:
+            out += [f"{p.slug}: links to missing page {s}" for s in p.links if s not in slugs]
+            if not p.verified:
+                out.append(f"{p.slug}: not verified ({'; '.join(p.issues)[:120] or 'no reason recorded'})")
+            elif not enough_sources(p.sources):
+                out.append(f"{p.slug}: verified but cites {len(p.sources)} source(s)")
+            if len(pages) > 1 and p.slug not in linked and not p.links:
+                out.append(f"{p.slug}: orphan (no links in or out)")
+        return out
 
     def get(self, topic: str) -> WikiPage | None:
         path = self.root / f"{slugify(topic)}.json"
