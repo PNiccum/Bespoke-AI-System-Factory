@@ -47,6 +47,7 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
     final = FinalEvaluator(llm, registry, project, production)
     feedback, result, stage = "", None, ""
+    production.start_clean()  # a new build never inherits an earlier build's files
     for rnd in range(1, BUILD_ROUNDS + 1):
         try:
             on_stage(stage := f"production, round {rnd}")

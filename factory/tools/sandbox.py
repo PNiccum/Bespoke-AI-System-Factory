@@ -91,6 +91,8 @@ class RunTestsIn(BaseModel):
     patch: str | None = Field(None, description="Unified diff to apply before running, or none")
     tests: list[str] = Field([], description="pytest node ids or paths; empty runs the whole suite")
     timeout_s: float = Field(300, gt=0, le=3600)
+    pythonpath: list[str] = Field([], description="folders, relative to the repository root, to put on the import "
+                                  "path (pytest's pythonpath option), e.g. ['src', '.'] for a src layout")
 
 
 class TestReport(BaseModel):
@@ -290,8 +292,10 @@ def run_tests(inp: RunTestsIn, overlay: Path | None = None) -> TestReport:
             shutil.copytree(overlay, work, dirs_exist_ok=True, ignore=COPY_IGNORE)
         junit = Path(tmp) / "junit.xml"
         # xunit1 records each test's file
+        paths = [p for p in inp.pythonpath if (work / p).resolve().is_relative_to(work.resolve())]
+        extra = ["-o", "pythonpath=" + " ".join(paths)] if paths else []
         code, out, timed_out = run_pytest(Path(tmp), ["-q", "-p", "no:cacheprovider", "-o", "junit_family=xunit1",
-                                                      *inp.tests], inp.timeout_s)
+                                                      *extra, *inp.tests], inp.timeout_s)
         passed, failed, errors, skipped = read_junit(junit)
         return TestReport(patch_applied=applied, exit_code=code, passed=passed, failed=failed, errors=errors,
                           skipped=skipped, seconds=round(time.monotonic() - t0, 2), timed_out=timed_out,

@@ -205,6 +205,8 @@ def _show(issues: list[Issue]) -> str:
 
 def json_checks(checks: Checks) -> str:
     parts = [f"{f}: {e}" for f, e in checks.syntax_errors.items()]
-    if checks.tests_ok is False:
+    if checks.setup_error:
+        parts.append(f"setup failure, fix this first: {checks.setup_error}")
+    elif checks.tests_ok is False:
         parts.append(f"failing tests: {', '.join(checks.failed) or 'see output'}; {checks.output_tail[-500:]}")
     return "; ".join(parts) or "checks failed"

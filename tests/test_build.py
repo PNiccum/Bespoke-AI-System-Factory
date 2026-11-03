@@ -255,3 +255,24 @@ def test_a_stage_that_crashes_goes_to_redesign_not_out_of_build(cfg, tmp_path, m
     assert result.status == "stopped" and result.rounds == 1
     note = project.board.latest("note").data
     assert note == {"stage": "production, round 1", "error": "design: no valid output after 3 attempts"}
+
+
+def test_a_new_build_moves_stale_output_aside(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    project.write_file("output/old_pkg/__init__.py", "x = 1\n", "code")
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", True)))
+    assert build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}).status == "delivered"
+    assert not (project.root / "output" / "old_pkg").exists()
+    moved = list((project.root / "superseded").glob("*/old_pkg/__init__.py"))
+    assert len(moved) == 1
+    assert any("superseded/" in e.data.get("text", "") for e in project.board.entries("note"))
+
+
+def test_tests_that_cannot_import_are_a_setup_failure(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    broken = "from missing_pkg import tm\n\n\ndef test_tm():\n    assert tm('A')\n"
+    llm.providers["arc"] = Scripted(design(), orders("T1", "primer.py"), built(("primer.py", CODE)),
+                                    orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", broken)))
+    checks = Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert "could not be imported" in checks.setup_error and "missing_pkg" in checks.setup_error
+    assert critique_module.json_checks(checks).startswith("setup failure, fix this first")
