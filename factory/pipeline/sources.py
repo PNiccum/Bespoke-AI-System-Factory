@@ -25,6 +25,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 
+import httpx
 from pydantic import BaseModel
 
 from factory.net.http import CachedAPI, CallBudget
@@ -214,6 +215,16 @@ DOCS_CATALOG = (
      "chembl api target molecule activity mechanism drug json rest"),
     ("openalex_works", "OpenAlex API: works", "https://docs.openalex.org/api-entities/works",
      "openalex api works filter search json fields cited by abstract inverted index authorships"),
+    ("openalex_work_object", "OpenAlex API: the Work object (record fields)",
+     "https://help.openalex.org/data/works/attributes/",
+     "openalex work object record json schema fields doi title publication year authorships cited by count "
+     "abstract inverted index primary location open access"),
+    ("openalex_lists", "OpenAlex API: get lists of entities (endpoint, paging, per-page)",
+     "https://help.openalex.org/api/paging/",
+     "openalex api endpoint query parameters list works page per page cursor paging sort select sample"),
+    ("openalex_filters", "OpenAlex API: filter entity lists",
+     "https://help.openalex.org/api/filtering/",
+     "openalex api filter query parameters works publication year from to date type is oa search"),
     ("apache_logs", "Apache HTTP Server: log files", "https://httpd.apache.org/docs/2.4/logs.html",
      "apache access log common combined format timestamp timezone offset quoted request status bytes"),
     ("python_csv", "Python csv module", "https://docs.python.org/3/library/csv.html",
@@ -235,7 +246,8 @@ DOCS_CATALOG = (
 )
 
 
-JSON_HELP = ("https://rest.uniprot.org/help/",)  # help pages served as {"title", "content"} JSON
+# served as JSON, and refused (406) when asked for text/html: UniProt help {"title", "content"}, Europe PMC's field list
+JSON_HELP = ("https://rest.uniprot.org/help/", "https://www.ebi.ac.uk/europepmc/webservices/rest/")
 
 
 class ReferenceDocs(CachedAPI):
@@ -250,7 +262,10 @@ class ReferenceDocs(CachedAPI):
             if score == 0:
                 break
             accept = "application/json" if url.startswith(JSON_HELP) else "text/html"
-            text = readable(self.get_text(url, accept=accept))
+            try:  # one page that errors skips itself: on 2026-11-04 a 406 from one entry emptied 25 of 32 searches
+                text = readable(self.get_text(url, accept=accept))
+            except httpx.HTTPError:
+                continue
             if not looks_blocked(text):
                 docs.append(Doc(id=f"docs:{key}", connector="docs", title=title, url=url,
                                 text=best_window(text, query, MAX_TEXT), citation=f"{title}. {url}"))

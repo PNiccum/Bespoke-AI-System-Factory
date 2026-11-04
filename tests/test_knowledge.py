@@ -29,9 +29,10 @@ class Engine:
         return self.docs[:n]
 
 
-def topics(*names, enough=False, dropped=()):
+def topics(*names, enough=False, dropped=(), project=()):
     return json.dumps({"enough": enough, "topics": [{"name": n, "why": "needed", "needed_for": ["T2"],
-                                                     "hints": ["primer"]} for n in names],
+                                                     "hints": ["primer"]} for n in names]
+                       + [{"name": n, "why": "the plan sets it", "kind": "project"} for n in project],
                        "dropped": [{"name": d, "why": "the plan states it"} for d in dropped]})
 
 
@@ -244,6 +245,17 @@ def test_a_topic_first_asked_for_in_the_last_round_is_deferred_not_missing(cfg, 
     assert project.board.latest("topics").data["deferred"] == ["Retry strategy"]
 
 
+def test_a_choice_the_project_makes_for_itself_is_neither_researched_nor_missing(cfg, tmp_path):
+    kl, arc, project, _ = knowledge(cfg, tmp_path, topics("PCR primer design", project=["JSON output schema"]),
+                                    queries(), review(1, 2), draft(1, 2), check(True),
+                                    topics(project=["JSON output schema"], enough=True))
+    result = kl.run()
+    assert result.ok and result.missing == [] and "JSON output schema" not in result.covered
+    assert result.decided == {"JSON output schema": "the plan sets it"}
+    assert arc.texts == [] and len(arc.requests) == 6  # one topic researched, none for the project's own choice
+    assert '"kind": "outside" or "project"' in arc.requests[0].messages[0]["content"]
+
+
 def test_the_docs_catalog_finds_a_manual_for_formats_the_project_tiers_needed():
     from factory.pipeline.sources import DOCS_CATALOG
     from factory.pipeline.sources import words as source_words
@@ -256,6 +268,8 @@ def test_the_docs_catalog_finds_a_manual_for_formats_the_project_tiers_needed():
     assert best("UTF-8 BOM handling") == "python_codecs"
     assert best("Apache timestamps timezone offset") == "apache_logs"
     assert best("pytest src layout import") == "pytest_layout"
+    assert best("OpenAlex works API endpoint and query parameters") in {"openalex_lists", "openalex_filters"}
+    assert best("OpenAlex work record JSON schema") == "openalex_work_object"
     assert best("efetch rettype retmode fasta") == "eutils_biopython_tutorial"
     assert best("RefSeq NM_ XM_ accession prefix") == "refseq_release_notes"
     assert not any("ncbi.nlm.nih.gov/books/" in d[2] for d in DOCS_CATALOG)  # Bookshelf serves scripts a captcha

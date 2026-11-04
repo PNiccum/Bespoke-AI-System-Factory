@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -43,6 +44,11 @@ class Topic(BaseModel):
     why: str
     needed_for: list[str] = []  # task ids in the plan
     hints: list[str] = []  # search terms to start from
+    # "outside": a fact about the world, its data sources or file formats, which research can find. "project": a
+    # choice the task or plan makes for itself (an output schema, a cache layout, exit codes, a stopword list), which
+    # no source settles. The 2026-11-04 runs blocked on such choices although the prompt told the evaluator to leave
+    # them out, so the evaluator now labels each topic and code keeps project choices out of research and the gate.
+    kind: Literal["outside", "project"] = "outside"
 
 
 class Dropped(BaseModel):
@@ -92,6 +98,7 @@ class KnowledgeResult(BaseModel):
     rounds: int
     deferred: list[str] = []  # first asked for in the last round, which researches nothing: left to the critic loop
     dropped: dict[str, str] = {}  # topic -> why the evaluator let it go without a page
+    decided: dict[str, str] = {}  # topic -> why: a choice the plan or the builders make, so research skips it
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
@@ -113,8 +120,12 @@ on: facts about the outside world, its data sources and its file formats.
 {pages}
 
 {again}Reply with JSON only: {{"enough": true or false, "topics": [{{"name": "<short topic name>", "why": "<one \
-sentence>", "needed_for": ["T1"], "hints": ["<search terms>"]}}], "dropped": [{{"name": "<earlier topic>", "why": \
+sentence>", "kind": "outside" or "project", "needed_for": ["T1"], "hints": ["<search terms>"]}}], "dropped": [{{"name": "<earlier topic>", "why": \
 "<why the work can go ahead without it>"}}]}}
+Label each topic: "outside" when it is a fact a source outside this project settles (an API, a file format, a \
+published method or constant), "project" when this task or plan decides it or already states it (its own output schema, \
+cache layout, exit codes, word lists, parsing rules); project topics are left to the builders and are not researched. \
+A task that needs no outside knowledge is a good outcome: set "enough" to true with no topics. \
 List at most {max_topics} topics, most important first. When a topic is the same as one asked for earlier, use the \
 earlier name exactly, so the work already done on it counts. Set "enough" to true, with no topics, only when the pages \
 above cover everything the plan needs."""
@@ -231,13 +242,14 @@ class KnowledgeLoop:
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
         deferred: list[str] = []
         dropped: dict[str, str] = {}
+        decided: dict[str, str] = {}
         for rnd in range(1, MAX_ROUNDS + 1):
             if rnd == 1:  # only verified pages: one the verifier rejected must not count toward "enough"
                 pages = [p for p in self.wiki.pages() if p.verified][:40]
                 again = ""
             else:
                 pages = [p for p in (self.wiki.find(t) for t in covered) if p]
-                still = [n for n in asked if n not in covered and n not in dropped]
+                still = [n for n in asked if n not in covered and n not in dropped and n not in decided]
                 again = ("Research has run on the topics you asked for; the pages now available are listed. Name only "
                          "what is still missing, including specifics the new pages show the work depends on.\n"
                          f"Topics asked for earlier: {'; '.join(asked)}\n"
@@ -248,6 +260,8 @@ class KnowledgeLoop:
             needs = self._call(EVALUATOR, EVALUATE_PROMPT.format(task=task, plan=plan, pages=listing, again=again,
                                                                  max_topics=MAX_TOPICS), Needs, f"knowledge-{rnd}")
             topics = [t.model_copy(update={"name": same_topic(t.name, asked)}) for t in needs.topics[:MAX_TOPICS]]
+            decided |= {t.name: t.why for t in topics if t.kind == "project"}
+            topics = [t for t in topics if t.name not in decided]
             if rnd == MAX_ROUNDS and rnd > 1:  # the last round researches nothing, so a topic new here cannot be met
                 new = [t.name for t in topics if t.name not in asked]
                 deferred = [n for n in new if self.wiki.covers(n) is None]
@@ -259,13 +273,14 @@ class KnowledgeLoop:
                     dropped[name] = d.why
             ev = self.board.post("topics", EVALUATOR, {"round": rnd, "enough": needs.enough,
                                                        "topics": [t.model_dump() for t in topics],
-                                                       "deferred": deferred, "dropped": dropped})
+                                                       "deferred": deferred, "dropped": dropped,
+                                                       "decided": decided})
             have = {t.name: self.wiki.covers(t.name) for t in topics}
             # an earlier topic stays missing until a page covers it or the evaluator drops it with a reason: the
             # 2026-11-03 primer run lost an unresearched topic by simply not naming it again
             missing = [t.name for t in topics if have[t.name] is None]
             missing += [n for n in asked if n not in missing and n not in have and n not in dropped
-                        and n not in covered and self.wiki.covers(n) is None]
+                        and n not in decided and n not in covered and self.wiki.covers(n) is None]
             covered |= {name: page.slug for name, page in have.items() if page}
             if needs.enough and not topics:  # approved on the pages shown, so those are what the builders get
                 covered |= {p.topic: p.slug for p in pages}
@@ -280,7 +295,7 @@ class KnowledgeLoop:
                     covered[topic.name] = page.slug
         ok = not missing
         result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
-                                 dropped=dropped)
+                                 dropped=dropped, decided=decided)
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
