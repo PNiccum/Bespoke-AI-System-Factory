@@ -220,6 +220,8 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     if tier := tier or os.environ.get("FACTORY_TIER"):
         data["tier"] = tier
+    if os.environ.get("ASPIRE_DATA_PRIVATE", "").strip() not in ("", "0"):  # lab data: Claude and OpenAI refuse it
+        data["data_public"] = False
     for pair in filter(None, os.environ.get("FACTORY_ROLE_TIERS", "").split(",")):  # "reviewer=quality,coder=quality"
         role, _, t = pair.partition("=")
         data.setdefault("role_tiers", {})[role.strip()] = t.strip()

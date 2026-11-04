@@ -79,3 +79,23 @@ def test_ask_routes_a_clear_request_by_rules_with_no_model_call(scripted, capsys
     assert run("ask", "--repo", str(REPO), "--request", "Write tests for days_in_month in calc/dates.py") == 1
     assert "Routed by rules: test_gen" in capsys.readouterr().out
     assert seen[0].task_type == "test_gen" and scripted.requests == []
+
+
+def test_interview_runs_unattended_from_written_answers_and_approves(scripted, tmp_path, capsys):
+    from tests.test_interview import PLAN, ask, propose
+    request, answers = tmp_path / "request.md", tmp_path / "answers.md"
+    request.write_text("Design PCR primers for a human gene", encoding="utf-8")
+    answers.write_text("Human genes only; a Python script.", encoding="utf-8")
+    scripted.texts += [ask("Which species?"), propose(PLAN)]
+    assert run("interview", "--request-file", str(request), "--answers-file", str(answers), "--approve") == 0
+    assert "Human genes only" in scripted.requests[1].messages[0]["content"]
+    assert list((tmp_path).rglob("plan_a.json")) and "Approved (--approve)" in capsys.readouterr().out
+
+
+def test_unattended_interview_without_approve_leaves_plan_a_unapproved(scripted, tmp_path, capsys):
+    from tests.test_interview import PLAN, propose
+    answers = tmp_path / "answers.md"
+    answers.write_text("x", encoding="utf-8")
+    scripted.texts += [propose(PLAN)]
+    assert run("interview", "--request", "Design PCR primers", "--answers-file", str(answers)) == 1
+    assert not list(tmp_path.rglob("plan_a.json")) and "not approved" in capsys.readouterr().out

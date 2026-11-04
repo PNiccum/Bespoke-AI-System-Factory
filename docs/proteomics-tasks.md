@@ -35,6 +35,9 @@ checks that, and that an empty delivery fails.
 
 ## The live research task (not scored automatically)
 
+The runnable version, with the Interviewer's written answers, planted decoys, a scoring checklist and a single-call
+baseline, is in `bench/research/mcf7_release/` (see its README).
+
 The lab's full request is a research task, not a tool. Give it to the Interviewer on the laptop with the real list:
 
 > Interpret this list of 95 proteins upregulated in MCF7 cells 24 h after release from 48 h serum starvation.
