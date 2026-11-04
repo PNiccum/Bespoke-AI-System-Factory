@@ -129,7 +129,9 @@ Search hints: {hints}
 - openalex: scholarly papers in every field
 - europepmc: biomedical and life-science papers (PubMed, PubMed Central)
 - ncbi_gene: genes by symbol or name, with organism, e.g. "BRCA1[sym] AND human[orgn]"
-- docs: reference manuals and API documentation (NCBI E-utilities, RefSeq, Primer3, Biopython); use it for how a \
+- docs: reference manuals and API documentation (NCBI E-utilities, RefSeq, Primer3, Biopython, UniProt, Europe \
+PMC, Human Protein Atlas, Gene Ontology, ChEMBL, OpenAlex, Apache logs, Python csv/codecs/datetime/json, Markdown \
+tables, pytest and pyproject packaging); use it for how a \
 tool, API or format works, and keyword queries such as "efetch rettype fasta nucleotide"
 {previous}
 Reply with JSON only: {{"queries": [{{"connector": one of {connectors}, "query": "<search>"}}]}}, at most \
