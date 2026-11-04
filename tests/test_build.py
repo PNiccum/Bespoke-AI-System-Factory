@@ -316,6 +316,33 @@ def test_builder_files_come_as_raw_blocks():
         parse_files(C("=== FILE: a.py ===\nx = 1\n"))
 
 
+def test_a_code_fence_around_a_file_body_is_removed_except_in_markdown():
+    from factory.pipeline.production import NewFile, unfence
+    assert NewFile(path="pkg/design.py", content="```python\nx = 1\n```\n").content == "x = 1\n"
+    assert unfence("a.py", "  ```\nx = 1\n```") == "x = 1\n"
+    assert unfence("a.py", "x = '```'\n") == "x = '```'\n"
+    assert unfence("README.md", "```bash\nrun\n```\n") == "```bash\nrun\n```\n"
+
+
+def test_a_review_without_acceptable_follows_from_its_issues():
+    from factory.pipeline.critique import Critique
+    assert Critique.model_validate({"issues": []}).acceptable is True
+    assert Critique.model_validate({"issues": [{"id": "I1", "severity": "major", "where": "x", "problem": "y"}]}
+                                   ).acceptable is False
+
+
+def test_a_critic_with_no_usable_review_lets_the_checks_speak(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE)
+    _, production, critic = parts(cfg, llm, project, wiki)
+    checks = production.run()
+    assert checks.ok
+    llm.providers["arc"] = Scripted("no json here", "still none", "nothing")
+    result = critic.run(checks)
+    assert result.accepted and result.rounds == 1
+    assert any("critic gave no usable review" in e.data.get("text", "") for e in project.board.entries("note"))
+
+
 def test_solver_fixes_come_as_raw_blocks():
     from types import SimpleNamespace
 

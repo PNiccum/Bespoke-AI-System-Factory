@@ -22,7 +22,7 @@ import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
@@ -58,9 +58,26 @@ class Orders(BaseModel):
     orders: list[WorkOrder]
 
 
+FENCE_OPEN, FENCE_CLOSE = re.compile(r"\A\s*```[\w.+-]*[ \t]*\n"), re.compile(r"\n[ \t]*```\s*\Z")
+
+
+def unfence(path: str, content: str) -> str:
+    """A file body without the Markdown code fence a model wrapped it in. The 2026-11-04 primer build saved
+    design.py with a fence on line 1, a SyntaxError that failed every test importing it. Markdown files keep theirs."""
+    if path.lower().endswith((".md", ".markdown")) or not FENCE_OPEN.match(content):
+        return content
+    body = FENCE_OPEN.sub("", content, count=1)
+    return FENCE_CLOSE.sub("\n", body, count=1)
+
+
 class NewFile(BaseModel):
     path: str
     content: str
+
+    @model_validator(mode="after")
+    def _unfence(self):
+        self.content = unfence(self.path, self.content)
+        return self
 
 
 class Built(BaseModel):

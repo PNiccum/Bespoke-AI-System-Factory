@@ -60,7 +60,7 @@ def check(ok=True):
 
 def planned(cfg, tmp_path):
     llm, project = approved_project(cfg, tmp_path)
-    llm.providers["arc"] = Scripted(critique(), ANALYSIS, edit(), recheck(), vote("A"), vote("A"))
+    llm.providers["arc"] = Scripted(critique(), ANALYSIS, edit(), recheck(), recheck(), vote("A"), vote("A"))
     PlanningLoop(llm, Registry.load(cfg, ROOT / "registry"), project).run()
     return llm, project
 
