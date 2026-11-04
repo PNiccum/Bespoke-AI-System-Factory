@@ -123,6 +123,23 @@ def test_an_accepted_fix_is_applied_and_the_critic_looks_again(cfg, tmp_path):
     assert (project.root / "output" / "tests" / "test_primer.py").read_text() == TEST
 
 
+def test_a_solver_reply_that_will_not_parse_is_retried_for_the_first_issue_alone(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE[:3], orders("T2", "tests/test_primer.py"),
+                                    built(("tests/test_primer.py", WRONG)))
+    _, production, critic = parts(cfg, llm, project, wiki)
+    checks = production.run()
+    cut = "=== FIX: I1 ===\nEXPLANATION: fix\n=== FILE: tests/test_primer.py ===\n" + "x = 1\n" * 50
+    one = json.dumps({"fixes": [{"issue": "I1", "explanation": "fix",
+                                 "files": [{"path": "tests/test_primer.py", "content": TEST}]}]})
+    arc = Scripted(review(False, "I1", "I2"), cut, cut, cut, one, verdicts(I1=True), review(True))
+    llm.providers["arc"] = arc
+    result = critic.run(checks)
+    assert result.accepted and arc.texts == []
+    assert "I2" not in arc.requests[4].messages[0]["content"].split("## Issues")[1].split("## Files")[0]
+    assert any("solver gave no usable fixes" in e.data.get("text", "") for e in project.board.entries("note"))
+
+
 def test_declined_fixes_escalate_to_research_then_redesign(cfg, tmp_path, monkeypatch):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["arc"] = Scripted(*PRODUCE)

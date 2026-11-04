@@ -98,6 +98,21 @@ def test_uniprot_help_is_asked_for_as_json_and_read_from_its_content(tmp_path):
     assert calls == ["https://rest.uniprot.org/help/accession_numbers"] and seen == ["application/json"]
 
 
+def test_one_manual_that_errors_skips_only_itself_and_json_services_are_asked_for_json(tmp_path):
+    good = "<p>" + "Use filter=publication_year:2020 and per-page=50 to page through works. " * 20 + "</p>"
+    seen = {}
+
+    def reply(r):
+        seen[str(r.url)] = r.headers["accept"]
+        return httpx.Response(406, text="Whitelabel Error Page") if "europepmc" in str(r.url) else \
+            httpx.Response(200, text=good)
+    http, _ = mock(reply)
+    docs = ReferenceDocs(tmp_path, CallBudget("t", 9), http=http).search(
+        "europe pmc rest api search query fields json openalex filter per page", 3)
+    assert docs and all(d.id != "docs:europepmc_fields" for d in docs)
+    assert seen["https://www.ebi.ac.uk/europepmc/webservices/rest/fields?format=json"] == "application/json"
+
+
 def test_a_query_that_matches_no_manual_reads_nothing(tmp_path):
     http, calls = mock(lambda r: httpx.Response(200, text="x"))
     assert ReferenceDocs(tmp_path, CallBudget("t", 5), http=http).search("quantum chromodynamics", 3) == []

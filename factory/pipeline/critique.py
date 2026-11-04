@@ -112,7 +112,9 @@ EXPLANATION: <what changes and why, one line>
 === END FILE ===
 === END FIX ===
 
-A fix may hold several FILE blocks. Fix a setup failure (tests that cannot be imported) first."""
+A fix may hold several FILE blocks. Give only files the fix changes, and each file once: when two issues change the \
+same file, put the file in the first of those fixes and say so in the other. Fix a setup failure (tests that cannot \
+be imported) first."""
 
 FIX_BLOCK = re.compile(r"^=== FIX: *(.+?) *===[ \t]*\n(.*?)^=== END FIX ===[ \t]*$", re.M | re.S)
 
@@ -189,11 +191,9 @@ class CriticLoop:
             knowledge = ""
             if pages:
                 knowledge = "\n## Knowledge (wiki)\n" + "\n\n".join(f"### {p.topic}\n{p.body[:3000]}" for p in pages)
-            fixes = self._call(SOLVER, SOLVE_PROMPT.format(task=task, issues=_show(issues), files=self.shown_files(),
-                                                           knowledge=knowledge), Fixes, f"solve-{rnd}", pages,
-                               parse=parse_fixes, fmt="FIX blocks")
+            fixes = self._solve(task, issues, knowledge, rnd, pages, c.id)
             verdicts = self._call(CRITIC, JUDGE_PROMPT.format(issues=_show(issues), fixes=fixes.model_dump_json(
-                indent=1)[:MAX_SHOWN_CHARS]), Verdicts, f"judge-{rnd}", pages)
+                indent=1)[:MAX_SHOWN_CHARS]), Verdicts, f"judge-{rnd}", pages) if fixes.fixes else Verdicts(verdicts=[])
             accepted = {v.issue for v in verdicts.verdicts if v.accept}
             for fix in fixes.fixes:
                 if fix.issue in accepted:
@@ -231,6 +231,22 @@ class CriticLoop:
                          for w in wanted]
                 pages = [p for p in found if p and p.verified] or self.closest_pages(wanted)
         return CriticResult(accepted=False, redesign=False, rounds=MAX_ROUNDS, open_issues=issues, step=STEPS[step])
+
+    def _solve(self, task: str, issues: list[Issue], knowledge: str, rnd: int, pages, ref: str) -> Fixes:
+        """The solver's fixes. A reply that will not parse, or overruns the output limit, is tried once more for the
+        first issue alone; if that fails too the round has no fixes, so the unchanged checks escalate it. (The
+        2026-11-04 log_spikes build ended with no final QA when one solver reply hit max_tokens three times.)"""
+        for tag, these in ((f"solve-{rnd}", issues), (f"solve-{rnd}-first", issues[:1])):
+            try:
+                return self._call(SOLVER, SOLVE_PROMPT.format(task=task, issues=_show(these), files=self.shown_files(),
+                                                              knowledge=knowledge), Fixes, tag, pages,
+                                  parse=parse_fixes, fmt="FIX blocks")
+            except RuntimeError as e:
+                self.board.post("note", "code", {"round": rnd, "text": f"solver gave no usable fixes: {str(e)[:300]}"},
+                                refs=[ref])
+                if len(issues) == 1:
+                    break
+        return Fixes(fixes=[])
 
     def closest_pages(self, texts: list[str], n: int = 3) -> list[WikiPage]:
         want = set().union(*(words(t) for t in texts)) if texts else set()
