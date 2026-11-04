@@ -242,3 +242,18 @@ def test_a_topic_first_asked_for_in_the_last_round_is_deferred_not_missing(cfg, 
     result = kl.run()
     assert result.ok and result.missing == [] and result.deferred == ["Retry strategy"]
     assert project.board.latest("topics").data["deferred"] == ["Retry strategy"]
+
+
+def test_the_docs_catalog_finds_a_manual_for_formats_the_project_tiers_needed():
+    from factory.pipeline.sources import DOCS_CATALOG
+    from factory.pipeline.sources import words as source_words
+
+    def best(query):
+        want = source_words(query)
+        return max(DOCS_CATALOG, key=lambda d: len(want & source_words(f"{d[1]} {d[3]}")))[0]
+    assert best("UniProt accession format isoform suffix") in {"uniprot_accessions", "uniprot_isoforms"}
+    assert best("Europe PMC search JSON schema") == "europepmc_rest"
+    assert best("UTF-8 BOM handling") == "python_codecs"
+    assert best("Apache timestamps timezone offset") == "apache_logs"
+    assert best("pytest src layout import") == "pytest_layout"
+    assert len({d[0] for d in DOCS_CATALOG}) == len(DOCS_CATALOG)
