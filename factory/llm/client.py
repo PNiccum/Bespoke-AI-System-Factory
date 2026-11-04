@@ -114,6 +114,19 @@ def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
     raise FileExistsError(f"too many runs named {base.name}")
 
 
+# One concurrency gate per provider for the whole process, not one per LLM: projects run side by side
+# (bench_projects --parallel) each have their own LLM, and ARC's limit is per user, not per run.
+_GATES: dict[str, threading.BoundedSemaphore] = {}
+_GATES_LOCK = threading.Lock()
+
+
+def provider_gate(name: str, limit: int) -> threading.BoundedSemaphore:
+    with _GATES_LOCK:
+        if name not in _GATES:
+            _GATES[name] = threading.BoundedSemaphore(limit)
+        return _GATES[name]
+
+
 class LLM:
     def __init__(self, cfg: FactoryConfig, run_dir: Path, use_cache: bool = True, providers: dict | None = None,
                  approver: Approver | None = None):
@@ -126,19 +139,21 @@ class LLM:
         self.cache = ResponseCache(cfg.work_dir / "cache.sqlite") if use_cache else None
         # Tests pass fake providers; otherwise one adapter per configured provider.
         self.providers = providers or {name: make_provider(name, p) for name, p in cfg.providers.items()}
-        self._gates = {name: threading.Semaphore(p.max_concurrency) for name, p in cfg.providers.items()}
+        self._gates = {name: provider_gate(name, p.max_concurrency) for name, p in cfg.providers.items()}
         self._log_lock = threading.Lock()
         # Which tier and which model per role this run used, so a run can be reproduced from its directory.
         info = run_dir / "run_info.json"
         if not info.exists():
             info.write_text(json.dumps({"tier": cfg.tier, "role_tiers": cfg.role_tiers, "roles": {
-                r: {"provider": rc.provider, "model": rc.model, "max_tokens": rc.max_tokens, "effort": rc.effort}
+                r: {"provider": rc.provider, "model": rc.model, "max_tokens": rc.max_tokens, "effort": rc.effort,
+                    "on_truncation": rc.on_truncation}
                 for r, rc in cfg.roles.items()}}, indent=1), encoding="utf-8")
 
     def complete(self, role: str, user: str, system: str | None = None, *, tag: str = "",
-                 data: DataClass = "private", max_tokens: int | None = None, escalate: bool = False) -> Completion:
+                 data: DataClass = "private", max_tokens: int | None = None, escalate: bool = False,
+                 lighter: bool = False) -> Completion:
         return self.converse(role, [{"role": "user", "content": user}], system, tag=tag, data=data,
-                             max_tokens=max_tokens, escalate=escalate)
+                             max_tokens=max_tokens, escalate=escalate, lighter=lighter)
 
     def role_config(self, role: str, escalate: bool = False) -> RoleConfig:
         """The model a role uses: its configured default, or its paid escalation step."""
@@ -150,11 +165,14 @@ class LLM:
 
     def converse(self, role: str, messages: list[dict], system: str | None = None, *, tools: list[dict] | None = None,
                  tag: str = "", data: DataClass = "private", max_tokens: int | None = None,
-                 escalate: bool = False) -> Completion:
+                 escalate: bool = False, lighter: bool = False) -> Completion:
         """One model turn over a full message history (canonical Anthropic format), optionally with tools. When
-        the role's model is unavailable, its free fallbacks are tried in order."""
+        the role's model is unavailable, its free fallbacks are tried in order. ``lighter`` (a retry after a reply
+        hit max_tokens) starts from the role's ``on_truncation`` model, a faster one of the same family."""
         rc = self.role_config(role, escalate)
         models = [rc.model, *rc.fallbacks]
+        if lighter and rc.on_truncation and not escalate:
+            models = [rc.on_truncation, *(m for m in models if m != rc.on_truncation)]
         for i, model in enumerate(models):
             try:
                 return self._converse_one(role, rc.model_copy(update={"model": model}), messages, system, tools,
@@ -367,7 +385,10 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             f"{prompt}\n\nYour previous reply could not be used ({errors[-1][:160]}). "
             f"Reply again with only the corrected {fmt}, nothing else.")
         try:
-            c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate)
+            # after a cut-off, the retry goes to the role's lighter same-family model: in the Nov 2-4 logs 51
+            # replies hit max_tokens (7.3 h of model time), and the same thinking model often overran again
+            c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate,
+                             lighter=cut_off)
             return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
         except TruncatedError as e:
             errors.append(str(e))

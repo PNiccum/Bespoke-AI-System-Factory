@@ -30,6 +30,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -194,6 +195,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ask", action="store_true", help="ask on the terminal before paid calls (default: refuse)")
     ap.add_argument("--redesign", action="store_true", help="run re-design on a failed project (off by default)")
     ap.add_argument("--repeat", type=int, default=1, help="trials per project")
+    ap.add_argument("--parallel", type=int, default=1,
+                    help="projects run at once (default 1); ARC calls stay under the provider's max_concurrency")
     args = ap.parse_args(argv)
     safe_stdout()
 
@@ -205,18 +208,28 @@ def main(argv: list[str] | None = None) -> int:
         approver = ask_on_terminal
     out = Path(args.out) / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-projects"
     out.mkdir(parents=True)
-    outcomes = []
-    for trial in range(1, args.repeat + 1):
-        for task in tasks:
-            o = run_project(cfg, task, approver=approver, redesign=args.redesign, trial=trial)
-            outcomes.append(o)  # saved before anything is printed, so a console error cannot lose a result
-            (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1),
-                                              encoding="utf-8")
-            (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
-            acc = f"{o.acceptance.passed}/{o.acceptance.expected} acceptance" if o.acceptance else "no acceptance run"
-            print(f"{task.name:<16} {'solved' if o.solved else 'failed':<7} reached {o.reached}, {acc}: {o.why[:200]}"
-                  f"  ({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds / 60:.1f} min)",
-                  flush=True)
+    outcomes: list[ProjectOutcome] = []
+    jobs = [(trial, task) for trial in range(1, args.repeat + 1) for task in tasks]
+
+    def record(o: ProjectOutcome) -> None:
+        outcomes.append(o)  # saved before anything is printed, so a console error cannot lose a result
+        outcomes.sort(key=lambda x: (x.trial, [t.name for t in tasks].index(x.project)))
+        (out / "results.json").write_text(json.dumps([x.model_dump() for x in outcomes], indent=1), encoding="utf-8")
+        (out / "summary.md").write_text(summarize(outcomes), encoding="utf-8")
+        acc = f"{o.acceptance.passed}/{o.acceptance.expected} acceptance" if o.acceptance else "no acceptance run"
+        print(f"{o.project:<16} {'solved' if o.solved else 'failed':<7} reached {o.reached}, {acc}: {o.why[:200]}"
+              f"  ({o.model_calls} calls, {o.tokens:,} tokens, ${o.real_usd:.4f}, {o.seconds / 60:.1f} min)",
+              flush=True)
+
+    if args.parallel <= 1:
+        for trial, task in jobs:
+            record(run_project(cfg, task, approver=approver, redesign=args.redesign, trial=trial))
+    else:  # projects are independent; they share the wiki (locked) and the provider's concurrency gate
+        with ThreadPoolExecutor(max_workers=args.parallel, thread_name_prefix="project") as pool:
+            futures = [pool.submit(run_project, cfg, task, approver=approver, redesign=args.redesign, trial=trial)
+                       for trial, task in jobs]
+            for f in as_completed(futures):
+                record(f.result())
     print(f"\n{summarize(outcomes)}\nResults: {out}")
     return 0
 

@@ -19,6 +19,8 @@ from __future__ import annotations
 import json
 import re
 import shutil
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -34,6 +36,7 @@ from factory.tools.sandbox import RunTestsIn, run_tests
 HEAD, SUB, BUILDER = "head_orchestrator", "sub_orchestrator", "builder"
 # 60 files: the 2026-11-03 primer build hit 30 with core modules unwritten (part of the 30 was a stale tree)
 MAX_FILES, MAX_ORDERS, MAX_FILE_CHARS, MAX_READ_CHARS = 60, 6, 60_000, 12_000
+BUILD_WORKERS = 3  # independent work orders of one task built at once
 OUTPUT = "output"
 SETUP_FAILURE = re.compile(r"(ModuleNotFoundError|ImportError)[^\n]{0,160}")
 
@@ -164,6 +167,7 @@ class Production:
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
         self.agents = {n: registry.agents[n] for n in (HEAD, SUB, BUILDER)}
         self.out = project.root / OUTPUT
+        self._write_lock = threading.Lock()
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = (), **parse):
         public = self.llm.cfg.data_public and all(p.license == "public" for p in pages)
@@ -220,12 +224,21 @@ class Production:
                                                           max_orders=MAX_ORDERS), Orders, f"orders-{t.id}")
             o = self.board.post("orders", SUB, {"task": t.id, "orders": [x.model_dump() for x in orders.orders]},
                                 refs=[d.id])
-            for order in orders.orders[:MAX_ORDERS]:
-                self.build(order, task, design, wiki, pages, o.id)
+            for wave in order_waves(orders.orders[:MAX_ORDERS]):
+                self.build_wave(wave, task, design, wiki, pages, o.id)
         self.organize(design, plan)
         checks = self.check()
         self.board.post("checks", "code", checks.model_dump(), refs=[d.id])
         return checks
+
+    def build_wave(self, wave: list[WorkOrder], task: str, design: Design, wiki: str, pages: list[WikiPage],
+                   ref: str) -> None:
+        """Work orders that neither read nor write each other's files, built at once."""
+        if len(wave) == 1:
+            return self.build(wave[0], task, design, wiki, pages, ref)
+        with ThreadPoolExecutor(max_workers=min(BUILD_WORKERS, len(wave)), thread_name_prefix="builder") as pool:
+            for f in [pool.submit(self.build, o, task, design, wiki, pages, ref) for o in wave]:
+                f.result()
 
     def build(self, order: WorkOrder, task: str, design: Design, wiki: str, pages: list[WikiPage],
               ref: str) -> None:
@@ -243,6 +256,10 @@ class Production:
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": ""}, refs=[ref])
             return
+        with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
+            self._write(built, order, ref)
+
+    def _write(self, built: Built, order: WorkOrder, ref: str) -> None:
         written, refused = [], []
         for f in built.files:
             rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
@@ -294,6 +311,24 @@ class Production:
         return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
                       passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
                       setup_error=setup)
+
+
+def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:
+    """Group a task's work orders into waves that can be built at once. An order waits for every earlier order that
+    writes a file it reads or writes, or reads a file it writes, so each builder sees exactly the files it would have
+    seen one order at a time; otherwise it joins the earliest wave after them. Order within a wave follows the
+    sub-orchestrator's list. (The 2026-11-04 primer build ran 34 orders one after another for 4h17m.)"""
+    level: list[int] = []
+    for j, o in enumerate(orders):
+        writes = {_rel(p) for p in o.write}
+        touches = writes | {_rel(p) for p in o.read}
+        level.append(1 + max((level[i] for i in range(j) if touches & {_rel(p) for p in orders[i].write}
+                              or writes & {_rel(p) for p in orders[i].read}), default=-1))
+    return [[o for o, lv in zip(orders, level, strict=True) if lv == n] for n in range(max(level, default=-1) + 1)]
+
+
+def _rel(path: str) -> str:
+    return path.strip().removeprefix(f"{OUTPUT}/").lstrip("/")
 
 
 def _license(pages: list[WikiPage]) -> str:

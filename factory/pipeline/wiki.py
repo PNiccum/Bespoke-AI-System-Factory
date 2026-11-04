@@ -13,6 +13,7 @@ reports broken links, orphan pages, pages that did not pass and pages with too f
 from __future__ import annotations
 
 import re
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,6 +65,11 @@ class WikiPage(BaseModel):
                f"## Sources\n{refs}\n"
 
 
+# Research runs several topics at once, and bench projects run side by side on one wiki: a page is never read while
+# another thread is half way through writing it. One lock for the process, since two Wiki objects may share a folder.
+_LOCK = threading.RLock()
+
+
 class Wiki:
     def __init__(self, root: Path):
         self.root = root
@@ -71,9 +77,15 @@ class Wiki:
     def pages(self) -> list[WikiPage]:
         if not self.root.exists():
             return []
-        return [WikiPage.model_validate_json(p.read_text(encoding="utf-8")) for p in sorted(self.root.glob("*.json"))]
+        with _LOCK:
+            return [WikiPage.model_validate_json(p.read_text(encoding="utf-8"))
+                    for p in sorted(self.root.glob("*.json"))]
 
     def save(self, page: WikiPage) -> Path:
+        with _LOCK:
+            return self._save(page)
+
+    def _save(self, page: WikiPage) -> Path:
         self.root.mkdir(parents=True, exist_ok=True)
         old = self.get(page.topic)
         if old:
@@ -117,7 +129,8 @@ class Wiki:
 
     def get(self, topic: str) -> WikiPage | None:
         path = self.root / f"{slugify(topic)}.json"
-        return WikiPage.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
+        with _LOCK:
+            return WikiPage.model_validate_json(path.read_text(encoding="utf-8")) if path.exists() else None
 
     def find(self, topic: str, threshold: float = 0.6) -> WikiPage | None:
         """The page for a topic: the same slug, or else the page whose topic shares most words with it."""
