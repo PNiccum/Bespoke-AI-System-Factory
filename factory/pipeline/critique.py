@@ -21,7 +21,7 @@ import re
 from types import SimpleNamespace
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
@@ -43,8 +43,15 @@ class Issue(BaseModel):
 
 
 class Critique(BaseModel):
-    acceptable: bool
+    # left out by a model now and then (the 2026-11-04 primer critic, three times): then it follows from the issues
+    acceptable: bool | None = None
     issues: list[Issue] = []
+
+    @model_validator(mode="after")
+    def _infer(self):
+        if self.acceptable is None:
+            self.acceptable = not any(i.severity in ("blocker", "major") for i in self.issues)
+        return self
 
 
 class Fix(BaseModel):
@@ -178,9 +185,13 @@ class CriticLoop:
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         step, pages, issues = 0, [], []
         for rnd in range(1, MAX_ROUNDS + 1):
-            critique = self._call(CRITIC, CRITIC_PROMPT.format(task=task, checks=checks.model_dump_json(indent=1),
-                                                               files=self.shown_files(), max_issues=MAX_ISSUES),
-                                  Critique, f"critique-{rnd}", pages)
+            try:
+                critique = self._call(CRITIC, CRITIC_PROMPT.format(task=task, checks=checks.model_dump_json(indent=1),
+                                                                   files=self.shown_files(), max_issues=MAX_ISSUES),
+                                      Critique, f"critique-{rnd}", pages)
+            except RuntimeError as e:  # no usable review: the checks speak for it (below), and final QA still runs
+                self.board.post("note", "code", {"round": rnd, "text": f"critic gave no usable review: {str(e)[:300]}"})
+                critique = Critique(acceptable=False, issues=[])
             issues = [i for i in critique.issues if i.severity != "minor"][:MAX_ISSUES]
             c = self.board.post("critic_review", CRITIC, {"round": rnd, "acceptable": critique.acceptable,
                                                           "issues": [i.model_dump() for i in critique.issues]})

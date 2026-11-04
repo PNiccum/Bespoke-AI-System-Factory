@@ -131,8 +131,8 @@ approach: do not merge them. Every task and subtask needs an acceptance check an
 Reply with JSON only: {{"plan_a": {shape}, "plan_b": {shape}, "changes": ["<one line per change>"], "resolved": \
 {{"W1": "<what you changed in Plan A for it>"}}}}"""
 
-RECHECK_PROMPT = """You found these weaknesses in Plan A. It has been edited; for each weakness, decide whether the \
-edited plan really fixes it. A claimed change that the plan text does not show does not count.
+RECHECK_PROMPT = """You found these weaknesses in Plan A. For each one, decide whether the plan below \
+still has it. {which} A claimed change that the plan text does not show does not count.
 
 ## The request
 {task}
@@ -143,10 +143,15 @@ edited plan really fixes it. A claimed change that the plan text does not show d
 ## What the editor says it changed
 {resolved}
 
-## Edited Plan A
+## {title}
 {plan_a}
 
 Reply with JSON only: {{"open": [{{"id": "W1", "why": "<what is still wrong>"}}]}} (empty when all are fixed)"""
+
+# Plan B was never put through the critic's review, so without a recheck of its own it could win only because Plan
+# A's open weaknesses spoiled every vote for A (the 2026-11-04 primer run), even when B has the same weaknesses.
+WHICH = {"A": ("It is Plan A after editing.", "Edited Plan A"),
+         "B": ("It is Plan B, the alternative: it has a weakness unless its own text deals with it.", "Plan B")}
 
 VOTE_PROMPT = """Choose the plan the team should carry out for this request: the one most likely to give the person \
 a working result they can run again, at the lowest cost.
@@ -186,7 +191,7 @@ class PlanningLoop:
         return out
 
     def recheck(self, task: str, weaknesses: dict[str, str], resolved: dict[str, str], plan: ProjectPlan,
-                ref: str) -> list[str]:
+                ref: str, label: str = "A", tag: str = "plan-recheck") -> list[str]:
         """The weaknesses the critic still finds in ``plan``, as problems ("W2 still open: ..."). No weaknesses, no
         call. A recheck with no valid reply counts every weakness as open: an unverified fix is not a fix."""
         if not weaknesses:
@@ -195,12 +200,12 @@ class PlanningLoop:
             found = self._call(CRITIC, RECHECK_PROMPT.format(
                 task=task, weaknesses="\n".join(f"- {k}: {w}" for k, w in weaknesses.items()),
                 resolved="\n".join(f"- {k}: {v}" for k, v in resolved.items()) or "(nothing said)",
-                plan_a=show(plan)), Recheck, "plan-recheck")
+                which=WHICH[label][0], title=WHICH[label][1], plan_a=show(plan)), Recheck, tag)
         except RuntimeError:
             found = Recheck(open=[Open(id=k, why="the re-check gave no valid reply") for k in weaknesses])
         left = _open(found, weaknesses)
-        self.board.post("recheck", CRITIC, {"open": [o.model_dump() for o in found.open], "problems": left},
-                        refs=[ref])
+        self.board.post("recheck", CRITIC, {"plan": label, "open": [o.model_dump() for o in found.open],
+                                            "problems": left}, refs=[ref])
         return left
 
     def run(self) -> Outcome:
@@ -243,13 +248,15 @@ class PlanningLoop:
                                               "dropped": [k for k, p in (("A", edited.plan_a), ("B", edited.plan_b))
                                                           if kept[k] is not p]}, refs=[an.id])
 
-        # 4. The critic re-checks its weaknesses on the edited Plan A; open ones are problems
+        # 4. The critic re-checks its weaknesses on both plans; open ones are problems
         open_a = self.recheck(task, weaknesses, edited.resolved, plan_a, ed.id)
+        open_b = self.recheck(task, weaknesses, {}, plan_b, ed.id, label="B", tag="plan-recheck-b")
 
         # 5. Votes, counted in code
         plans = {"A": plan_a, "B": plan_b}
         problems = {k: check_plan(p) for k, p in plans.items()}
         problems["A"] += open_a
+        problems["B"] += open_b
         vote_prompt = VOTE_PROMPT.format(task=task, plan_a=show(plan_a), plan_b=show(plan_b),
                                          analysis=json.dumps(analysis.model_dump()))
         votes = {}
@@ -275,7 +282,7 @@ class PlanningLoop:
             if not check_plan(fixed):
                 still = self.recheck(task, {k: w for k, w in weaknesses.items() if any(p.startswith(f"{k} ")
                                                                                          for p in left)},
-                                     {}, fixed, ed.id) if winner == "A" else []
+                                     {}, fixed, ed.id, label=winner, tag="plan-recheck-repair")
                 plan, left = fixed, still
         outcome = Outcome(winner=winner, plan=plan, votes=votes, problems=left)
         d = self.board.post("decision", "code", {"winner": winner, "votes": votes, "problems": left},
