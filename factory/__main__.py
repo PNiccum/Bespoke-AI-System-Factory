@@ -43,11 +43,29 @@ def run_interview(args) -> int:
     from factory.pipeline.blackboard import Project
     from factory.pipeline.interview import Interview
 
+    request = Path(args.request_file).read_text(encoding="utf-8") if args.request_file else args.request
+    if not request:
+        raise SystemExit("give --request or --request-file")
     cfg = load_config(args.config)
-    project = Project.create(cfg.work_dir / "projects", args.request)
+    project = Project.create(cfg.work_dir / "projects", request)
     interview = Interview(LLM(cfg, new_run_dir(cfg, "interview"), approver=ask_on_terminal), Registry.load(cfg),
                           project)
-    turn = interview.start(args.request)
+    answers = Path(args.answers_file).read_text(encoding="utf-8") if args.answers_file else None
+    turn = interview.start(request)
+    while answers is not None:  # unattended: every round of questions gets the same written answers
+        if turn.kind == "question":
+            print("Questions: " + " | ".join(turn.data["questions"]))
+            turn = interview.reply(answers)
+            continue
+        print(json.dumps(turn.data["plan"], indent=1))
+        if turn.data["problems"] or not args.approve:
+            for problem in turn.data["problems"]:
+                print(f"  problem: {problem}")
+            print(f"Plan A not approved; project left at {project.root}")
+            return 1
+        print(f"Approved (--approve). Task written to {interview.approve()}")
+        print(f"Next: python -m factory plan --project {project.root}")
+        return 0
     while True:
         if turn.data.get("note"):
             print(f"\n{turn.data['note']}")
@@ -149,7 +167,11 @@ def main(argv: list[str] | None = None) -> int:
     ask.add_argument("--request", required=True)
     ask.add_argument("--patch-file", help="a diff, when the request is about one")
     interview = sub.add_parser("interview", help="talk through a request until there is a plan you approve")
-    interview.add_argument("--request", required=True)
+    interview.add_argument("--request")
+    interview.add_argument("--request-file", help="read the request from a file")
+    interview.add_argument("--answers-file", help="answer every question from this file instead of the terminal")
+    interview.add_argument("--approve", action="store_true",
+                           help="with --answers-file: approve Plan A if code finds no problems with it")
     interview.add_argument("--config", default="configs/factory.yaml")
     plan = sub.add_parser("plan", help="run the planning loop on a project whose Plan A is approved")
     plan.add_argument("--project", required=True, help="the project folder the Interviewer created")

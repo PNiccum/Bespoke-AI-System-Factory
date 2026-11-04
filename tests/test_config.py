@@ -117,3 +117,36 @@ def test_dotenv_fills_missing_keys_but_never_overrides_the_environment(monkeypat
     import os
     assert os.environ["ARC_API_KEY"] == "from-file" and os.environ["OPENAI_API_KEY"] == "from-env"
     monkeypatch.delenv("ARC_API_KEY")
+
+
+def test_aspire_data_private_makes_lab_data_unsendable_to_paid_providers(monkeypatch):
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "1")
+    assert load_config(ROOT / "configs" / "factory.yaml").data_public is False
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "0")
+    assert load_config(ROOT / "configs" / "factory.yaml").data_public is True
+
+
+def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):
+    import importlib.util
+
+    import factory.llm as llm_mod
+    spec = importlib.util.spec_from_file_location("baseline", ROOT / "bench/research/mcf7_release/baseline.py")
+    baseline = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(baseline)
+    seen = {}
+
+    class Fake:
+        def __init__(self, cfg, run_dir, **kw):
+            seen["public"] = cfg.data_public
+
+        def complete(self, role, user, *a, **kw):
+            seen["role"], seen["data"] = role, kw["data"]
+            raise SystemExit(0)
+
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "0")  # restored after the test; the script must force it on
+    monkeypatch.setattr(llm_mod, "LLM", Fake)
+    lst = tmp_path / "list.csv"
+    lst.write_text("accession,gene\nP06493,CDK1\n", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        baseline.main([str(lst), "--out", str(tmp_path / "out")])
+    assert seen == {"public": False, "role": "agent", "data": "private"}
