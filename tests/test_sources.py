@@ -3,7 +3,16 @@
 import httpx
 
 from factory.net.http import CallBudget
-from factory.pipeline.sources import EuropePMC, NCBIGene, OpenAlex, ReferenceDocs, best_window, page_text
+from factory.pipeline.sources import (
+    EuropePMC,
+    NCBIGene,
+    OpenAlex,
+    ReferenceDocs,
+    best_window,
+    looks_blocked,
+    page_text,
+    readable,
+)
 from tests.test_http import mock
 
 OPENALEX = {"results": [{"id": "https://openalex.org/W1", "display_name": "Primer3 revisited", "doi": "https://doi.org/10.1/x",
@@ -57,9 +66,36 @@ def test_reference_docs_read_the_matching_part_of_the_matching_manual(tmp_path):
            "</p><p>EFetch returns records; use rettype=fasta and retmode=text for nucleotide sequences.</p></html>"
     http, calls = mock(lambda r: httpx.Response(200, text=page))
     docs = ReferenceDocs(tmp_path, CallBudget("t", 5), http=http).search("efetch rettype retmode fasta", 1)
-    assert [d.id for d in docs] == ["docs:ncbi_eutils_indepth"] and docs[0].connector == "docs"
+    assert [d.id for d in docs] == ["docs:eutils_biopython_tutorial"] and docs[0].connector == "docs"
     assert "rettype=fasta and retmode=text" in docs[0].text and "var x" not in docs[0].text
-    assert calls == ["https://www.ncbi.nlm.nih.gov/books/NBK25499/"]
+    assert calls == ["https://biopython.org/docs/latest/Tutorial/chapter_entrez.html"]
+
+
+def test_a_captcha_or_javascript_stub_is_not_cited_as_a_manual(tmp_path):
+    captcha = "<html><title>reCAPTCHA</title><p>Please complete the captcha to continue.</p></html>"
+    http, calls = mock(lambda r: httpx.Response(200, text=captcha))
+    assert ReferenceDocs(tmp_path, CallBudget("t", 5), http=http).search("efetch rettype retmode fasta", 1) == []
+    assert looks_blocked("Please enable JavaScript to view this site. " * 5) and looks_blocked("ok")
+    assert not looks_blocked("EFetch returns records in the requested format. " * 20)
+
+
+def test_a_json_help_record_is_read_as_its_title_and_content():
+    raw = '{"id": "accession_numbers", "title": "Accession numbers", "content": "An accession number is stable."}'
+    assert readable(raw) == "Accession numbers\nAn accession number is stable."
+    assert readable('{"no": "content"}') == '{"no": "content"}'
+
+
+def test_uniprot_help_is_asked_for_as_json_and_read_from_its_content(tmp_path):
+    body = "Accession numbers are stable identifiers; isoforms add a dash and a number, as in P12345-2. " * 10
+    seen = []
+
+    def reply(r):
+        seen.append(r.headers["accept"])
+        return httpx.Response(200, json={"title": "Accession numbers", "content": body})
+    http, calls = mock(reply)
+    docs = ReferenceDocs(tmp_path, CallBudget("t", 5), http=http).search("uniprot accession number format", 1)
+    assert [d.id for d in docs] == ["docs:uniprot_accessions"] and "P12345-2" in docs[0].text
+    assert calls == ["https://rest.uniprot.org/help/accession_numbers"] and seen == ["application/json"]
 
 
 def test_a_query_that_matches_no_manual_reads_nothing(tmp_path):
