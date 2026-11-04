@@ -123,8 +123,9 @@ on: facts about the outside world, its data sources and its file formats.
 sentence>", "kind": "outside" or "project", "needed_for": ["T1"], "hints": ["<search terms>"]}}], "dropped": [{{"name": "<earlier topic>", "why": \
 "<why the work can go ahead without it>"}}]}}
 Label each topic: "outside" when it is a fact a source outside this project settles (an API, a file format, a \
-published method or constant), "project" when this task or plan decides it (its own output schema, cache layout, exit \
-codes, word lists, parsing rules); project topics are left to the builders and are not researched. \
+published method or constant), "project" when this task or plan decides it or already states it (its own output schema, \
+cache layout, exit codes, word lists, parsing rules); project topics are left to the builders and are not researched. \
+A task that needs no outside knowledge is a good outcome: set "enough" to true with no topics. \
 List at most {max_topics} topics, most important first. When a topic is the same as one asked for earlier, use the \
 earlier name exactly, so the work already done on it counts. Set "enough" to true, with no topics, only when the pages \
 above cover everything the plan needs."""
