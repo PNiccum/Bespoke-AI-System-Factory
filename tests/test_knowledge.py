@@ -231,7 +231,7 @@ def test_only_verified_pages_count_toward_enough_and_an_approval_names_them(cfg,
 def test_one_reference_manual_is_enough_sources_for_a_page():
     from factory.pipeline.wiki import enough_sources
 
-    assert enough_sources(["docs:ncbi_eutils_indepth"]) and enough_sources(["europepmc:1", "openalex:2"])
+    assert enough_sources(["docs:eutils_biopython_tutorial"]) and enough_sources(["europepmc:1", "openalex:2"])
     assert not enough_sources(["europepmc:1"]) and not enough_sources([])
 
 
@@ -252,8 +252,11 @@ def test_the_docs_catalog_finds_a_manual_for_formats_the_project_tiers_needed():
         want = source_words(query)
         return max(DOCS_CATALOG, key=lambda d: len(want & source_words(f"{d[1]} {d[3]}")))[0]
     assert best("UniProt accession format isoform suffix") in {"uniprot_accessions", "uniprot_isoforms"}
-    assert best("Europe PMC search JSON schema") == "europepmc_rest"
+    assert best("Europe PMC search JSON schema") == "europepmc_fields"
     assert best("UTF-8 BOM handling") == "python_codecs"
     assert best("Apache timestamps timezone offset") == "apache_logs"
     assert best("pytest src layout import") == "pytest_layout"
+    assert best("efetch rettype retmode fasta") == "eutils_biopython_tutorial"
+    assert best("RefSeq NM_ XM_ accession prefix") == "refseq_release_notes"
+    assert not any("ncbi.nlm.nih.gov/books/" in d[2] for d in DOCS_CATALOG)  # Bookshelf serves scripts a captcha
     assert len({d[0] for d in DOCS_CATALOG}) == len(DOCS_CATALOG)

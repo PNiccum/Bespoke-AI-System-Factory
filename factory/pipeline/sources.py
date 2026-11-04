@@ -19,6 +19,7 @@ are sent with the request only, never cached or logged.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from collections.abc import Callable
@@ -62,6 +63,30 @@ def page_text(html: str) -> str:
         text = text.replace(entity, char)
     text = re.sub(r"[ \t]+", " ", text)
     return re.sub(r"\s*\n\s*", "\n", text).strip()
+
+
+BLOCK_PAGE = re.compile(r"(?i)captcha|enable javascript|javascript is (disabled|required)|just a moment|"
+                        r"access denied|attention required|checking your browser|unusual traffic")
+MIN_DOC_TEXT = 400  # a manual page shorter than this is a stub, a redirect or a block page
+
+
+def readable(raw: str) -> str:
+    """Text from a fetched manual: a JSON help record (UniProt's REST help returns {"title", "content"}) gives its
+    title and content; anything else is read as HTML."""
+    if raw.lstrip().startswith("{"):
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            data = None
+        if isinstance(data, dict) and isinstance(data.get("content"), str):
+            return f"{data.get('title', '')}\n{data['content']}".strip()
+    return page_text(raw)
+
+
+def looks_blocked(text: str) -> bool:
+    """True for what a site serves a script instead of the page: a captcha, a "turn on JavaScript" stub, a
+    bot-check, or too little text to be a manual."""
+    return len(text) < MIN_DOC_TEXT or (len(text) < 3000 and bool(BLOCK_PAGE.search(text)))
 
 
 class Doc(BaseModel):
@@ -150,18 +175,15 @@ class NCBIGene(CachedAPI):
 # The reference documentation the ``docs`` connector can read: key, title, address, words it is about. A search
 # picks the entries whose title and words share the most with the query, then reads the matching part of each page.
 DOCS_CATALOG = (
-    ("ncbi_eutils_intro", "A General Introduction to the E-utilities (NCBI Entrez Programming Utilities Help)",
-     "https://www.ncbi.nlm.nih.gov/books/NBK25497/",
-     "entrez eutils esearch efetch esummary elink epost api ncbi gene nucleotide database rate limit key"),
-    ("ncbi_eutils_samples", "Sample Applications of the E-utilities (NCBI Entrez Programming Utilities Help)",
-     "https://www.ncbi.nlm.nih.gov/books/NBK25498/",
-     "entrez eutils esearch efetch elink pipeline gene mrna sequence download fasta example"),
-    ("ncbi_eutils_indepth", "The E-utilities In-Depth: Parameters, Syntax and More (NCBI)",
-     "https://www.ncbi.nlm.nih.gov/books/NBK25499/",
-     "entrez eutils efetch esearch parameters rettype retmode fasta genbank db term retmax api key email tool "
-     "rate limit"),
-    ("ncbi_refseq_faq", "RefSeq Frequently Asked Questions (NCBI)", "https://www.ncbi.nlm.nih.gov/books/NBK50679/",
-     "refseq accession prefix nm_ xm_ nr_ mrna transcript curated predicted reviewed validated select"),
+    # NCBI Bookshelf pages (the E-utilities manual, the RefSeq FAQ) answer scripts with a reCAPTCHA page, so the
+    # E-utilities come from Biopython's Entrez chapter and the RefSeq prefixes from the release notes on NCBI's FTP.
+    ("eutils_biopython_tutorial", "Accessing NCBI's Entrez databases (Biopython Tutorial, E-utilities)",
+     "https://biopython.org/docs/latest/Tutorial/chapter_entrez.html",
+     "entrez eutils esearch efetch esummary elink epost einfo api ncbi gene nucleotide database rettype retmode "
+     "fasta genbank retmax rate limit key email tool parameters pipeline mrna sequence download example"),
+    ("refseq_release_notes", "RefSeq release notes: accession prefixes and molecule types (NCBI FTP)",
+     "https://ftp.ncbi.nlm.nih.gov/refseq/release/release-notes/RefSeq-release237.txt",
+     "refseq accession prefix nm_ xm_ nr_ np_ mrna transcript curated predicted reviewed validated molecule type"),
     ("primer3_manual", "Primer3 manual", "https://primer3.org/manual.html",
      "primer design pcr tm melting gc clamp product size self complementarity hairpin penalty settings"),
     ("biopython_meltingtemp", "Bio.SeqUtils.MeltingTemp (Biopython API)",
@@ -170,23 +192,25 @@ DOCS_CATALOG = (
     ("biopython_entrez", "Bio.Entrez (Biopython API)", "https://biopython.org/docs/latest/api/Bio.Entrez.html",
      "entrez efetch esearch email api key python ncbi"),
     # Added 2026-11-04: the project tiers stopped at research on file formats and APIs with no manual here
-    ("uniprot_accessions", "UniProt help: accession numbers", "https://www.uniprot.org/help/accession_numbers",
+    ("uniprot_accessions", "UniProt help: accession numbers", "https://rest.uniprot.org/help/accession_numbers",
      "uniprot uniprotkb accession number format regex primary secondary entry name identifier"),
     ("uniprot_isoforms", "UniProt help: canonical and isoform sequences",
-     "https://www.uniprot.org/help/canonical_and_isoforms",
+     "https://rest.uniprot.org/help/canonical_and_isoforms",
      "uniprot isoform suffix dash canonical sequence variant accession protein"),
     ("uniprot_api_queries", "UniProt help: programmatic access, query syntax",
-     "https://www.uniprot.org/help/api_queries",
+     "https://rest.uniprot.org/help/api_queries",
      "uniprot rest api query search stream format json tsv fasta fields organism reviewed download"),
-    ("uniprot_return_fields", "UniProt help: return fields", "https://www.uniprot.org/help/return_fields",
+    ("uniprot_return_fields", "UniProt help: return fields", "https://rest.uniprot.org/help/return_fields",
      "uniprot return fields columns json schema cross references go reactome xref gene names organism"),
-    ("europepmc_rest", "Europe PMC RESTful Web Service", "https://europepmc.org/RestfulWebService",
-     "europe pmc rest api search query json result fields pmid pmcid fulltext citations pagination cursormark"),
+    ("europepmc_fields", "Europe PMC REST search fields",
+     "https://www.ebi.ac.uk/europepmc/webservices/rest/fields?format=json",
+     "europe pmc rest api search query fields syntax json result pmid pmcid abstract title author"),
     ("hpa_download", "Human Protein Atlas: downloadable data", "https://www.proteinatlas.org/about/download",
      "human protein atlas hpa download tsv rna expression cell line tissue file format columns"),
     ("go_annotations", "Gene Ontology: GO annotations", "https://geneontology.org/docs/go-annotations/",
      "gene ontology go term annotation evidence code aspect biological process molecular function"),
-    ("chembl_api", "ChEMBL web services API documentation", "https://www.ebi.ac.uk/chembl/api/data/docs",
+    ("chembl_api", "ChEMBL web services API documentation",
+     "https://chembl.gitbook.io/chembl-interface-documentation/web-services/chembl-data-web-services",
      "chembl api target molecule activity mechanism drug json rest"),
     ("openalex_works", "OpenAlex API: works", "https://docs.openalex.org/api-entities/works",
      "openalex api works filter search json fields cited by abstract inverted index authorships"),
@@ -211,6 +235,9 @@ DOCS_CATALOG = (
 )
 
 
+JSON_HELP = ("https://rest.uniprot.org/help/",)  # help pages served as {"title", "content"} JSON
+
+
 class ReferenceDocs(CachedAPI):
     """Manuals and API references from DOCS_CATALOG, read from their public pages."""
 
@@ -222,8 +249,9 @@ class ReferenceDocs(CachedAPI):
         for score, key, title, url in scored[:n]:
             if score == 0:
                 break
-            text = page_text(self.get_text(url))
-            if text:
+            accept = "application/json" if url.startswith(JSON_HELP) else "text/html"
+            text = readable(self.get_text(url, accept=accept))
+            if not looks_blocked(text):
                 docs.append(Doc(id=f"docs:{key}", connector="docs", title=title, url=url,
                                 text=best_window(text, query, MAX_TEXT), citation=f"{title}. {url}"))
         return docs
