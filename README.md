@@ -207,6 +207,19 @@ python -m factory.bench_projects --only wordstats --repeat 3
   AI report's claims. Run it with `python -m factory.bench_projects --projects bench/projects_proteomics.yaml`.
   The fixtures are public or synthetic; see [docs/proteomics-tasks.md](docs/proteomics-tasks.md).
 
+**Speed.** Live runs are bound by ARC model latency (about 40 s a GLM call, 130 s a DeepSeek thinking-max call), so
+the pipeline runs independent work at once: research topics (4 at a time), a task's work orders that do not touch
+each other's files (3 at a time), and, with `--parallel N`, whole benchmark projects. All runs in one process share
+each provider's `max_concurrency` (8 for ARC, which allows 20 per user). A reply cut off at `max_tokens` is retried
+on the role's `on_truncation` model, a faster free model of the same family, so family separation is unchanged.
+`python -m factory.profile runs/` shows where a run's time went: wall clock against model time, time by stage and
+model, and time lost to cut-off replies.
+
+```bash
+python -m factory.bench_projects --projects bench/projects_proteomics.yaml --parallel 5
+python -m factory.profile runs/20261104T142930Z-build
+```
+
 **Evaluation** (the experiments behind the cost, rerun and safety claims; see [docs/evaluation.md](docs/evaluation.md)):
 
 ```bash

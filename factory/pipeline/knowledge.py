@@ -20,6 +20,7 @@ are covered, by which pages, and what is still missing.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +38,7 @@ EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER = ("knowledge_evaluator", "research
                                                 "wiki_verifier")
 # MAX_ROUNDS evaluations, so at most MAX_ROUNDS - 1 research passes, each followed by a fresh evaluation
 MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 3, 6, 2, 3, 5
+RESEARCH_WORKERS = 4  # topics researched at once; ARC allows 20 requests in flight per user
 
 
 class Topic(BaseModel):
@@ -290,8 +292,9 @@ class KnowledgeLoop:
                 break
             if not any(t.name in missing for t in topics):  # only earlier topics, already researched: no new work
                 break
-            for topic in topics:
-                if topic.name in missing and (page := self.research(topic)) and page.verified:
+            todo = [t for t in topics if t.name in missing]
+            for topic, page in zip(todo, self.research_many(todo), strict=True):
+                if page and page.verified:
                     covered[topic.name] = page.slug
         ok = not missing
         result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
@@ -299,6 +302,15 @@ class KnowledgeLoop:
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
+
+    def research_many(self, topics: list[Topic]) -> list[WikiPage | None]:
+        """Research several topics at once, results in the order given. Topics are independent (each searches,
+        reviews, writes and verifies its own page), and the live logs show every call ran one after another: the
+        primer's research took 2h12m, about 20 minutes a topic. Threads share the provider's concurrency gate."""
+        if len(topics) <= 1:
+            return [self.research(t) for t in topics]
+        with ThreadPoolExecutor(max_workers=min(RESEARCH_WORKERS, len(topics)), thread_name_prefix="research") as pool:
+            return list(pool.map(self.research, topics))
 
     # --- one topic: search, approve, write, verify ---
 

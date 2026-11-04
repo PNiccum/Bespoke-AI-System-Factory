@@ -227,8 +227,8 @@ class CriticLoop:
                     step += 1
             if STEPS[step] == "research":
                 wanted = [v.missing_knowledge or v.why for v in declined][:3]
-                found = [self.knowledge.research(Topic(name=w[:80], why="the critic declined a fix for lack of it"))
-                         for w in wanted]
+                found = self.knowledge.research_many([Topic(name=w[:80], why="the critic declined a fix for lack "
+                                                                  "of it") for w in wanted])
                 pages = [p for p in found if p and p.verified] or self.closest_pages(wanted)
         return CriticResult(accepted=False, redesign=False, rounds=MAX_ROUNDS, open_issues=issues, step=STEPS[step])
 
