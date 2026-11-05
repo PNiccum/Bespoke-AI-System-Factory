@@ -234,6 +234,12 @@ class Production:
         plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text(encoding="utf-8"))
         pages = self.pages()
         wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
+        gaps = (self.board.latest("knowledge").data.get("gaps") or {})
+        if gaps:
+            wiki += ("\n\n## Known gaps (research found no verified source)\n"
+                     + "\n".join(f"- {n}: {why}" for n, why in gaps.items())
+                     + "\nDo not invent exact values for these. Check the live service or input, make the code "
+                     "tolerant, and state the assumption in the README.")
         if feedback:
             task += f"\n\n## Problems to fix in this round\n{feedback}"
 

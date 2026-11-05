@@ -74,7 +74,8 @@ def knowledge(cfg, tmp_path, *replies, docs=(1, 2, 3), wiki=None, engines=None):
     return KnowledgeLoop(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, engines), arc, project, wiki
 
 
-def test_a_page_writer_that_never_gives_valid_output_leaves_the_topic_missing(cfg, tmp_path):
+def test_a_page_writer_that_never_gives_valid_output_leaves_the_topic_missing(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_OPEN_GAPS", 0)  # these are about a topic that stays missing
     kl, arc, project, _ = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), review(1, 2),
                                     "not json", "still not", "nope", topics())
     result = kl.run()
@@ -113,6 +114,7 @@ def test_a_topic_the_wiki_covers_needs_no_research(cfg, tmp_path):
 
 
 def test_an_inaccurate_page_gets_one_rewrite_then_stays_unverified(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_OPEN_GAPS", 0)  # these are about a topic that stays missing
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)  # one research pass, then the last round
     kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2),
                                        draft(1, 2), check(False), draft(1, 2), check(False),
@@ -155,6 +157,7 @@ def test_uncited_drafts_never_reach_the_verifier(cfg, tmp_path):
 
 
 def test_too_few_approved_sources_searches_again_then_gives_up(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_OPEN_GAPS", 0)  # these are about a topic that stays missing
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
     kl, arc, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), review(1, reject=[2, 3]),
                                     queries("openalex"), queries(), topics("Rare topic"),
@@ -236,6 +239,7 @@ def test_a_page_written_under_the_first_name_counts_when_the_topic_is_reworded(c
 
 
 def test_a_failed_knowledge_loop_can_run_again_and_build_refuses_until_it_passes(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_OPEN_GAPS", 0)  # these are about a topic that stays missing
     from factory.pipeline.run import build
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 1)
     kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), queries(), queries(),
@@ -374,3 +378,50 @@ def test_topics_over_the_run_budget_are_deferred_not_researched(cfg, tmp_path, m
     assert result.covered == {"PCR primer design": "pcr-primer-design"} and arc.texts == []
     assert wiki.get("Gel electrophoresis") is None
     assert any("budget of 1 topics" in str(e.data) for e in project.board.entries("note"))
+
+
+def test_one_researched_topic_without_a_page_becomes_a_recorded_gap_not_a_stop(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Open Targets API schema"), *[queries()] * 3,
+                                       topics("Open Targets API schema"), *[queries()] * 3, docs=())
+    result = kl.run()
+    assert result.ok and result.missing == [] and list(result.gaps) == ["Open Targets API schema"]
+    assert "no verified page" in result.gaps["Open Targets API schema"]
+    assert project.board.latest("knowledge").data["gaps"] == result.gaps
+    assert "recorded gap" in str(project.board.entries("note")[-1].data)
+
+
+def test_two_open_topics_or_a_topic_never_searched_still_block(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics("Topic one", "Topic two"), *[queries()] * 6,
+                            topics("Topic one", "Topic two"), *[queries()] * 6, docs=())
+    result = kl.run()
+    assert not result.ok and sorted(result.missing) == ["Topic one", "Topic two"] and result.gaps == {}
+    assert KnowledgeLoop._open_gaps(kl, ["never searched"]) == {}
+
+
+def test_production_tells_the_builders_about_a_recorded_gap(cfg, tmp_path):
+    from factory.pipeline.production import Production
+    llm, project = planned(cfg, tmp_path)
+    project.board.post("knowledge", "code", {"ok": True, "covered": {}, "missing": [], "rounds": 2,
+                                             "gaps": {"DAVID chart export format": "1 approved source(s)"}})
+    seen = {}
+
+    class Stop(Exception):
+        pass
+
+    def fake(self, agent, prompt, *a, **k):
+        seen["prompt"] = prompt
+        raise Stop
+
+    prod = Production(llm, Registry.load(cfg, ROOT / "registry"), project, Wiki(tmp_path / "wiki"))
+    prod._call = fake.__get__(prod)
+    with pytest.raises(Stop):
+        prod.run()
+    assert "Known gaps" in seen["prompt"] and "DAVID chart export format" in seen["prompt"]
+
+
+def test_the_docs_catalog_has_the_api_and_format_pages_the_gap_runs_needed():
+    from factory.pipeline.sources import DOCS_CATALOG
+    keys = {k for k, *_ in DOCS_CATALOG}
+    assert {"opentargets_graphql", "david_functional_annotation", "cellosaurus_description", "europepmc_rest"} <= keys
