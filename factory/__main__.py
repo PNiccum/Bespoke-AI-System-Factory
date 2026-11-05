@@ -120,6 +120,8 @@ def run_research(args) -> int:
         print(f"  covered: {topic} ({cfg.work_dir / 'wiki' / slug}.md)")
     for topic in result.missing:
         print(f"  missing: {topic}")
+    for topic, why in result.gaps.items():
+        print(f"  gap (the build goes ahead without it): {topic} ({why})")
     print(f"{'Knowledge approved' if result.ok else 'Knowledge incomplete'} after {result.rounds} round(s). "
           f"Cost: {llm.ledger.summary()}")
     if result.ok:

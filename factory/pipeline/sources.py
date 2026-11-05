@@ -226,6 +226,10 @@ DOCS_CATALOG = (
      "https://www.cellosaurus.org/description.html",
      "cellosaurus cell line name nomenclature identifier cvcl accession synonyms mcf-7 mcf7 normalization "
      "misidentified naming conventions"),
+    ("go_ontology_docs", "Gene Ontology: ontology documentation (term IDs, relations, cell cycle terms)",
+     "https://geneontology.org/docs/ontology-documentation/",
+     "gene ontology go term id GO: biological process cell cycle phase g1 s g2 m mitosis regulation of cell cycle "
+     "reactome pathway mapping identifiers is_a part_of"),
     ("hpa_download", "Human Protein Atlas: downloadable data", "https://www.proteinatlas.org/about/download",
      "human protein atlas hpa download tsv rna expression cell line tissue file format columns"),
     ("go_annotations", "Gene Ontology: GO annotations", "https://geneontology.org/docs/go-annotations/",
