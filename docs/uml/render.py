@@ -756,7 +756,7 @@ def activity_svg() -> str:
     down("aud", "deb")
     down("deb", "d_cause")
     cyy = box["d_cause"][1]
-    for n, lab in (("b1", "prompt"), ("b2", "knowledge"), ("b3", "other")):
+    for n in ("b1", "b2", "b3"):
         cx = box[n][0]
         sx = anchor("d_cause", "b")[0] if n == "b2" else (anchor("d_cause", "l")[0] if n == "b1" else anchor("d_cause", "r")[0])
         sy = anchor("d_cause", "b")[1] if n == "b2" else cyy
@@ -770,7 +770,6 @@ def activity_svg() -> str:
     down("report", "end2")
     parts.append(text(R, y + 20, "Stopped for a person's decision, never silently", size=11, color=MUTED, anchor="middle"))
     # delivered: bottom of left column
-    ydel = max(lane3[1], 0) + 70
     node("dl", "action", "code", 780, lane3[1] + 70, 280,
          "Deliverable: deliverable/<project id>.zip with the solution, task.txt, plan.json, knowledge.json, the wiki pages used and the public blackboard as provenance")
     edge([anchor("d_qa", "l"), (1000, box["d_qa"][1]), (1000, box["dl"][1]), anchor("dl", "r")], "yes: approved")
