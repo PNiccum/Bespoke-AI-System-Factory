@@ -31,7 +31,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -39,7 +38,7 @@ from pydantic import BaseModel
 
 from factory.bench import safe_stdout
 from factory.config import FactoryConfig, load_config
-from factory.llm import LLM, new_run_dir
+from factory.llm import LLM, new_run_dir, unique_dir
 from factory.llm.gate import SpendRequest, deny_all
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan, check_plan, render_task
@@ -248,8 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ask:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
-    out = Path(args.out) / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-projects"
-    out.mkdir(parents=True)
+    out = unique_dir(Path(args.out), "projects")
     outcomes: list[ProjectOutcome] = []
     jobs = [(trial, task) for trial in range(1, args.repeat + 1) for task in tasks]
     resume_of: dict[str, Path] = {}

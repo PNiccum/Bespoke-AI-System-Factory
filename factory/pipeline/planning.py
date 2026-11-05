@@ -38,6 +38,7 @@ from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan, check_plan
 from factory.pipeline.precedent import offer
 from factory.registry import Registry
+from factory.risks import render, risks_for
 
 CRITIC, ANALYST, EDITOR = "plan_critic", "plan_analyst", "plan_editor"
 VOTERS = (CRITIC, ANALYST)  # the editor edits and does not vote
@@ -100,7 +101,7 @@ a different way where that helps. Break each task into subtasks a single agent c
 
 ## Plan A
 {plan_a}
-
+{risks}
 Reply with JSON only: {{"weaknesses": ["..."], "plan_b": {shape}}}"""
 
 ANALYST_PROMPT = """Two plans solve the same request. List the pros and cons of each: how likely it is to work, how \
@@ -234,9 +235,12 @@ class PlanningLoop:
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
 
         # 1. Critique and Plan B, with one fix when Plan B fails its checks
+        risks = risks_for(self.llm, task)
         earlier = offer(self.project, task)  # the Interviewer's lookup if it ran, else made now (same blackboard entry)
         prompt = CRITIC_PROMPT.format(task=task + (f"\n\n{earlier}" if earlier else ""), plan_a=show(plan_a),
-                                      shape=SHAPE)
+                                      shape=SHAPE, risks=render(risks))
+        if risks:
+            self.board.post("note", "code", {"risks": [r.model_dump() for r in risks]}, refs=[approval.id])
         critique = self._call(CRITIC, prompt, Critique, "plan-critique")
         if problems := check_plan(critique.plan_b):
             critique = self._call(CRITIC, FIX_PROMPT.format(prompt=prompt, problems="; ".join(problems)), Critique,
