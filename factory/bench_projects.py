@@ -71,6 +71,7 @@ class ProjectOutcome(BaseModel):
     trial: int = 1
     reached: str  # the last stage that ran: planning, research, build, qa
     delivered: bool = False
+    qa_repairs: int = 0  # repairs made on final QA's findings; delivered with repairs > 0 means QA first rejected
     solved: bool = False  # delivered and every acceptance test passes
     acceptance: Acceptance | None = None
     why: str = ""
@@ -153,6 +154,7 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
                 result = build(llm, registry, project, wiki, searchers, redesign=redesign,
                                on_stage=lambda s: setattr(out, "reached", "qa" if s == "final QA" else out.reached))
                 out.delivered = result.status == "delivered"
+                out.qa_repairs = getattr(result, "repairs", 0)
                 out.why = "delivered" if out.delivered else \
                     f"{result.status}: {'; '.join(result.final.issues) if result.final else 'no QA result'}"[:1000]
     except Exception as e:  # noqa: BLE001 (a crash, or a refused paid call, is a failed project, not a failed run)
