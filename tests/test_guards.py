@@ -122,7 +122,19 @@ def test_bug_fix_rerun_gives_the_tests_no_keys(monkeypatch, tmp_path):
     assert r.returncode == 0 and "whole suite: PASS" in r.stdout, r.stdout + r.stderr
 
 
-def test_review_rerun_template_scrubs_its_pytest_environment():
+def test_review_rerun_gives_its_pytest_no_keys(monkeypatch, tmp_path):
+    """Runs the review template's own broken(): a test that looks for the shell's key must not find it."""
+    import sys
+
     from factory.workflows.export import RERUN_REVIEW
 
-    assert "capture_output=True, env=clean_env())" in RERUN_REVIEW
+    (tmp_path / "diff_inspect.py").write_text("def inspect(*a):\n    return {}\n")  # the bundle ships its own
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "diff_inspect", raising=False)  # undone after the test
+    ns: dict = {"__name__": "rerun_under_test", "__file__": str(tmp_path / "rerun.py")}
+    exec(compile(RERUN_REVIEW, "rerun.py", "exec"), ns)  # noqa: S102
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test_env.py").write_text("import os\n\ndef test_no_key():\n    assert 'ANTHROPIC_API_KEY' not in os.environ\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
+    assert ns["broken"](repo, None) == set()  # no failing test: the key was not in pytest's environment
