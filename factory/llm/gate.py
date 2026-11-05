@@ -193,12 +193,16 @@ class SpendLedger:
         with self._locked():
             self._refuse_if_over(provider, self._read_spent(), self._read_reserved(), estimate, ignoring)
 
-    def reserve(self, provider: str, estimate: float, ttl_s: float = RESERVATION_TTL_S) -> str:
+    def reserve(self, provider: str, estimate: float, ttl_s: float = RESERVATION_TTL_S,
+                replaces: str | None = None) -> str:
         """Check and hold ``estimate`` in one step; returns the reservation id for ``settle`` or ``release``.
-        The hold lapses after ``ttl_s`` (so a crashed run cannot block credit for ever); set it past the call's wait."""
+        The hold lapses after ``ttl_s`` (so a crashed run cannot block credit for ever); set it past the call's wait.
+        ``replaces`` names an earlier hold for the same work: it is ignored by the check and dropped in the same
+        locked write, so a refusal leaves it in place."""
         with self._locked():
             held = self._read_reserved()
-            self._refuse_if_over(provider, self._read_spent(), held, estimate)
+            self._refuse_if_over(provider, self._read_spent(), held, estimate, ignoring=replaces)
+            held.pop(replaces, None)
             rid = uuid.uuid4().hex
             held[rid] = {"provider": provider, "usd": round(estimate, 6), "at": time.time(), "ttl": ttl_s}
             self._write(self.reserved_path, held)

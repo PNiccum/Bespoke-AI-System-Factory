@@ -286,3 +286,13 @@ def test_a_corrupt_reservations_file_fails_settle_before_any_cost_is_written(tmp
     (tmp_path / "spend.json").write_text("[]")
     with pytest.raises(BudgetExceeded, match="unreadable"):
         ledger.check("claude")
+
+
+def test_reserve_replaces_an_earlier_hold_atomically(tmp_path):
+    ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 1.0}, reserve_usd=0.0))
+    old = ledger.reserve("claude", 0.8)
+    new = ledger.reserve("claude", 0.9, replaces=old)  # fits only because the old hold is swapped out
+    assert set(ledger._read_reserved()) == {new}
+    with pytest.raises(BudgetExceeded):
+        ledger.reserve("claude", 1.5, replaces=new)  # refused: the hold it would replace stays
+    assert set(ledger._read_reserved()) == {new}

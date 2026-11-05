@@ -390,9 +390,9 @@ class LLM:
                           estimate_usd=req.estimate_usd, run_spent_usd=req.run_spent_usd)
         self.ledger.hold(estimate)
         try:
-            if replaces:  # resuming a batch: an earlier run's hold for it would count the batch twice. Dropped only
-                self.spend.release(replaces)  # now that the call is approved, so a refusal leaves it in place
-            return _Hold(self.spend.reserve(rc.provider, estimate, **({"ttl_s": ttl_s} if ttl_s else {})), estimate)
+            # resuming a batch: an earlier run's hold for it would count the batch twice, so reserve swaps it out
+            kw = {"ttl_s": ttl_s} if ttl_s else {}
+            return _Hold(self.spend.reserve(rc.provider, estimate, replaces=replaces, **kw), estimate)
         except BaseException:
             self.ledger.unhold(estimate)
             raise
