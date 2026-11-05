@@ -130,6 +130,14 @@ Then the knowledge loop makes sure the wiki holds what the plan needs:
 python -m factory research --project workspace/factory/projects/<id>
 ```
 
+First the prior-art scout (`factory/pipeline/scout.py`) looks for what already exists: one ARC call proposes
+standard-library modules, PyPI packages and GitHub searches, and code checks each against `sys.stdlib_module_names`,
+the PyPI JSON and the GitHub search API (an invented name is dropped), then applies fixed rules: an open licence, a
+release or push in the last three years, and whether the sandbox can import it (the standard library and anything in
+`ASPIRE_SANDBOX_PACKAGES`; everything else is a reference to follow, not import). The result, with URLs and fetch
+dates, is `reuse.json`; the evaluator sees it and the head orchestrator records what it adopts (`ASPIRE_SCOUT=0` turns
+it off). The research connectors also include `pypi` (a package's README) and `github` (repository descriptions).
+
 The knowledge evaluator (gpt-oss) lists the topics the work depends on. The librarian checks the shared wiki
 (`workspace/<name>/wiki/`) in plain code: a topic is covered by a verified page with at least two sources. For each
 missing topic the research orchestrator writes searches, plain-code connectors run them against OpenAlex, Europe PMC
