@@ -219,8 +219,9 @@ def load_dotenv(path: Path) -> dict[str, str]:
         key, sep, value = line.partition("=")
         key = key.strip()
         if sep and key and not key.startswith("#"):
-            found[key] = value.strip().strip("\"'")
-            os.environ.setdefault(key, found[key])
+            value = value.strip().strip("\"'")
+            found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
+            os.environ.setdefault(key, value)
     return found
 
 

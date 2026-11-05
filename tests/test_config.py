@@ -148,6 +148,13 @@ def test_dotenv_parses_bom_and_tab_after_export(monkeypatch, tmp_path, raw):
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
+def test_dotenv_duplicate_keys_agree_between_environ_and_the_guard(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "ASPIRE_DATA_PRIVATE"})
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\nASPIRE_DATA_PRIVATE=0\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"
+
+
 def test_factory_tier_in_dotenv_takes_effect_and_leaves_the_data_guard_alone(monkeypatch, tmp_path):
     monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "FACTORY_TIER"})
     (tmp_path / ".env").write_text("FACTORY_TIER=quality\n")
