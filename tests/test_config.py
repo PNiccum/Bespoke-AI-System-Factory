@@ -176,11 +176,11 @@ def test_dotenv_cannot_loosen_a_shell_set_guard(monkeypatch, tmp_path):
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
-def test_dotenv_inline_comments_are_ignored(monkeypatch, tmp_path):
+def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
     restore_environ(monkeypatch)
-    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nFACTORY_TIER=economy # default\n")
-    cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
-    assert cfg.data_public is True and cfg.tier == "economy"
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nARC_API_KEY=ab #cd\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ARC_API_KEY"] == "ab #cd"  # values are never truncated
 
 
 def test_dotenv_quoted_values_with_trailing_comments(monkeypatch, tmp_path):
