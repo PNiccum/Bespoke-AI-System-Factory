@@ -55,4 +55,16 @@ def test_fold_col_names_a_column_outright_and_a_missing_one_warns(tmp_path, caps
     assert add_decoys.main([str(lst), str(out), "--fold-col", "Nope"]) == 1
     lst.write_text("Protein ID,Gene name,Notes\nP06493,CDK1,a\n", encoding="utf-8")
     assert add_decoys.main([str(lst), str(out)]) == 0
-    assert "WARNING: no fold-change column" in capsys.readouterr().out
+    assert "note: no fold-change column found" in capsys.readouterr().out
+
+
+def test_a_list_with_only_id_gene_and_description_gets_decoys_with_descriptions(tmp_path, capsys):
+    lst, out = tmp_path / "list.csv", tmp_path / "out.csv"
+    lst.write_text("Protein ID,Gene name,Description\nP06493,CDK1,Cyclin-dependent kinase 1\n"
+                   "P12004,PCNA,Proliferating cell nuclear antigen\n", encoding="utf-8")
+    assert add_decoys.main([str(lst), str(out)]) == 0
+    got = rows(out, ",")
+    assert len(got) == 6 and all(r["Description"] for r in got)  # no decoy stands out by a blank cell
+    assert next(r for r in got if r["Protein ID"] == "Q9ZZZ9")["Gene name"] == "FAKE1"
+    said = capsys.readouterr().out
+    assert "fold=None" in said and "WARNING" not in said and "carry none" in said

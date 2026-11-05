@@ -6,7 +6,7 @@ The lab list's headers are not known in advance, so the accession, gene and fold
 (case-insensitive). When no header looks like a fold change, the one remaining column whose values are nearly all
 numbers is used; --accession-col, --gene-col and --fold-col name a column outright. A decoy's fold change is written
 on the list's own scale: log2 when the list has values at or below zero or under 1, a plain ratio (2 ** log2fc)
-when every value is 1 or more. Other columns stay empty. It prints the header names it did and did not use and
+when every value is 1 or more. A Description column, if the list has one, gets the decoy's description, so decoys are not the only rows with a blank cell. A list with no fold-change column is fine: the decoys then carry none either. Other columns stay empty. It prints the header names it did and did not use and
 how many rows it wrote, never the list's contents.
 """
 
@@ -24,6 +24,7 @@ PATTERNS = {
     "accession": re.compile(r"accession|uniprot|protein[ _]?id|^entry$|^id$", re.I),
     "gene": re.compile(r"gene|symbol", re.I),
     "fold": re.compile(r"fold|log2|lfc|fc$|ratio", re.I),
+    "description": re.compile(r"descr|protein[ _]?name|annotation", re.I),
 }
 
 
@@ -90,6 +91,8 @@ def main(argv: list[str] | None = None) -> int:
             row[cols["accession"]] = d["accession"]
         if cols["gene"]:
             row[cols["gene"]] = d["gene"]
+        if cols["description"]:
+            row[cols["description"]] = d.get("description", "")
         if cols["fold"]:
             fc = float(d["log2fc"])
             row[cols["fold"]] = f"{2 ** fc:.2f}" if ratio else f"{fc:.2f}"
@@ -100,8 +103,8 @@ def main(argv: list[str] | None = None) -> int:
           f"({'ratio' if ratio else 'log2'} scale); not used: {unused}; "
           f"{len(rows)} list rows + {len(decoys)} decoys -> {args.out}")
     if cols["fold"] is None:
-        print("WARNING: no fold-change column found; decoy rows have an empty fold change and are easier to spot. "
-              "Rerun with --fold-col <header>.")
+        print("note: no fold-change column found, so decoys carry none either (right if the list has none). "
+              "If the list does have one, rerun with --fold-col <header>.")
     return 0
 
 
