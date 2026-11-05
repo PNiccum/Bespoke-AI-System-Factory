@@ -35,6 +35,8 @@ def test_bad_sources_are_per_topic_expire_and_clear(tmp_path):
     assert bad.known("proteomics", "other topic") == {} and bad.known("software", "UniProt API") == {}
     later = datetime.now(UTC) + timedelta(days=31)
     assert bad.known("proteomics", "UniProt API", now=later) == {}  # a source gets another chance
+    bad.record("proteomics", "UniProt API", "web:1", "again", now=later)  # expired rows start over
+    assert bad.known("proteomics", "UniProt API", now=later)["web:1"]["count"] == 1
     assert bad.clear("proteomics", "UniProt API", "web:1") and not bad.clear("proteomics", "UniProt API", "web:1")
     assert bad.known("proteomics", "UniProt API") == {}
 

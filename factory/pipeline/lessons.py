@@ -111,7 +111,11 @@ class BadSources:
         now = now or _now()
         with self._locked():
             data = self._load()
-            row = data.setdefault(domain, {}).setdefault(_key(topic), {}).setdefault(
+            rows = data.setdefault(domain, {}).setdefault(_key(topic), {})
+            stale = rows.get(doc_id, {}).get("last", "9") < (now - timedelta(days=TTL_DAYS)).isoformat()
+            if stale:
+                del rows[doc_id]  # an expired entry starts again, so one new rejection only warns
+            row = rows.setdefault(
                 doc_id, {"title": title[:160], "url": url, "why": why, "count": 0, "projects": [], "first": now.isoformat()})
             row.update(why=" ".join(why.split())[:300] or row["why"], last=now.isoformat())
             row["count"] += 1
