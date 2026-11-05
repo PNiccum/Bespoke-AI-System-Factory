@@ -80,9 +80,9 @@ with st.sidebar:
     try:
         spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
     except BudgetExceeded as e:
-        spent = {}
+        spent = None  # unknown: show the error, not bars that read as "all credit available"
         st.error(str(e))
-    for provider, credit in cfg.credits.by_provider.items():
+    for provider, credit in (cfg.credits.by_provider.items() if spent is not None else ()):
         st.progress(min(spent.get(provider, 0.0) / credit, 1.0),
                     text=f"{provider}: {usd(spent.get(provider, 0.0))} of {usd(credit)}")
     st.caption(f"{usd(cfg.credits.reserve_usd)} is held back for the demo.")

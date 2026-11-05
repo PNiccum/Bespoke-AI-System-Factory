@@ -36,10 +36,10 @@ st.subheader("Paid credit")
 try:
     spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
 except BudgetExceeded as e:
-    spent = {}
+    spent = None  # unknown: show the error, not figures that read as "all credit available"
     st.error(str(e))
 cols = st.columns(max(1, len(cfg.credits.by_provider)))
-for col, (provider, credit) in zip(cols, cfg.credits.by_provider.items(), strict=False):
+for col, (provider, credit) in zip(cols, cfg.credits.by_provider.items() if spent is not None else (), strict=False):
     used = spent.get(provider, 0.0)
     col.metric(f"{provider} left", usd(credit - used))
     col.progress(min(used / credit, 1.0) if credit else 0.0, text=f"{usd(used)} spent of {usd(credit)}")
