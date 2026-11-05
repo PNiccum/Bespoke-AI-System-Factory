@@ -173,7 +173,9 @@ def test_the_voters_are_told_each_plans_blocking_problems_and_noted_count(cfg, t
     # MCF7 run, 2026-11-05: both votes went to A without knowing A had blocking problems, so both were spoiled
     pl, arc, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1"), recheck(), vote("B"), vote("B"))
     pl.run()
-    prompt = next(r.messages[-1]["content"] for r in arc.requests if "Problems the code found" in r.messages[-1]["content"])
+    prompts = [r.messages[-1]["content"] for r in arc.requests if "Problems the code found" in r.messages[-1]["content"]]
+    assert len(prompts) == 2 and prompts[0] == prompts[1]  # both voters get the same text
+    prompt = prompts[0]
     assert "Plan A: blocking problems: W1 still open" in prompt
     assert "Plan B: blocking problems: none. Noted weaknesses (not blocking): 0" in prompt
 
