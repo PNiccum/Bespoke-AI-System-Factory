@@ -119,7 +119,7 @@ def _restore_environ():
     os.environ.update(saved)
 
 
-def restore_environ(monkeypatch):
+def clear_factory_env(monkeypatch):
     for key in ("ASPIRE_DATA_PRIVATE", "FACTORY_TIER", "FACTORY_ROLE_TIERS", "ARC_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
@@ -143,7 +143,7 @@ def test_aspire_data_private_makes_lab_data_unsendable_to_paid_providers(monkeyp
 
 @pytest.mark.parametrize("line", ["ASPIRE_DATA_PRIVATE=1", "export ASPIRE_DATA_PRIVATE=1", "ASPIRE_DATA_PRIVATE='1'"])
 def test_aspire_data_private_set_only_in_dotenv_still_blocks_paid_providers(monkeypatch, tmp_path, line):
-    restore_environ(monkeypatch)
+    clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text(f"# flags\n{line}\n")
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
@@ -158,14 +158,21 @@ def test_dotenv_private_flag_beats_an_empty_or_zero_shell_value(monkeypatch, tmp
 
 @pytest.mark.parametrize("raw", [b"\xef\xbb\xbfASPIRE_DATA_PRIVATE=1\n", b"export\tASPIRE_DATA_PRIVATE=1\n"])
 def test_dotenv_parses_bom_and_tab_after_export(monkeypatch, tmp_path, raw):
-    restore_environ(monkeypatch)
+    clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_bytes(raw)
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
 def test_dotenv_duplicate_keys_agree_between_environ_and_the_guard(monkeypatch, tmp_path):
-    restore_environ(monkeypatch)
+    clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\nASPIRE_DATA_PRIVATE=0\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"
+
+
+def test_dotenv_private_flag_on_any_line_counts(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0\nASPIRE_DATA_PRIVATE=1\n")
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
     assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"
 
@@ -177,21 +184,21 @@ def test_dotenv_cannot_loosen_a_shell_set_guard(monkeypatch, tmp_path):
 
 
 def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
-    restore_environ(monkeypatch)
+    clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nARC_API_KEY=ab #cd\n")
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
     assert os.environ["ARC_API_KEY"] == "ab #cd"  # values are never truncated
 
 
 def test_dotenv_quoted_values_with_trailing_comments(monkeypatch, tmp_path):
-    restore_environ(monkeypatch)
+    clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0" # off\nFACTORY_TIER="quality" # x\nARC_API_KEY="a #b"\n')
     cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
     assert cfg.data_public is True and cfg.tier == "quality" and os.environ["ARC_API_KEY"] == "a #b"
 
 
 def test_factory_tier_in_dotenv_takes_effect_and_leaves_the_data_guard_alone(monkeypatch, tmp_path):
-    restore_environ(monkeypatch)
+    clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text("FACTORY_TIER=quality\n")
     cfg = load_config(write(tmp_path, shipped()))
     assert cfg.tier == "quality" and cfg.data_public is True  # the spend gate is a runtime check, not config

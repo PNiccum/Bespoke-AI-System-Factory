@@ -225,6 +225,8 @@ def load_dotenv(path: Path) -> dict[str, str]:
             else:  # unquoted: kept whole, so `KEY=0  # off` is not "0" and the guard fails closed
                 value = value.strip("\"'")
             found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
+            if key == "ASPIRE_DATA_PRIVATE" and _is_private(value):
+                found[key] = value  # except the lab-data flag: any line that turns it on counts, whatever the order
             os.environ.setdefault(key, value)
     return found
 
