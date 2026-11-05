@@ -192,16 +192,16 @@ def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
 
 def test_dotenv_quoted_values_with_trailing_comments(monkeypatch, tmp_path):
     clear_factory_env(monkeypatch)
-    (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0" # off\nFACTORY_TIER="quality" # x\nARC_API_KEY="a #b"\n')
+    (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0" # off\nARC_API_KEY="a #b"\n')
     cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
-    assert cfg.data_public is True and cfg.tier == "quality" and os.environ["ARC_API_KEY"] == "a #b"
+    assert cfg.data_public is True and os.environ["ARC_API_KEY"] == "a #b"
 
 
-def test_factory_tier_in_dotenv_takes_effect_and_leaves_the_data_guard_alone(monkeypatch, tmp_path):
+def test_spend_tier_settings_in_dotenv_are_ignored(monkeypatch, tmp_path):
     clear_factory_env(monkeypatch)
-    (tmp_path / ".env").write_text("FACTORY_TIER=quality\n")
+    (tmp_path / ".env").write_text("FACTORY_TIER=quality\nFACTORY_ROLE_TIERS=planner=quality\n")
     cfg = load_config(write(tmp_path, shipped()))
-    assert cfg.tier == "quality" and cfg.data_public is True  # the spend gate is a runtime check, not config
+    assert cfg.tier == "economy" and cfg.role_tiers == {}  # only the real environment can pick a paid tier
 
 
 def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):

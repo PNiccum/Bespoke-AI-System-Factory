@@ -243,10 +243,13 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     # configs/ sits at the project root; resolve relative paths from there.
     root = path.parent.parent if path.parent.name == "configs" else path.parent
-    # Load .env first: ASPIRE_DATA_PRIVATE (the lab-data guard) and FACTORY_* may be set only there, and a flag read
+    # The spend settings come from the real environment only, as before: a stale .env line must not move a run to a
+    # paid tier. Read them before .env is loaded.
+    env_tier, role_tiers = os.environ.get("FACTORY_TIER"), os.environ.get("FACTORY_ROLE_TIERS", "")
+    # Load .env before the lab-data guard is read: ASPIRE_DATA_PRIVATE may be set only there, and a flag read
     # before this line would silently stay off.
     dotenv = load_dotenv(root / ".env")
-    if tier := tier or os.environ.get("FACTORY_TIER"):
+    if tier := tier or env_tier:
         data["tier"] = tier
     # Lab data: Claude and OpenAI refuse it. Either source turning the flag on is enough, so a stale or empty shell
     # value cannot shadow ASPIRE_DATA_PRIVATE=1 in .env.
@@ -254,7 +257,7 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
         data["data_public"] = False
         if not _is_private(os.environ.get("ASPIRE_DATA_PRIVATE")):  # keep os.environ authoritative for later readers
             os.environ["ASPIRE_DATA_PRIVATE"] = "1"
-    for pair in filter(None, os.environ.get("FACTORY_ROLE_TIERS", "").split(",")):  # "reviewer=quality,coder=quality"
+    for pair in filter(None, role_tiers.split(",")):  # "reviewer=quality,coder=quality"
         role, _, t = pair.partition("=")
         data.setdefault("role_tiers", {})[role.strip()] = t.strip()
     unknown = set(data.get("role_tiers", {})) - set(data.get("roles", {}))
