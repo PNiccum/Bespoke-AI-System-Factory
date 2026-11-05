@@ -1,6 +1,7 @@
 """The spend gate: paid calls need approval and remaining credit; free calls never wait."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -135,3 +136,58 @@ def test_estimate_is_an_upper_bound_from_prompt_length_and_max_tokens(cfg):
     sonnet = cfg.model_info("claude-sonnet-5-5")  # $2 in, $10 out per million
     assert estimate_usd(sonnet, 4_000_000, 0) == pytest.approx(2.0)
     assert estimate_usd(sonnet, 0, 100_000) == pytest.approx(1.0)
+
+
+def _add_in_process(args):
+    path, n = args
+    ledger = SpendLedger(Path(path), Credits(by_provider={"claude": 1000.0}, reserve_usd=0.0))
+    for _ in range(n):
+        ledger.add("claude", 0.01)
+
+
+def test_parallel_processes_do_not_overwrite_each_others_totals(tmp_path):
+    from multiprocessing import Pool
+    path = tmp_path / "spend.json"
+    with Pool(6) as pool:
+        pool.map(_add_in_process, [(str(path), 25)] * 6)
+    assert SpendLedger(path, Credits(by_provider={"claude": 1000.0}, reserve_usd=0.0)).spent["claude"] == pytest.approx(1.5)
+
+
+def test_concurrent_reservations_cannot_all_pass_before_any_is_charged(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    credits = Credits(by_provider={"claude": 1.0}, reserve_usd=0.0)
+    ledgers = [SpendLedger(tmp_path / "spend.json", credits) for _ in range(8)]  # separate runs, one workspace
+
+    def go(l):
+        try:
+            return l.reserve("claude", 0.3)
+        except BudgetExceeded:
+            return None
+    with ThreadPoolExecutor(8) as pool:
+        got = [r for r in pool.map(go, ledgers) if r]
+    assert len(got) == 3  # 3 x $0.30 fit in $1.00, the rest are refused
+    ledgers[0].release(got[0])
+    assert ledgers[1].reserve("claude", 0.3)  # a released hold frees its credit
+
+
+def test_settle_replaces_the_hold_with_the_real_cost_and_the_reserve_still_binds(tmp_path):
+    credits = Credits(by_provider={"claude": 20.0, "openai": 15.0}, reserve_usd=10.0)
+    ledger = SpendLedger(tmp_path / "spend.json", credits)
+    rid = ledger.reserve("claude", 1.0)
+    ledger.settle(rid, "claude", 0.4)
+    assert ledger.spent == {"claude": 0.4}
+    assert not ledger.reserved_path.read_text().strip("{} \n")
+    ledger.add("claude", 19.0)  # $19.40 spent; $25 is the most that may be spent
+    with pytest.raises(BudgetExceeded, match="reserve"):
+        ledger.reserve("openai", 6.0)
+
+
+def test_a_failed_paid_call_releases_its_hold(cfg, tmp_path):
+    llm, p = make(cfg, tmp_path, approver=Recorder(True))
+    def boom(req):
+        raise ValueError("boom")
+    p["claude"].complete = boom
+    with pytest.raises(ValueError):
+        llm.complete("agent", "x", data="public")
+    assert llm.ledger.held_usd == 0.0
+    assert not llm.spend._read_reserved()

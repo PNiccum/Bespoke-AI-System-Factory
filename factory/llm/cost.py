@@ -58,6 +58,7 @@ class Ledger:
     tokens: int = 0
     calls: int = 0
     cached_calls: int = 0
+    held_usd: float = 0.0  # upper-bound estimates of paid calls in flight, so threads cannot all pass the cap together
     started: float = field(default_factory=time.monotonic)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -69,13 +70,29 @@ class Ledger:
             self.calls += 1
             self.cached_calls += cached
 
+    def hold(self, estimate: float) -> None:
+        """Check the caps (spend plus calls already in flight) and, in the same locked step, hold ``estimate`` for a
+        paid call about to start. The call's own estimate is held but not counted against the cap, as before."""
+        with self._lock:
+            self._check(True, estimate)
+            self.held_usd += estimate
+
+    def unhold(self, estimate: float) -> None:
+        with self._lock:
+            self.held_usd = max(0.0, self.held_usd - estimate)
+
     def check(self, paid: bool = True) -> None:
+        with self._lock:
+            self._check(paid, 0.0)
+
+    def _check(self, paid: bool, estimate: float) -> None:
         """Raise BudgetExceeded if any cap has been reached. Called before every call. The dollar cap counts real
         spend, so it stops paid calls only: a free (ARC) call costs nothing and is never blocked by it, while with a
         cap of $0 every paid call is refused."""
         b = self.budget
-        if paid and b.max_real_usd is not None and self.real_usd >= b.max_real_usd:
-            raise BudgetExceeded(f"cost cap reached: ${self.real_usd:.2f} of ${b.max_real_usd:.2f} real spend")
+        if paid and b.max_real_usd is not None and self.real_usd + self.held_usd >= b.max_real_usd:
+            raise BudgetExceeded(f"cost cap reached: ${self.real_usd:.2f} spent plus ${self.held_usd:.2f} in flight "
+                                 f"of ${b.max_real_usd:.2f} real spend")
         if b.max_tokens is not None and self.tokens >= b.max_tokens:
             raise BudgetExceeded(f"token cap reached: {self.tokens:,} of {b.max_tokens:,}")
         if b.max_seconds is not None and time.monotonic() - self.started >= b.max_seconds:

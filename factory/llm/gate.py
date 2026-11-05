@@ -16,8 +16,12 @@ the role's full ``max_tokens`` of output.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import threading
+import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,31 +83,134 @@ class SpendGate:
             self._approved_roles.add((req.role, req.model))
 
 
+@contextlib.contextmanager
+def _file_lock(path: Path):
+    """An exclusive lock on ``path`` shared by every process on this machine (fcntl, or msvcrt on Windows)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+b") as f:
+        if os.name == "nt":
+            import msvcrt
+            f.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # blocks ~10 s per try
+                    break
+                except OSError:
+                    continue
+            try:
+                yield
+            finally:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+RESERVATION_TTL_S = 30 * 3600  # longer than a batch may wait; a crashed run's hold expires after this
+
+
 class SpendLedger:
-    """Real spend per provider, kept across runs so the semester's credit is never overdrawn."""
+    """Real spend per provider, kept across runs so the semester's credit is never overdrawn.
+
+    Safe for parallel runs. Every read-modify-write happens under a file lock and rereads ``spend.json`` first, so
+    two processes cannot overwrite each other's totals, and the file is replaced atomically. A paid call first
+    ``reserve``s its upper-bound estimate (kept in ``spend.reserved.json``); the credit check counts spend plus every
+    live reservation, so calls that start together cannot all pass before any is charged. ``settle`` swaps the
+    reservation for the real cost; ``release`` drops it when the call fails.
+    """
 
     def __init__(self, path: Path, credits: Credits):
         self.path = path
         self.credits = credits
+        self.reserved_path = path.with_name(path.stem + ".reserved.json")
         self._lock = threading.Lock()
-        self.spent: dict[str, float] = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        self._flock = path.with_name(path.stem + ".lock")
 
-    def check(self, provider: str) -> None:
-        with self._lock:
-            limit = self.credits.by_provider.get(provider)
-            if limit is not None and self.spent.get(provider, 0.0) >= limit:
-                raise BudgetExceeded(f"{provider} credit used up: ${self.spent[provider]:.2f} of ${limit:.2f}")
-            if self.credits.by_provider:
-                usable = sum(self.credits.by_provider.values()) - self.credits.reserve_usd
-                total = sum(self.spent.values())
-                if total >= usable:
-                    raise BudgetExceeded(f"total paid spend ${total:.2f} has reached the credit minus the "
-                                         f"${self.credits.reserve_usd:.2f} reserve")
+    @property
+    def spent(self) -> dict[str, float]:
+        """Current totals, read fresh from disk (other processes may have added to them)."""
+        with self._locked():
+            return self._read_spent()
+
+    @contextlib.contextmanager
+    def _locked(self):
+        with self._lock, _file_lock(self._flock):
+            yield
+
+    def _read_spent(self) -> dict[str, float]:
+        try:
+            return json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+
+    def _read_reserved(self) -> dict[str, dict]:
+        try:
+            held = json.loads(self.reserved_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
+        now = time.time()
+        return {k: v for k, v in held.items() if now - v["at"] < RESERVATION_TTL_S}
+
+    @staticmethod
+    def _write(path: Path, data: dict) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+        os.replace(tmp, path)
+
+    def _refuse_if_over(self, provider: str, spent: dict[str, float], held: dict[str, dict], estimate: float) -> None:
+        by = {}
+        for h in held.values():
+            by[h["provider"]] = by.get(h["provider"], 0.0) + h["usd"]
+        used = spent.get(provider, 0.0) + by.get(provider, 0.0)
+        limit = self.credits.by_provider.get(provider)
+        if limit is not None and (used + estimate > limit + 1e-9 or used >= limit):
+            raise BudgetExceeded(f"{provider} credit used up: ${used:.2f} spent or held plus ${estimate:.2f} "
+                                 f"for this call would pass ${limit:.2f}")
+        if self.credits.by_provider:
+            usable = sum(self.credits.by_provider.values()) - self.credits.reserve_usd
+            total = sum(spent.values()) + sum(by.values())
+            if total + estimate > usable + 1e-9 or total >= usable:
+                raise BudgetExceeded(f"total paid spend ${total:.2f} spent or held plus ${estimate:.2f} for this "
+                                     f"call would pass the credit minus the ${self.credits.reserve_usd:.2f} reserve")
+
+    def check(self, provider: str, estimate: float = 0.0) -> None:
+        """Refuse if this call could not be paid for. Does not hold anything; use ``reserve`` before a paid call."""
+        with self._locked():
+            self._refuse_if_over(provider, self._read_spent(), self._read_reserved(), estimate)
+
+    def reserve(self, provider: str, estimate: float) -> str:
+        """Check and hold ``estimate`` in one step; returns the reservation id for ``settle`` or ``release``."""
+        with self._locked():
+            held = self._read_reserved()
+            self._refuse_if_over(provider, self._read_spent(), held, estimate)
+            rid = uuid.uuid4().hex
+            held[rid] = {"provider": provider, "usd": round(estimate, 6), "at": time.time()}
+            self._write(self.reserved_path, held)
+            return rid
+
+    def release(self, rid: str) -> None:
+        with self._locked():
+            held = self._read_reserved()
+            if held.pop(rid, None) is not None:
+                self._write(self.reserved_path, held)
+
+    def settle(self, rid: str | None, provider: str, usd: float) -> None:
+        """Charge the real cost and drop the reservation, in one locked step."""
+        with self._locked():
+            if rid is not None:
+                held = self._read_reserved()
+                if held.pop(rid, None) is not None:
+                    self._write(self.reserved_path, held)
+            if usd > 0:
+                spent = self._read_spent()
+                spent[provider] = round(spent.get(provider, 0.0) + usd, 6)
+                self._write(self.path, spent)
 
     def add(self, provider: str, usd: float) -> None:
-        if usd <= 0:
-            return
-        with self._lock:
-            self.spent[provider] = round(self.spent.get(provider, 0.0) + usd, 6)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(json.dumps(self.spent, indent=1), encoding="utf-8")
+        self.settle(None, provider, usd)
