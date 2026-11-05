@@ -665,9 +665,11 @@ class KnowledgeLoop:
         return page
 
 
-def default_scout(llm: LLM, registry: Registry, cache_dir: Path) -> Scout | None:
+def default_scout(llm: LLM, registry: Registry, cache_dir: Path, wiki: Wiki | None = None,
+                  project: str = "") -> Scout | None:
     """The live scout: PyPI and GitHub lookups with their own small call budget, proposals from the research
-    orchestrator's ARC role. ``ASPIRE_SCOUT=0`` turns it off."""
+    orchestrator's ARC role. ``ASPIRE_SCOUT=0`` turns it off. With a ``wiki``, good
+    candidates are remembered under their task kind in ``<wiki>/reuse/`` and a repeat kind skips the search."""
     import os
     if os.environ.get("ASPIRE_SCOUT", "1") == "0":
         return None
@@ -676,8 +678,10 @@ def default_scout(llm: LLM, registry: Registry, cache_dir: Path) -> Scout | None
     from factory.pipeline.sources import GitHubRepos, PyPI
     budget = CallBudget("scout", 30)
     token = os.environ.get("GITHUB_TOKEN")
+    from factory.pipeline.reuse_memory import ReuseMemory
     return Scout(llm, registry.agents[ORCHESTRATOR], PyPI(cache_dir / "pypi", budget),
-                 GitHubRepos(cache_dir / "github", budget, headers={"Authorization": f"Bearer {token}"} if token else {}))
+                 GitHubRepos(cache_dir / "github", budget, headers={"Authorization": f"Bearer {token}"} if token else {}),
+                 memory=ReuseMemory(wiki.root) if wiki is not None else None, project=project)
 
 
 def default_searchers(cache_dir: Path) -> dict[str, Searcher]:
