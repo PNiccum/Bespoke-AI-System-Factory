@@ -155,7 +155,7 @@ def test_arc_only_and_unjudged_documents_are_not_recorded(cfg, tmp_path):
                                     draft(1, 2), check(True), topics(enough=True),
                                     engines={"europepmc": Engine([doc(1), doc(2), doc(3, "arc_only"), doc(4)])})
     # 3 is rejected but ARC-only; 4 gets no verdict at all
-    arc.texts[1] = json.dumps({"verdicts": [
+    arc.texts[2] = json.dumps({"verdicts": [
         {"id": "europepmc:PMC1", "approve": True, "why": "ok"}, {"id": "europepmc:PMC2", "approve": True, "why": "ok"},
         {"id": "europepmc:PMC3", "approve": False, "why": "lab text"}]})
     kl.run()
