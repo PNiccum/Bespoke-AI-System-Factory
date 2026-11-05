@@ -34,6 +34,8 @@ import httpx
 from pydantic import ValidationError
 
 from factory.config import FactoryConfig, RoleConfig
+from factory.events import FILE as EVENTS_FILE
+from factory.events import EventLog, log_of
 from factory.llm.cache import ResponseCache, request_key
 from factory.llm.cost import BudgetExceeded, Ledger, Usage, price_call
 from factory.llm.gate import Approver, SpendDenied, SpendGate, SpendLedger, SpendRequest, estimate_usd
@@ -141,6 +143,7 @@ class LLM:
         self.providers = providers or {name: make_provider(name, p) for name, p in cfg.providers.items()}
         self._gates = {name: provider_gate(name, p.max_concurrency) for name, p in cfg.providers.items()}
         self._log_lock = threading.Lock()
+        self.events = EventLog(run_dir / EVENTS_FILE, run_dir.name)  # every error this run meets (factory/events.py)
         # Which tier and which model per role this run used, so a run can be reproduced from its directory.
         info = run_dir / "run_info.json"
         if not info.exists():
@@ -173,12 +176,19 @@ class LLM:
         models = [rc.model, *rc.fallbacks]
         if lighter and rc.on_truncation and not escalate:
             models = [rc.on_truncation, *(m for m in models if m != rc.on_truncation)]
+        skipped: list[str] = []  # events for models that were unavailable; corrected if a fallback answers
         for i, model in enumerate(models):
             try:
-                return self._converse_one(role, rc.model_copy(update={"model": model}), messages, system, tools,
+                done = self._converse_one(role, rc.model_copy(update={"model": model}), messages, system, tools,
                                           tag, data, max_tokens)
+                if skipped:
+                    self.events.resolve(skipped, f"fallback model {model} answered", [tag or role])
+                return done
             except Exception as e:
-                if i == len(models) - 1 or not model_unavailable(e):
+                last = i == len(models) - 1 or not model_unavailable(e)
+                skipped.append(self.events.record("llm", f"{role}: {model}: {type(e).__name__}: {e}"[:400],
+                                                  stage=tag or role, severity="error" if last else "warning"))
+                if last:
                     raise
                 self._log(tag=tag, role=role, model=model, provider=rc.provider, fallback_to=models[i + 1],
                           error=f"{type(e).__name__}: {e}"[:300])
@@ -342,13 +352,18 @@ class LLM:
 
     def _call_with_retries(self, provider: str, req: Request, role: str, tag: str) -> tuple[RawResult, float]:
         retries = self.cfg.providers[provider].stream_retries
+        seen: list[str] = []
         for attempt in range(retries + 1):
             try:
                 with self._gates[provider]:
                     t0 = time.monotonic()
                     raw = self.providers[provider].complete(req)
+                    if seen:
+                        self.events.resolve(seen, f"retry {attempt} succeeded", [tag or role])
                     return raw, time.monotonic() - t0
             except (*TRANSIENT, TransientHTTPError) as e:
+                seen.append(self.events.record("llm", f"{provider}/{req.model}: {type(e).__name__}: {e}"[:400],
+                                               stage=tag or role, severity="warning"))
                 self._log(tag=tag, role=role, model=req.model, provider=provider,
                           error=f"{type(e).__name__}: {e}"[:300], attempt=attempt)
                 if attempt == retries:
@@ -381,6 +396,13 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
     format in the retry request.
     """
     errors, cut_off = [], False
+    events, started = log_of(llm), datetime.now(UTC).isoformat()
+
+    def settled(result):  # the attempts that failed before this one worked are corrected, by this success
+        if errors:
+            events.resolve_open(f"a later attempt returned valid output ({len(errors)} failed first)",
+                                [tag], source="llm", since=started)
+        return result
     for i in range(attempts):
         p = prompt if i == 0 else (
             f"{prompt}\n\nYour previous reply was cut off at the output limit. Reply again with only the {fmt}, "
@@ -393,12 +415,13 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             # replies hit max_tokens (7.3 h of model time), and the same thinking model often overran again
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate,
                              lighter=cut_off)
-            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
+            return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
         except TruncatedError as e:
             errors.append(str(e))
             cut_off = True
         except (ValueError, ValidationError) as e:
             errors.append(f"{type(e).__name__}: {str(e)[:200]}")
+            events.record("llm", f"{tag}: unusable output: {errors[-1]}", stage=tag, severity="warning")
             cut_off = False
     if rescue and not escalate and data == "public" and role in llm.cfg.escalations:
         p = (f"{prompt}\n\nA weaker model could not produce usable output ({errors[-1][:160]}). "
@@ -406,9 +429,10 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         try:
             c = llm.complete(role, p, system=system, tag=f"{tag}-paid", data=data, max_tokens=max_tokens,
                              escalate=True)
-            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
+            return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
         except (SpendDenied, BudgetExceeded, DataScopeError) as e:  # not approved or not allowed: no spend
             errors.append(f"paid rescue skipped: {str(e)[:160]}")
         except (TruncatedError, ValueError, ValidationError) as e:
             errors.append(f"paid rescue failed: {type(e).__name__}: {str(e)[:160]}")
+    events.record("llm", f"{tag}: no valid output after {attempts} attempts: {errors[-1][:200]}", stage=tag)
     raise RuntimeError(f"{tag}: no valid output after {attempts} attempts: {errors}")
