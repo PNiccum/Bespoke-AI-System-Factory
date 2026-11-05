@@ -191,8 +191,6 @@ class LLM:
                 return done
             except Exception as e:
                 last = i == len(models) - 1 or not model_unavailable(e)
-                if last and isinstance(e, TruncatedError):
-                    raise  # complete_validated records a cut-off as its own warning and retries on a lighter model
                 skipped.append(self.events.record("llm", f"{role}: {model}: {type(e).__name__}: {e}"[:400],
                                                   stage=tag or role, severity="error" if last else "warning"))
                 if last:
@@ -437,7 +435,7 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
                             errors))
         except TruncatedError as e:
             errors.append(str(e))
-            events.record("llm", f"{tag}: reply cut off at max_tokens", stage=tag, severity="warning")
+            # the cut-off itself is already an event (recorded where the model answered, in converse)
             cut_off = True
             if salvage and (note := salvage.keep(e.partial)):
                 kept_note = note

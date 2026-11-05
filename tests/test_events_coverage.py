@@ -81,7 +81,9 @@ def test_a_wrapped_searcher_reports_no_skips(tmp_path):
     docs = ReferenceDocs(tmp_path, CallBudget("docs", 100),
                          http=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(406))))
     docs.search("uniprot rest api json fields", 3)
-    assert skipped_pages(docs.search) and skipped_pages(lambda q, n: docs.search(q, n)) == []  # documented
+    from functools import partial
+    assert skipped_pages(docs.search) and skipped_pages(partial(docs.search, n=3)) == skipped_pages(docs.search)
+    assert skipped_pages(lambda q, n: docs.search(q, n)) == []  # documented: a lambda cannot be looked through
 
 
 def test_skipped_pages_are_per_thread(tmp_path):
@@ -322,8 +324,8 @@ def test_a_reply_cut_off_at_max_tokens_is_a_warning_corrected_by_a_later_valid_r
 
     llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": P()}, approver=approve_all)
     out, _, _ = complete_validated(llm, "coder", "write it", "", Out, tag="build-T1.1")
-    (ev,) = llm.events.events()
-    assert out.a == 1 and ev.severity == "warning" and ev.message == "build-T1.1: reply cut off at max_tokens"
+    (ev,) = llm.events.events()  # one event for the cut-off, from where the model answered
+    assert out.a == 1 and ev.severity == "error" and "TruncatedError" in ev.message and "max_tokens" in ev.message
     assert ev.status == "corrected" and ev.how.startswith("a later attempt returned valid output")
 
 

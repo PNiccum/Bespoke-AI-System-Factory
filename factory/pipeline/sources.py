@@ -364,8 +364,17 @@ Searcher = Callable[[str, int], list[Doc]]
 def skipped_pages(searcher: Searcher) -> list[str]:
     """What a searcher passed over in its last call on this thread: a connector's bound ``search`` method exposes
     ``skipped`` on its instance; a plain function (a test engine) has none. The Searcher signature stays a callable
-    returning documents, so every engine keeps working unchanged."""
-    return list(getattr(getattr(searcher, "__self__", None), "skipped", []))
+    returning documents, so every engine keeps working unchanged. A ``functools.partial`` or a decorated function
+    around the bound method is looked through; a lambda cannot be, and reports nothing."""
+    fn = searcher
+    while True:
+        inner = getattr(fn, "func", None) or getattr(fn, "__wrapped__", None)  # partial, then functools.wraps
+        if inner is None:
+            break
+        fn = inner
+    return list(getattr(getattr(fn, "__self__", None), "skipped", []))
+
+
 CONNECTORS = ("openalex", "europepmc", "ncbi_gene", "docs", "pypi", "github")
 
 
