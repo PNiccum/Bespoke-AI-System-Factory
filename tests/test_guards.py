@@ -135,6 +135,12 @@ def test_review_rerun_gives_its_pytest_no_keys(monkeypatch, tmp_path):
     exec(compile(RERUN_REVIEW, "rerun.py", "exec"), ns)  # noqa: S102
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "test_env.py").write_text("import os\n\ndef test_no_key():\n    assert 'ANTHROPIC_API_KEY' not in os.environ\n")
+    marker = tmp_path / "ran"
+    (repo / "test_env.py").write_text(
+        f"import os, pathlib\n\ndef test_no_key():\n    pathlib.Path({str(marker)!r}).write_text('x')\n"
+        "    assert 'ANTHROPIC_API_KEY' not in os.environ\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
-    assert ns["broken"](repo, None) == set()  # no failing test: the key was not in pytest's environment
+    assert ns["broken"](repo, None) == set() and marker.exists()  # the test ran, and did not see the key
+    marker.unlink()
+    ns["clean_env"] = lambda: dict(ns["os"].environ)  # a regression: no scrubbing
+    assert ns["broken"](repo, None) and marker.exists()  # the same test now fails, so this one would notice
