@@ -32,6 +32,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan, check_plan
@@ -194,6 +195,7 @@ class PlanningLoop:
         self.llm, self.project, self.board = llm, project, project.board
         self.agents = {name: registry.agents[name] for name in (CRITIC, ANALYST, EDITOR)}
         self.data = "public" if llm.cfg.data_public else "private"
+        log_of(llm, project)
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str):
         spec = self.agents[agent]

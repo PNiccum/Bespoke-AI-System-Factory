@@ -1,4 +1,4 @@
-# ASPIRE proteomics tier (added 2026-11-03): five small tools, one per step of the Lazar lab's workflow for
+# ASPIRE proteomics tier (added 2026-11-03): five small tools, one per step of a research lab's workflow for
 # interpreting a protein list (here, MCF7 cells serum-starved for 48 h and released for 24 h). Run by
 # factory/bench_projects.py exactly like bench/projects.yaml:
 #     python -m factory.bench_projects --projects bench/projects_proteomics.yaml

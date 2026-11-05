@@ -114,7 +114,8 @@ def run_research(args) -> int:
     registry = Registry.load(cfg)
     loop = KnowledgeLoop(llm, registry, project, Wiki(cfg.work_dir / "wiki"),
                          default_searchers(cfg.work_dir / "research-cache"),
-                         scout=default_scout(llm, registry, cfg.work_dir / "research-cache"))
+                         scout=default_scout(llm, registry, cfg.work_dir / "research-cache",
+                                             Wiki(cfg.work_dir / "wiki"), project.root.name))
     result = loop.run(again=args.again)
     for topic, slug in result.covered.items():
         print(f"  covered: {topic} ({cfg.work_dir / 'wiki' / slug}.md)")

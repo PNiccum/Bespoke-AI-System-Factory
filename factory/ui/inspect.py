@@ -189,3 +189,66 @@ def by_model(calls: list[dict]) -> list[dict]:
             r["calls"] += 1
             r["paid USD"] = round(r["paid USD"] + c.get("real_usd", 0.0), 4)
     return sorted(rows.values(), key=lambda r: (-r["paid USD"], -r["calls"]))
+
+
+# --------------------------------------------------------------------------
+# Across runs: what each stage does over time, and where the model time went
+# --------------------------------------------------------------------------
+
+def stage_tallies(items: list[Project]) -> list[dict]:
+    """Per-stage rates across projects, counted from their blackboards by plain code: how often a plan is approved
+    on the first proposal, how many documents a search finds and how many are approved, how often a page is
+    verified, how many critic rounds a build takes, how often final QA approves at first sight. Together they
+    show which stage is improving and which is flat."""
+    plans = approvals = queries = found = approved = checks = verified = reviews = accepted = 0
+    with_qa = first_pass = repaired = 0
+    for p in items:
+        entries = p.board.entries()
+        kinds = [e.kind for e in entries]
+        plans += kinds.count("plan")
+        approvals += kinds.count("approval")
+        for e in entries:
+            if e.kind == "query" and "error" not in e.data:
+                queries += 1
+                found += len(e.data.get("found", []))
+            elif e.kind == "source":
+                approved += 1
+            elif e.kind == "wiki_check":
+                checks += 1
+                verified += bool(e.data.get("accurate"))
+            elif e.kind == "critic_review":
+                reviews += 1
+                accepted += bool(e.data.get("acceptable"))
+        qa = [e for e in entries if e.kind == "final"]
+        if qa:
+            with_qa += 1
+            first_pass += bool(qa[0].data.get("approved"))
+            repaired += any(e.data.get("qa_repair") for e in entries if e.kind == "note")  # set by the QA repair loop
+
+    def rate(n: int, d: int) -> str:
+        return f"{n}/{d} ({100 * n / d:.0f}%)" if d else "-"
+    return [
+        {"stage": "interview", "measure": "plans approved per plan proposed", "value": rate(approvals, plans)},
+        {"stage": "research", "measure": "documents found per search", "value": f"{found / queries:.1f}" if queries else "-"},
+        {"stage": "research", "measure": "documents approved per search", "value": f"{approved / queries:.1f}" if queries else "-"},
+        {"stage": "wiki", "measure": "pages verified per check", "value": rate(verified, checks)},
+        {"stage": "critic", "measure": "reviews accepted per review", "value": rate(accepted, reviews)},
+        {"stage": "final QA", "measure": "approved on first QA", "value": rate(first_pass, with_qa)},
+        {"stage": "final QA", "measure": "projects that needed a QA repair", "value": rate(repaired, with_qa)},
+    ]
+
+
+def time_lost(calls: list[dict]) -> dict:
+    """Where a run's model time went that produced nothing: replies cut off at max_tokens, refusals, and calls that
+    failed (their seconds are not logged, so they are counted). From llm_calls.jsonl alone, no model."""
+    done = [c for c in calls if "event" not in c and "error" not in c and "fallback_to" not in c and not c.get("cached")]
+    total = sum(c.get("seconds", 0.0) for c in done)
+    cut = [c for c in done if c.get("stop_reason") == "max_tokens"]
+    refused = [c for c in done if c.get("stop_reason") == "refusal"]
+    lost = sum(c.get("seconds", 0.0) for c in cut + refused)
+    return {"model_seconds": round(total, 1), "lost_seconds": round(lost, 1),
+            "lost_share": round(lost / total, 3) if total else 0.0, "cut_off": len(cut), "refused": len(refused),
+            # a retried attempt and a fallback each have their own row, so they are counted apart from failed calls
+            "failed_calls": sum("error" in c and "event" not in c and "fallback_to" not in c and "attempt" not in c
+                                for c in calls),
+            "retries": sum("attempt" in c for c in calls), "fallbacks": sum("fallback_to" in c for c in calls)}

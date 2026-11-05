@@ -1,5 +1,6 @@
 """The factory config loads, starts every role on ARC, and enforces family separation in both tiers."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -109,6 +110,20 @@ def test_a_role_cannot_escalate_from_one_free_model_to_another(tmp_path):
         load_config(write(tmp_path, data))
 
 
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """load_dotenv writes the real os.environ; put back exactly what was there, whatever keys a test's .env set."""
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
+
+
+def clear_factory_env(monkeypatch):
+    for key in ("ASPIRE_DATA_PRIVATE", "FACTORY_TIER", "FACTORY_ROLE_TIERS", "ARC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_dotenv_fills_missing_keys_but_never_overrides_the_environment(monkeypatch, tmp_path):
     monkeypatch.delenv("ARC_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "from-env")
@@ -124,6 +139,91 @@ def test_aspire_data_private_makes_lab_data_unsendable_to_paid_providers(monkeyp
     assert load_config(ROOT / "configs" / "factory.yaml").data_public is False
     monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "0")
     assert load_config(ROOT / "configs" / "factory.yaml").data_public is True
+
+
+@pytest.mark.parametrize("line", ["ASPIRE_DATA_PRIVATE=1", "export ASPIRE_DATA_PRIVATE=1", "ASPIRE_DATA_PRIVATE='1'"])
+def test_aspire_data_private_set_only_in_dotenv_still_blocks_paid_providers(monkeypatch, tmp_path, line):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text(f"# flags\n{line}\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+@pytest.mark.parametrize("shell", ["", "0"])
+def test_dotenv_private_flag_beats_an_empty_or_zero_shell_value(monkeypatch, tmp_path, shell):
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", shell)
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"  # os.environ agrees with the config
+
+
+@pytest.mark.parametrize("raw", [b"\xef\xbb\xbfASPIRE_DATA_PRIVATE=1\n", b"export\tASPIRE_DATA_PRIVATE=1\n"])
+def test_dotenv_parses_bom_and_tab_after_export(monkeypatch, tmp_path, raw):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_bytes(raw)
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+def test_dotenv_duplicate_keys_agree_between_environ_and_the_guard(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\nASPIRE_DATA_PRIVATE=0\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"
+
+
+def test_dotenv_private_flag_on_any_line_counts(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0\nASPIRE_DATA_PRIVATE=1\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"
+
+
+def test_dotenv_cannot_loosen_a_shell_set_guard(monkeypatch, tmp_path):
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "1")
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+def test_dotenv_malformed_quote_on_the_lab_flag_fails_closed(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0\n')
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+@pytest.mark.parametrize("line", ['ASPIRE_DATA_PRIVATE="0"1', "ASPIRE_DATA_PRIVATE='0'x"])
+def test_dotenv_text_after_a_closing_quote_fails_closed(monkeypatch, tmp_path, line):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text(line + "\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+def test_dotenv_other_keys_still_lose_stray_quotes(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("ARC_API_KEY=abc'\n")
+    load_config(write(tmp_path, shipped()))
+    assert os.environ["ARC_API_KEY"] == "abc"
+
+
+def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nARC_API_KEY=ab #cd\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ARC_API_KEY"] == "ab #cd"  # values are never truncated
+
+
+def test_dotenv_quoted_values_with_trailing_comments(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0" # off\nARC_API_KEY="a #b"\n')
+    cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
+    assert cfg.data_public is True and os.environ["ARC_API_KEY"] == "a #b"
+
+
+def test_spend_tier_settings_in_dotenv_are_ignored(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("FACTORY_TIER=quality\nFACTORY_ROLE_TIERS=planner=quality\n")
+    cfg = load_config(write(tmp_path, shipped()))
+    assert cfg.tier == "economy" and cfg.role_tiers == {}  # only the real environment can pick a paid tier
+    again = load_config(write(tmp_path, shipped()))  # a second load in the same process must not pick them up either
+    assert again.tier == "economy" and again.role_tiers == {}
 
 
 def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):

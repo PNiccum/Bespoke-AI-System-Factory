@@ -26,6 +26,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, model_validator
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
@@ -365,7 +366,9 @@ class Production:
                     errors[rel] = f"line {e.lineno}: {e.msg}"
         has_tests = any(r.startswith("tests/") and r.endswith(".py") for r in self.files())
         if not has_tests:
-            return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            checks = Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            self._record_checks(checks)
+            return checks
         # a src layout imports without an install: pytest gets src/ (and the root) on its path
         paths = ["src", "."] if (self.out / "src").is_dir() else ["."]
         report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300, pythonpath=paths))  # throwaway copy
@@ -376,10 +379,51 @@ class Production:
         if not report.passed and not report.failed and m:
             setup = (f"the tests could not be imported ({m.group(0)}): fix the package layout or imports so that "
                      f"`pytest` run inside {OUTPUT}/ with {' and '.join(paths)} on the path can import them")
-        return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
-                      passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
-                      reasons=report.reasons,
-                      setup_error=setup)
+        checks = Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
+                        passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
+                        reasons=report.reasons, setup_error=setup)
+        self._record_checks(checks, timed_out=report.timed_out)
+        return checks
+
+    def _record_checks(self, checks: Checks, timed_out: bool = False) -> None:
+        """The plain-code checks as events: each kind of failure is one open event until a later check passes.
+        A check that ran no tests corrects only syntax errors, never an earlier failing-test event."""
+        events = log_of(self.llm, self.project)
+        # each kind, and each file, is corrected on its own: a.py fixed while b.py or a test still fails closes
+        # a.py's event
+        for e in events.open_events():
+            if "check:syntax" in e.refs and not any(r == f"file:{rel}" for rel in checks.syntax_errors for r in e.refs):
+                events.resolve(e.id, "a later plain-code check found no syntax error in the file")
+        if checks.tests_ran and checks.tests_ok:
+            events.resolve_open("a later test run passed", source="checks", ref="check:tests")
+        if checks.ok:
+            return
+        # once=True: the checks run after every repair, and the same failure must not stack up as new events
+        if timed_out:
+            events.record("checks", "the test run timed out in the sandbox", stage="checks", once=True,
+                          refs=["check:tests"])
+        elif checks.setup_error:
+            events.record("checks", f"tests could not be imported: {checks.setup_error[:200]}", stage="checks",
+                          once=True, refs=["check:tests"])
+        for rel, why in checks.syntax_errors.items():
+            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True,
+                          refs=["check:syntax", f"file:{rel}"])
+        if checks.tests_ok is False and not checks.setup_error and not timed_out:
+            if not checks.failed:
+                events.record("checks", f"pytest failed without naming a test: {checks.output_tail[-200:]}",
+                              stage="checks", severity="warning", once=True, refs=["check:tests"])
+                return
+            # the failing set changes as repairs land (A, then A and B, then B): an open event whose tests all pass
+            # now is corrected, and a new event is written only for a test no open event names yet, so the log
+            # holds one open event per problem rather than one per check run
+            now = {f"test:{t}" for t in checks.failed}
+            open_tests = [e for e in events.open_events() if "check:tests" in e.refs and any(
+                r.startswith("test:") for r in e.refs)]
+            events.resolve([e.id for e in open_tests if not now & set(e.refs)],
+                           "those tests pass in a later run", sorted(now))
+            if now - {r for e in open_tests for r in e.refs}:
+                events.record("checks", f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}",
+                              stage="checks", severity="warning", refs=["check:tests", *sorted(now)])
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:
