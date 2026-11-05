@@ -211,6 +211,10 @@ class SpendLedger:
         if (rid is None or part == 0) and usd <= 0:
             return
         with self._locked():
+            if usd > 0:  # spend first: if a write fails, the hold is still there and the credit stays covered
+                spent = self._read_spent()
+                spent[provider] = round(spent.get(provider, 0.0) + usd, 6)
+                self._write(self.path, spent)
             if rid is not None:
                 held = self._read_reserved()
                 if rid in held:
@@ -220,10 +224,6 @@ class SpendLedger:
                     else:
                         held[rid]["usd"] = left
                     self._write(self.reserved_path, held)
-            if usd > 0:
-                spent = self._read_spent()
-                spent[provider] = round(spent.get(provider, 0.0) + usd, 6)
-                self._write(self.path, spent)
 
     def add(self, provider: str, usd: float) -> None:
         self.settle(None, provider, usd)

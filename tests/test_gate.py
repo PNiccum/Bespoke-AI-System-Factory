@@ -245,3 +245,19 @@ def test_a_settle_failure_after_a_paid_call_is_logged_with_its_cost(cfg, tmp_pat
     lost = [l for l in lines if l.get("event") == "spend_unrecorded"]
     assert lost and lost[0]["real_usd"] > 0
     assert llm.ledger.held_usd == 0.0
+
+
+def test_settle_records_spend_before_dropping_the_hold(tmp_path, monkeypatch):
+    ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 5.0}, reserve_usd=0.0))
+    rid = ledger.reserve("claude", 1.0)
+    real_write = SpendLedger._write
+
+    def fail_on_reservations(path, data):
+        if path.name.endswith(".reserved.json"):
+            raise OSError("disk full")
+        real_write(path, data)
+    monkeypatch.setattr(SpendLedger, "_write", staticmethod(fail_on_reservations))
+    with pytest.raises(OSError):
+        ledger.settle(rid, "claude", 0.4)
+    assert ledger.spent["claude"] == pytest.approx(0.4)  # the cost is on the books
+    assert rid in ledger._read_reserved()  # and the hold still covers it (conservative, never under-counted)
