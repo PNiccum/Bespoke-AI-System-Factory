@@ -237,6 +237,9 @@ class LLM:
             hold = self._check_spend(role, rc, estimate_usd(info, prompt_chars, req.max_tokens))
         try:
             raw, seconds = self._call_with_retries(rc.provider, req, role, tag)
+            if hold:
+                hold.settled = True  # money may now be spent: if anything below fails before the cost is on the
+                # books, the shared hold must stay (a successful settle removes it itself)
             priced, real = price_call(info, self.cfg.models, raw.usage)
             self.ledger.add(priced, real, raw.usage.total)
             self._settle(hold, rc.provider, real, role, tag)

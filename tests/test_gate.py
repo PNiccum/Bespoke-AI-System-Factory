@@ -328,3 +328,14 @@ def test_soft_limit_counts_calls_already_in_flight(cfg, tmp_path):
     llm.ledger.hold(0.99)  # another worker's paid call is in flight
     llm.complete("agent", "two", data="public")
     assert [r.reason for r in ask.seen] == ["first paid call for this role", "over the run's soft limit"]
+
+
+def test_a_pricing_failure_after_a_paid_call_keeps_the_shared_hold(cfg, tmp_path, monkeypatch):
+    llm, _ = make(cfg, tmp_path, approver=Recorder(True))
+
+    def boom(*a, **k):
+        raise ValueError("cannot price")
+    monkeypatch.setattr("factory.llm.client.price_call", boom)
+    with pytest.raises(ValueError):
+        llm.complete("agent", "x", data="public")
+    assert len(llm.spend._read_reserved()) == 1 and llm.ledger.held_usd == 0.0
