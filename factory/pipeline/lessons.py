@@ -190,8 +190,11 @@ class BadSources:
         if not self.enabled:
             return {}
         cutoff = ((now or _now()) - timedelta(days=TTL_DAYS)).isoformat()
-        rows = self._load().get(domain, {}).get(_key(topic), {})
-        return {i: r for i, r in rows.items() if r.get("last", "") >= cutoff}
+        try:
+            rows = self._load().get(domain, {}).get(_key(topic), {})
+            return {i: r for i, r in rows.items() if r.get("last", "") >= cutoff}
+        except (AttributeError, TypeError):
+            return {}  # a file of the wrong shape reads as empty; the next save (under a lock) replaces it
 
     def clear(self, domain: str, topic: str, doc_id: str) -> bool:
         """A document that was approved after all is no longer a bad source."""

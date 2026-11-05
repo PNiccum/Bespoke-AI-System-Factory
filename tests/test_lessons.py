@@ -291,3 +291,9 @@ def test_topics_in_other_scripts_do_not_collide(tmp_path):
     bad = BadSources(tmp_path / "bad.json")
     bad.record("bio", "β-catenin", "d:1", "no", project="p1")
     assert bad.known("bio", "β-catenin") and not bad.known("bio", "ß-actin") and not bad.known("bio", "细胞")
+
+
+def test_a_list_of_the_wrong_shape_reads_as_empty(tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text('{"bio": []}')
+    assert BadSources(path).known("bio", "t") == {}
