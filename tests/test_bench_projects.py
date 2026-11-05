@@ -213,9 +213,7 @@ def test_two_project_benchmarks_started_in_the_same_second_both_run(cfg, monkeyp
     monkeypatch.setattr(client, "datetime", Frozen)
     monkeypatch.setattr(bp, "run_project", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
     for _ in range(2):
-        try:
+        with pytest.raises(RuntimeError, match="stop"):  # the run itself is not under test, only the folder
             bp.main(["--only", "wordstats", "--out", str(tmp_path)])
-        except Exception:  # the run itself is not under test, only that the folder was created
-            pass
     assert sorted(p.name for p in tmp_path.iterdir()) == [
         "20261105T205811Z-projects", "20261105T205811Z-projects-2"]

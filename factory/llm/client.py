@@ -113,10 +113,11 @@ def unique_dir(parent: Path, label: str = "") -> Path:
     start in the same second get ``-2``, ``-3``, ... instead of colliding."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     base = parent / (f"{stamp}-{label}" if label else stamp)
+    parent.mkdir(parents=True, exist_ok=True)  # a bad parent (e.g. a file) raises here, not as a fake collision
     for n in range(1, 100):
         path = base if n == 1 else base.with_name(f"{base.name}-{n}")
         try:
-            path.mkdir(parents=True, exist_ok=False)
+            path.mkdir(exist_ok=False)
             return path
         except FileExistsError:
             continue
