@@ -261,3 +261,28 @@ def test_settle_records_spend_before_dropping_the_hold(tmp_path, monkeypatch):
         ledger.settle(rid, "claude", 0.4)
     assert ledger.spent["claude"] == pytest.approx(0.4)  # the cost is on the books
     assert rid in ledger._read_reserved()  # and the hold still covers it (conservative, never under-counted)
+
+
+def test_a_failed_release_still_drops_the_runs_in_memory_hold(cfg, tmp_path):
+    llm, _ = make(cfg, tmp_path, approver=Recorder(True))
+
+    def broken(rid):
+        raise OSError("disk full")
+    llm.spend.release = broken
+    llm.ledger.hold(0.5)
+    from factory.llm.client import _Hold
+    with pytest.raises(OSError):
+        llm._release(_Hold("rid", 0.5))
+    assert llm.ledger.held_usd == 0.0
+
+
+def test_a_corrupt_reservations_file_fails_settle_before_any_cost_is_written(tmp_path):
+    ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 5.0}, reserve_usd=0.0))
+    rid = ledger.reserve("claude", 1.0)
+    ledger.reserved_path.write_text("[]")
+    with pytest.raises(BudgetExceeded):
+        ledger.settle(rid, "claude", 0.4)
+    assert not ledger.path.exists()
+    (tmp_path / "spend.json").write_text("[]")
+    with pytest.raises(BudgetExceeded, match="unreadable"):
+        ledger.check("claude")

@@ -410,9 +410,11 @@ class LLM:
 
     def _release(self, hold: _Hold | None) -> None:
         if hold:
-            self.spend.release(hold.rid)  # no-op if settled
-            self.ledger.unhold(hold.left)
-            hold.left = 0.0
+            try:
+                self.spend.release(hold.rid)  # no-op if settled
+            finally:  # the in-memory hold is dropped even if the shared file cannot be written
+                self.ledger.unhold(hold.left)
+                hold.left = 0.0
 
     def _call_with_retries(self, provider: str, req: Request, role: str, tag: str) -> tuple[RawResult, float]:
         retries = self.cfg.providers[provider].stream_retries

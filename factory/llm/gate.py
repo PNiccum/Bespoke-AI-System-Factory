@@ -144,7 +144,10 @@ class SpendLedger:
 
     def _read_spent(self) -> dict[str, float]:
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
+            spent = json.loads(self.path.read_text(encoding="utf-8"))
+            if not isinstance(spent, dict):
+                raise ValueError("not a JSON object")
+            return spent
         except FileNotFoundError:
             return {}
         except ValueError as e:  # fail closed: an unreadable ledger must not look like zero spend
@@ -211,12 +214,12 @@ class SpendLedger:
         if (rid is None or part == 0) and usd <= 0:
             return
         with self._locked():
+            held = self._read_reserved() if rid is not None else {}  # read first: a corrupt file raises before any write
             if usd > 0:  # spend first: if a write fails, the hold is still there and the credit stays covered
                 spent = self._read_spent()
                 spent[provider] = round(spent.get(provider, 0.0) + usd, 6)
                 self._write(self.path, spent)
             if rid is not None:
-                held = self._read_reserved()
                 if rid in held:
                     left = None if part is None else round(held[rid]["usd"] - part, 6)
                     if left is None or left <= 0:
