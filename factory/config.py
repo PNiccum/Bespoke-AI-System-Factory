@@ -230,6 +230,8 @@ def load_dotenv(path: Path) -> dict[str, str]:
             found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
             if key == "ASPIRE_DATA_PRIVATE" and _is_private(value):
                 found[key] = value  # except the lab-data flag: any line that turns it on counts, whatever the order
+                if not _is_private(os.environ.get(key)):
+                    os.environ[key] = value
             if key not in SPEND_KEYS:  # never exported, or a later load_config in this process would read them
                 os.environ.setdefault(key, value)
     return found
