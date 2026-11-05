@@ -1,0 +1,12 @@
+# Third-party packages the sandbox image installs, so generated code may import them (tests still run with no
+# network). The prior-art scout reads this file: a package listed here is "import", anything else is "reference".
+# Keep it small and pinned; a change needs an image rebuild (docker build -t aspire-sandbox sandbox/).
+pytest==8.3.5
+numpy==2.2.6
+pandas==2.2.3
+scipy==1.15.3
+requests==2.32.3
+pyyaml==6.0.2
+openpyxl==3.1.5
+biopython==1.85
+pydantic==2.11.7

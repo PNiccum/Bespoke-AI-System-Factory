@@ -94,6 +94,16 @@ def defer_to_code(qa: QA, checks: Checks) -> None:
             t.evidence = f"[code: tests pass and QA {t.override_reason}] " + t.evidence
 
 
+def check_failure(checks: Checks) -> str:
+    """The failing plain-code checks in one line; imports the sandbox lacks are named even when tests fail too,
+    since the round cannot pass until both are fixed."""
+    failing = ", ".join(checks.syntax_errors) or ", ".join(checks.failed) or (
+        "tests fail" if checks.tests_ok is False else "")
+    lacking = (("imports the sandbox lacks: " + ", ".join(sorted(checks.unavailable_imports)))
+               if checks.unavailable_imports else "")
+    return "the plain-code checks fail: " + "; ".join(x for x in (failing, lacking) if x)
+
+
 class FinalEvaluator:
     def __init__(self, llm: LLM, registry: Registry, project: Project, production: Production):
         self.llm, self.project, self.board, self.production = llm, project, project.board, production
@@ -114,8 +124,7 @@ class FinalEvaluator:
         issues += [f"QA called {t.id} unmet but {t.override_reason} while the tests pass; code kept it met"
                    for t in qa.tasks if t.overridden]
         if not checks.ok:
-            issues.insert(0, "the plain-code checks fail: " + (", ".join(checks.syntax_errors) or
-                                                               ", ".join(checks.failed) or "tests fail"))
+            issues.insert(0, check_failure(checks))
         if missing := sorted(wanted - met):
             issues.insert(0, f"acceptance not met: {', '.join(missing)}")
         approved = checks.ok and not (wanted - met)
