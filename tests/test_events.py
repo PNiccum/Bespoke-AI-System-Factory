@@ -192,3 +192,25 @@ def test_only_the_newest_window_counts_and_a_case_resets_it(tmp_path):
     fp = recurring(tmp_path, window=99)[0].fingerprint
     assert recurring(tmp_path, window=99, since={fp: "20261102T000000Z"}) == []  # one run left after the case
     assert recurring(tmp_path, window=99, min_runs=1, since={fp: "20261102T000000Z"})[0].runs == ["20261103T000000Z"]
+
+
+def test_the_historian_runs_on_free_models_and_its_calls_are_private(cfg, tmp_path):
+    """The event log carries test output and error text from the project, so the historian's role is ARC-only with
+    no paid step, and its calls are marked private: a provider that may only see public data is never called."""
+    role = cfg.roles["historian"]
+    assert role.provider == "arc" and role.quality is None
+    run = tmp_path / "run1"
+    EventLog(run / "events.jsonl", "run1").record("checks", "1 failing test(s): test_secret_sample")
+
+    class Counting(Scripted):
+        calls = 0
+
+        def complete(self, req):
+            Counting.calls += 1
+            return super().complete(req)
+
+    cfg.providers["arc"].data_scope = "public_only"  # were the call public, this provider would answer
+    cfg.data_public = False
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Counting('{"summary": "x", "entries": []}')})
+    text = write_run_history(llm, run).read_text()
+    assert Counting.calls == 0 and "test_secret_sample" in text and "**open**" in text  # the plain table, no model
