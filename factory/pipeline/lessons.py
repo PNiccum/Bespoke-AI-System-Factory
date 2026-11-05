@@ -214,9 +214,12 @@ class BadSources:
     def rows(self, *, now: datetime | None = None) -> list[dict]:
         """Every unexpired entry, for the lessons page."""
         cutoff = ((now or _now()) - timedelta(days=TTL_DAYS)).isoformat()
-        return [{"domain": d, "topic": t, "id": i, **r}
-                for d, topics in self._load().items() for t, docs in topics.items() for i, r in docs.items()
-                if r.get("last", "") >= cutoff]
+        try:
+            return [{"domain": d, "topic": t, "id": i, **r}
+                    for d, topics in self._load().items() for t, docs in topics.items() for i, r in docs.items()
+                    if r.get("last", "") >= cutoff]
+        except (AttributeError, TypeError):
+            return []  # a file of the wrong shape reads as empty
 
 
 def _plain(text: str, width: int) -> str:
@@ -373,7 +376,10 @@ def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> 
         if not new:
             return None
         directory.mkdir(parents=True, exist_ok=True)
-        with (directory / "lessons.jsonl").open("a", encoding="utf-8") as f:
+        jsonl = directory / "lessons.jsonl"
+        lead = "\n" if jsonl.exists() and jsonl.stat().st_size and not jsonl.read_bytes().endswith(b"\n") else ""
+        with jsonl.open("a", encoding="utf-8") as f:  # a run killed mid-append leaves no newline: start a fresh line
+            f.write(lead)
             f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in new)
         page = directory / f"{domain}.md"
         _write_atomic(page, render_page(domain, read_lessons(directory, domain)))

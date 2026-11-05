@@ -331,3 +331,18 @@ def test_a_redesigned_build_also_writes_lessons(cfg, tmp_path):
     llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(lessons_reply(("Keep it small.", "failed", [n.id])))})
     page = lessons_after_build(llm, p, "redesign", tmp_path)
     assert page and "re-designed (not delivered)" in page.read_text()
+
+
+def test_rows_tolerate_a_wrong_shape_and_an_append_after_a_cut_line_starts_a_new_line(cfg, tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text('{"bio": {"t": [1]}}')
+    assert BadSources(path).rows() == []
+    p = Project.create(tmp_path / "projects", "t")
+    p.board.post("request", "person", {"text": "x"})
+    n = p.board.post("note", "code", {"text": "y"})
+    d = lessons_dir(tmp_path)
+    d.mkdir()
+    (d / "lessons.jsonl").write_text('{"domain": "other", "lesson": "cut')  # a killed run
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(lessons_reply(("Keep it small.", "watch", [n.id])))})
+    assert write_lessons(llm, p, "delivered", d)
+    assert [r["lesson"] for r in read_lessons(d)] == ["Keep it small."]
