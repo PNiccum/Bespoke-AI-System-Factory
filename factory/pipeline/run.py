@@ -74,6 +74,9 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
     if kept is None:
         production.start_clean()  # a new build never inherits an earlier build's files
     for rnd in range(1, BUILD_ROUNDS + 1):
+        if critic.library:  # repairs of a build that was wiped for a rebuild did not stick
+            critic.library.discard(critic.pending_repairs)
+        critic.pending_repairs.clear()
         try:
             on_stage(stage := f"production, round {rnd}")
             if kept is not None and rnd == 1:
@@ -112,8 +115,12 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
                    + (" (an earlier round failed)" if rnd > 1 else ""))
             for src in ("qa", "pipeline"):
                 events.resolve_open(how, [project.id], source=src)
+            if critic.library:  # QA approved the build these repairs went into: they stuck
+                critic.library.confirm(critic.pending_repairs, how)
             return BuildResult(status="delivered", final=result, rounds=rnd, repairs=repairs)
         feedback = "\n".join(f"- {i}" for i in result.issues)
+    if critic.library:  # never approved: those repairs did not stick
+        critic.library.discard(critic.pending_repairs)
     if not redesign:
         return BuildResult(status="stopped", final=result, rounds=rnd, repairs=repairs)
     on_stage("re-design")
