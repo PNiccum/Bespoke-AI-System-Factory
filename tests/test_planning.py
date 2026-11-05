@@ -1,11 +1,13 @@
 """The planning loop: three families critique, weigh, edit and vote; code checks plans and counts the votes."""
 
 import json
+import threading
 
 import pytest
 
-from factory.llm import LLM
+from factory.llm import LLM, Usage
 from factory.llm.gate import approve_all
+from factory.llm.providers import RawResult
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import Interview
 from factory.pipeline.planning import PlanningLoop, decide
@@ -49,9 +51,27 @@ def approved_project(cfg, tmp_path):
     return llm, project
 
 
+class ByPlan(Scripted):
+    """Scripted, except that a ``(reply_for_a, reply_for_b)`` pair answers the two re-checks, which run on two threads
+    in either order, by the plan each prompt asks about instead of by arrival order."""
+
+    lock = threading.Lock()
+
+    def complete(self, req):
+        with self.lock:
+            if isinstance(self.texts[0], tuple):
+                pair, mine = self.texts[0], 1 if "It is Plan B" in req.messages[-1]["content"] else 0
+                self.texts[0] = tuple(None if i == mine else x for i, x in enumerate(pair))
+                if all(x is None for x in self.texts[0]):
+                    self.texts.pop(0)
+                self.requests.append(req)
+                return RawResult(pair[mine], "", "end_turn", Usage(500, 200))
+            return super().complete(req)
+
+
 def loop(cfg, tmp_path, *replies):
     llm, project = approved_project(cfg, tmp_path)
-    arc = Scripted(*replies)
+    arc = ByPlan(*replies)
     llm.providers["arc"] = arc
     return PlanningLoop(llm, Registry.load(cfg, ROOT / "registry"), project), arc, project
 
@@ -108,8 +128,8 @@ def test_votes_are_counted_in_code(votes, problems, expected):
 
 def test_an_open_weakness_keeps_plan_a_from_winning_until_repaired(cfg, tmp_path):
     fixed = {**PLAN, "title": "Primer tool with subtasks"}
-    pl, arc, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1"), recheck(), vote("A"), vote("A"),
-                            json.dumps(fixed), recheck())
+    pl, arc, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), (recheck("W1"), recheck()), vote("A"),
+                            vote("A"), json.dumps(fixed), recheck())
     out = pl.run()
     assert out.winner == "B"  # both votes for A were spoiled by its open weakness
     assert "W1: no subtasks" in arc.requests[2].messages[-1]["content"]  # the editor saw the blocker
@@ -132,8 +152,8 @@ def test_plan_b_with_the_same_open_weakness_does_not_win_by_default(cfg, tmp_pat
 
 
 def test_a_repair_that_leaves_the_blocker_open_is_reported(cfg, tmp_path):
-    pl, _, _ = loop(cfg, tmp_path, critique(BROKEN), critique(BROKEN), ANALYSIS, edit(b=BROKEN), recheck("W1"),
-                    recheck(), vote("A"), vote("A"), json.dumps(PLAN), recheck("W1"))
+    pl, _, _ = loop(cfg, tmp_path, critique(BROKEN), critique(BROKEN), ANALYSIS, edit(b=BROKEN),
+                    (recheck("W1"), recheck()), vote("A"), vote("A"), json.dumps(PLAN), recheck("W1"))
     out = pl.run()
     assert out.winner == "A" and out.problems and out.problems[0].startswith("W1 still open")
 
@@ -152,7 +172,7 @@ def test_restart_copies_the_project_up_to_its_approval(cfg, tmp_path):
 
 def test_an_open_weakness_that_does_not_change_the_result_is_noted_and_the_plan_goes_ahead(cfg, tmp_path):
     # csv_profile, 2026-11-05: "T2 depends on T1 unnecessarily" kept a plan from a build that had reached QA 5/5
-    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1", blocks=False), recheck(),
+    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), (recheck("W1", blocks=False), recheck()),
                           vote("A"), vote("A"))
     out = pl.run()
     assert out.winner == "A" and out.problems == [] and out.votes == {"plan_critic": "A", "plan_analyst": "A"}
@@ -171,7 +191,7 @@ def test_a_recheck_reply_without_the_blocks_field_still_blocks(cfg, tmp_path):
 
 def test_the_voters_are_told_each_plans_blocking_problems_and_noted_count(cfg, tmp_path):
     # MCF7 run, 2026-11-05: both votes went to A without knowing A had blocking problems, so both were spoiled
-    pl, arc, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1"), recheck(), vote("B"), vote("B"))
+    pl, arc, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), (recheck("W1"), recheck()), vote("B"), vote("B"))
     pl.run()
     prompts = [r.messages[-1]["content"] for r in arc.requests if "Problems the code found" in r.messages[-1]["content"]]
     assert len(prompts) == 2 and prompts[0] == prompts[1]  # both voters get the same text
@@ -181,7 +201,7 @@ def test_the_voters_are_told_each_plans_blocking_problems_and_noted_count(cfg, t
 
 
 def test_noted_weaknesses_carried_into_the_build_are_summarised_on_the_board(cfg, tmp_path):
-    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1", blocks=False), recheck(),
+    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), (recheck("W1", blocks=False), recheck()),
                           vote("A"), vote("A"))
     out = pl.run()
     assert out.noted == ["W1 noted: no subtasks (still no subtasks)"]
@@ -193,8 +213,8 @@ def test_noted_weaknesses_carried_into_the_build_are_summarised_on_the_board(cfg
 def test_a_long_noted_list_is_cut_in_the_summary_but_kept_whole(cfg, tmp_path):
     ws = [f"weak{i}" for i in range(1, 9)]
     many = json.dumps({"weaknesses": ws, "plan_b": PLAN_B})
-    pl, _, project = loop(cfg, tmp_path, many, ANALYSIS, edit(), recheck(*(f"W{i}" for i in range(1, 9)), blocks=False),
-                          recheck(), vote("A"), vote("A"))
+    pl, _, project = loop(cfg, tmp_path, many, ANALYSIS, edit(),
+                          (recheck(*(f"W{i}" for i in range(1, 9)), blocks=False), recheck()), vote("A"), vote("A"))
     out = pl.run()
     note = project.board.latest("note")
     assert len(out.noted) == 8 and note.data["noted"] == out.noted
@@ -205,7 +225,7 @@ def test_noted_weaknesses_survive_a_repair_round_and_add_what_the_repair_left_no
     two = json.dumps({"weaknesses": ["no subtasks", "extra step"], "plan_b": PLAN_B})
     a = json.dumps({"open": [{"id": "W1", "why": "x", "blocks": True}, {"id": "W2", "why": "y", "blocks": False}]})
     repaired = json.dumps({"open": [{"id": "W1", "why": "z", "blocks": False}]})
-    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), a, a, vote("A"), vote("A"),
+    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), (a, a), vote("A"), vote("A"),
                     json.dumps({**PLAN, "title": "repaired"}), repaired)
     out = pl.run()
     assert out.winner == "A" and out.problems == []
