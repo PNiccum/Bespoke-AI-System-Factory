@@ -711,6 +711,10 @@ def activity_svg() -> str:
     y = node("qa2", "action", "model", R, y + G, W,
              "Final evaluator (DeepSeek, wrote none of the files) checks each task's acceptance criterion against the files and test results")
     y = node("d_qa", "decision", "", R, y + G, 0, "QA approves?")
+    y = node("d_rep", "decision", "", R, y + G, 0, "Repairs left this round? (2 a round)")
+    fix_text = "Solver repairs QA's findings; code puts a repair back if it breaks a passing check"
+    fix_h = len(textwrap.wrap(fix_text, int((250 - 18) / CHAR))) * LINE + 16
+    node("fix", "action", "model", 1710, box["d_rep"][1] - fix_h / 2, 250, fix_text)
     y = node("d_rnd", "decision", "", R, y + G, 0, "First build, and critic did not flag re-design?")
     lane6 = (ry3, y + 14)
     edge([anchor("d_iss", "r"), (1560, box["d_iss"][1]), (1560, box["qa1"][1] - 52), (R + 120, box["qa1"][1] - 52),
@@ -719,7 +723,11 @@ def activity_svg() -> str:
           (R + 60, anchor("qa1", "t")[1])], "yes: flag re-design", lx=1384, ly=box["d_aft"][1] - 8)
     down("qa1", "qa2")
     down("qa2", "d_qa")
-    down("d_qa", "d_rnd", "no")
+    down("d_qa", "d_rep", "no")
+    down("d_rep", "d_rnd", "no")
+    edge([anchor("d_rep", "r"), anchor("fix", "l")], "yes")
+    edge([anchor("fix", "t"), (1710, box["qa1"][1]), anchor("qa1", "r")], "QA looks again", lx=1480,
+         ly=box["qa1"][1] - 8)
     edge([anchor("d_rnd", "r"), (1535, box["d_rnd"][1]), (1535, box["head"][1]), anchor("head", "r")],
          "yes: rebuild once", lx=1396, ly=box["d_rnd"][1] - 8)
     # ---- re-design
@@ -735,8 +743,8 @@ def activity_svg() -> str:
              "Summarizer (GLM) briefs two experts (Claude and GPT), who debate up to 2 rounds, $0.50 cap")
     y = node("d_cause", "decision", "", R, y + G, 0, "Cause kind (routed in code)")
     yb = y + G + 6
-    bw = 200
-    xs = (R - 215, R, R + 215)
+    bw = 164
+    xs = (R - 190, R, R + 190)
     b1 = node("b1", "action", "mixed", xs[0], yb, bw,
               "prompt of a non-judge agent: factory.extend candidates, held-out benchmark, panel, replay; applied if every gate passes")
     b2 = node("b2", "action", "mixed", xs[1], yb, bw,
@@ -772,7 +780,7 @@ def activity_svg() -> str:
     # delivered: bottom of left column
     node("dl", "action", "code", 780, lane3[1] + 70, 280,
          "Deliverable: deliverable/<project id>.zip with the solution, task.txt, plan.json, knowledge.json, the wiki pages used and the public blackboard as provenance")
-    edge([anchor("d_qa", "l"), (1000, box["d_qa"][1]), (1000, box["dl"][1]), anchor("dl", "r")], "yes: approved")
+    edge([anchor("d_qa", "l"), (968, box["d_qa"][1]), (968, box["dl"][1]), anchor("dl", "r")], "yes: approved")
     node("end1", "end", "", 780, box["dl"][1] + box["dl"][3] / 2 + 28, 0, "")
     down("dl", "end1")
     # gates box
@@ -805,12 +813,12 @@ def activity_svg() -> str:
     lane(30, 930, box["task"][1] + box["task"][3] / 2 + 10, lane1[1], "1  Intake: the Interviewer", "built")
     lane(30, 930, y2, lane2[1], "2  Planning loop: Plan A, Plan B and a vote", "built")
     lane(30, 930, y3, lane3[1], "3  Knowledge loop: research and the shared wiki", "built; PR #62 research fixes")
-    lane(960, 1590, ry1, lane4[1], "4  Production", "built")
-    lane(960, 1590, ry2, lane5[1], "5  Critic loop", "built")
-    lane(960, 1590, ry3, lane6[1], "6  Final QA", "subject to change: QA rework in progress", dashed=True)
-    lane(960, 1590, ry4, lane7[1], "7  Re-design: improve ASPIRE itself", "built; live runs pending")
+    lane(960, 1860, ry1, lane4[1], "4  Production", "built")
+    lane(960, 1860, ry2, lane5[1], "5  Critic loop", "built")
+    lane(960, 1860, ry3, lane6[1], "6  Final QA", "built; repairs before rejecting")
+    lane(960, 1860, ry4, lane7[1], "7  Re-design: improve ASPIRE itself", "built; live runs pending")
     title = "ASPIRE: activity diagram, one run from plain-language task to deliverable or re-design"
-    return svg(1620, height, title, lanes + parts)
+    return svg(1900, height, title, lanes + parts)
 
 
 def designed_svg() -> str:

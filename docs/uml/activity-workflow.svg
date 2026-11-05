@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1620" height="2739" viewBox="0 0 1620 2739">
+<svg xmlns="http://www.w3.org/2000/svg" width="1900" height="2796" viewBox="0 0 1900 2796">
 <rect width="100%" height="100%" fill="#ffffff"/>
 <defs>
 <marker id="open" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="11" markerHeight="11" orient="auto">
@@ -20,18 +20,18 @@
 <rect x="30" y="1516" width="900" height="885" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
 <text x="44.0" y="1536.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">3  Knowledge loop: research and the shared wiki</text>
 <text x="916.0" y="1536.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built; PR #62 research fixes</text>
-<rect x="960" y="110" width="630" height="396" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
+<rect x="960" y="110" width="900" height="396" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
 <text x="974.0" y="130.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">4  Production</text>
-<text x="1576.0" y="130.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built</text>
-<rect x="960" y="530" width="630" height="671" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
+<text x="1846.0" y="130.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built</text>
+<rect x="960" y="530" width="900" height="671" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
 <text x="974.0" y="550.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">5  Critic loop</text>
-<text x="1576.0" y="550.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built</text>
-<rect x="960" y="1225" width="630" height="459" rx="12" fill="#fafbfc" stroke="#c98a1b" stroke-width="1.4" stroke-dasharray="7 5"/>
+<text x="1846.0" y="550.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built</text>
+<rect x="960" y="1225" width="900" height="585" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
 <text x="974.0" y="1245.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">6  Final QA</text>
-<text x="974.0" y="1259.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="10" font-weight="normal" fill="#9a6a00" text-anchor="start">subject to change: QA rework in progress</text>
-<rect x="960" y="1708" width="630" height="860" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
-<text x="974.0" y="1728.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">7  Re-design: improve ASPIRE itself</text>
-<text x="1576.0" y="1728.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built; live runs pending</text>
+<text x="1846.0" y="1245.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built; repairs before rejecting</text>
+<rect x="960" y="1834" width="900" height="877" rx="12" fill="#fafbfc" stroke="#b8c0c8" stroke-width="1.4"/>
+<text x="974.0" y="1854.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="13" font-weight="bold" fill="#1f2933" text-anchor="start">7  Re-design: improve ASPIRE itself</text>
+<text x="1846.0" y="1854.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#9a6a00" text-anchor="end">built; live runs pending</text>
 <circle cx="380" cy="75.0" r="11" fill="#1f2933"/>
 <rect x="180.0" y="118" width="400" height="50" rx="9" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
 <text x="380.0" y="138.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Person types the task in plain words (Streamlit page</text>
@@ -221,9 +221,16 @@
 <polygon points="1250,1454.0 1385.0,1499.0 1250,1544.0 1115.0,1499.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
 <text x="1250.0" y="1503.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">QA approves?</text>
 <polygon points="1250,1580.0 1385.0,1625.0 1250,1670.0 1115.0,1625.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
-<text x="1250.0" y="1612.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">First build, and</text>
-<text x="1250.0" y="1629.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">critic did not flag</text>
-<text x="1250.0" y="1646.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">re-design?</text>
+<text x="1250.0" y="1620.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Repairs left this</text>
+<text x="1250.0" y="1637.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">round? (2 a round)</text>
+<rect x="1585.0" y="1591.5" width="250" height="67" rx="9" fill="#f6efff" stroke="#8a5cc7" stroke-width="1.5"/>
+<text x="1710.0" y="1612.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Solver repairs QA&#x27;s findings;</text>
+<text x="1710.0" y="1629.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">code puts a repair back if it</text>
+<text x="1710.0" y="1646.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">breaks a passing check</text>
+<polygon points="1250,1706.0 1385.0,1751.0 1250,1796.0 1115.0,1751.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
+<text x="1250.0" y="1738.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">First build, and</text>
+<text x="1250.0" y="1755.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">critic did not flag</text>
+<text x="1250.0" y="1772.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">re-design?</text>
 <polyline points="1385.0,718.0 1560.0,718.0 1560.0,1238.0 1370.0,1238.0 1370.0,1265.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
 <rect x="1398.0" y="699.0" width="119.4" height="15" fill="#ffffff" opacity="0.92"/>
 <text x="1400.0" y="710.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">no: critic accepts</text>
@@ -235,74 +242,85 @@
 <polyline points="1250.0,1544.0 1250.0,1580.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
 <rect x="1256.0" y="1550.0" width="18.6" height="15" fill="#ffffff" opacity="0.92"/>
 <text x="1258.0" y="1561.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">no</text>
-<polyline points="1385.0,1625.0 1535.0,1625.0 1535.0,183.5 1450.0,183.5" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<rect x="1394.0" y="1606.0" width="113.1" height="15" fill="#ffffff" opacity="0.92"/>
-<text x="1396.0" y="1617.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">yes: rebuild once</text>
-<rect x="1050.0" y="1748" width="400" height="50" rx="9" fill="#ffeff0" stroke="#c4505a" stroke-width="1.5"/>
-<text x="1250.0" y="1768.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Archive the project as a failure case (a snapshot</text>
-<text x="1250.0" y="1785.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">later fixes are replayed on)</text>
-<rect x="1050.0" y="1834" width="400" height="50" rx="9" fill="#fff7e8" stroke="#c98a1b" stroke-width="1.5"/>
-<text x="1250.0" y="1854.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Ask once for the whole paid plan: Claude Opus and GPT</text>
-<text x="1250.0" y="1871.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">for the audit and the debate, capped at $1</text>
-<polygon points="1250,1920.0 1385.0,1965.0 1250,2010.0 1115.0,1965.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
-<text x="1250.0" y="1960.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Person approves the</text>
-<text x="1250.0" y="1977.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">paid plan?</text>
-<rect x="1050.0" y="2046" width="400" height="50" rx="9" fill="#f6efff" stroke="#8a5cc7" stroke-width="1.5"/>
-<text x="1250.0" y="2066.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Auditor 1 traces each failure to a cause on the</text>
-<text x="1250.0" y="2083.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">blackboard; auditor 2 reviews; they settle the list</text>
-<rect x="1050.0" y="2132" width="400" height="50" rx="9" fill="#f6efff" stroke="#8a5cc7" stroke-width="1.5"/>
-<text x="1250.0" y="2152.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Summarizer (GLM) briefs two experts (Claude and GPT),</text>
-<text x="1250.0" y="2169.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">who debate up to 2 rounds, $0.50 cap</text>
-<polygon points="1250,2218.0 1385.0,2263.0 1250,2308.0 1115.0,2263.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
-<text x="1250.0" y="2258.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Cause kind (routed in</text>
-<text x="1250.0" y="2275.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">code)</text>
-<rect x="935.0" y="2350" width="200" height="118" rx="9" fill="#fff7e8" stroke="#c98a1b" stroke-width="1.5"/>
-<text x="1035.0" y="2370.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">prompt of a non-judge</text>
-<text x="1035.0" y="2387.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">agent: factory.extend</text>
-<text x="1035.0" y="2404.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">candidates, held-out</text>
-<text x="1035.0" y="2421.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">benchmark, panel, replay;</text>
-<text x="1035.0" y="2438.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">applied if every gate</text>
-<text x="1035.0" y="2455.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">passes</text>
-<rect x="1150.0" y="2350" width="200" height="67" rx="9" fill="#fff7e8" stroke="#c98a1b" stroke-width="1.5"/>
-<text x="1250.0" y="2370.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">missing knowledge: the</text>
-<text x="1250.0" y="2387.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">knowledge loop researches</text>
-<text x="1250.0" y="2404.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">it now, or it is queued</text>
-<rect x="1365.0" y="2350" width="200" height="67" rx="9" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
-<text x="1465.0" y="2370.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">everything else, and any</text>
-<text x="1465.0" y="2387.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">judge&#x27;s prompt: waits for</text>
-<text x="1465.0" y="2404.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">the person</text>
-<rect x="1050.0" y="2504" width="400" height="50" rx="9" fill="#ffeff0" stroke="#c4505a" stroke-width="1.5"/>
-<text x="1250.0" y="2524.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">redesign/report.md: what was applied, how to undo it,</text>
-<text x="1250.0" y="2541.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">what was researched, what waits</text>
-<polyline points="1250.0,1670.0 1250.0,1748.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1250.0,1670.0 1250.0,1706.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
 <rect x="1256.0" y="1676.0" width="18.6" height="15" fill="#ffffff" opacity="0.92"/>
 <text x="1258.0" y="1687.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">no</text>
-<polyline points="1250.0,1798.0 1250.0,1834.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1250.0,1884.0 1250.0,1920.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1385.0,1625.0 1585.0,1625.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<rect x="1391.0" y="1608.0" width="24.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1393.0" y="1619.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">yes</text>
+<polyline points="1710.0,1591.5 1710.0,1290.0 1450.0,1290.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<rect x="1478.0" y="1271.0" width="94.2" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1480.0" y="1282.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">QA looks again</text>
+<polyline points="1385.0,1751.0 1535.0,1751.0 1535.0,183.5 1450.0,183.5" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<rect x="1394.0" y="1732.0" width="113.1" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1396.0" y="1743.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">yes: rebuild once</text>
+<rect x="1050.0" y="1874" width="400" height="50" rx="9" fill="#ffeff0" stroke="#c4505a" stroke-width="1.5"/>
+<text x="1250.0" y="1894.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Archive the project as a failure case (a snapshot</text>
+<text x="1250.0" y="1911.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">later fixes are replayed on)</text>
+<rect x="1050.0" y="1960" width="400" height="50" rx="9" fill="#fff7e8" stroke="#c98a1b" stroke-width="1.5"/>
+<text x="1250.0" y="1980.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Ask once for the whole paid plan: Claude Opus and GPT</text>
+<text x="1250.0" y="1997.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">for the audit and the debate, capped at $1</text>
+<polygon points="1250,2046.0 1385.0,2091.0 1250,2136.0 1115.0,2091.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
+<text x="1250.0" y="2086.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Person approves the</text>
+<text x="1250.0" y="2103.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">paid plan?</text>
+<rect x="1050.0" y="2172" width="400" height="50" rx="9" fill="#f6efff" stroke="#8a5cc7" stroke-width="1.5"/>
+<text x="1250.0" y="2192.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Auditor 1 traces each failure to a cause on the</text>
+<text x="1250.0" y="2209.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">blackboard; auditor 2 reviews; they settle the list</text>
+<rect x="1050.0" y="2258" width="400" height="50" rx="9" fill="#f6efff" stroke="#8a5cc7" stroke-width="1.5"/>
+<text x="1250.0" y="2278.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Summarizer (GLM) briefs two experts (Claude and GPT),</text>
+<text x="1250.0" y="2295.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">who debate up to 2 rounds, $0.50 cap</text>
+<polygon points="1250,2344.0 1385.0,2389.0 1250,2434.0 1115.0,2389.0" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>
+<text x="1250.0" y="2384.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Cause kind (routed in</text>
+<text x="1250.0" y="2401.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">code)</text>
+<rect x="978.0" y="2476" width="164" height="135" rx="9" fill="#fff7e8" stroke="#c98a1b" stroke-width="1.5"/>
+<text x="1060.0" y="2496.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">prompt of a non-</text>
+<text x="1060.0" y="2513.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">judge agent:</text>
+<text x="1060.0" y="2530.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">factory.extend</text>
+<text x="1060.0" y="2547.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">candidates, held-out</text>
+<text x="1060.0" y="2564.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">benchmark, panel,</text>
+<text x="1060.0" y="2581.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">replay; applied if</text>
+<text x="1060.0" y="2598.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">every gate passes</text>
+<rect x="1168.0" y="2476" width="164" height="84" rx="9" fill="#fff7e8" stroke="#c98a1b" stroke-width="1.5"/>
+<text x="1250.0" y="2496.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">missing knowledge:</text>
+<text x="1250.0" y="2513.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">the knowledge loop</text>
+<text x="1250.0" y="2530.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">researches it now,</text>
+<text x="1250.0" y="2547.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">or it is queued</text>
+<rect x="1358.0" y="2476" width="164" height="67" rx="9" fill="#eef6ff" stroke="#4a7fc1" stroke-width="1.5"/>
+<text x="1440.0" y="2496.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">everything else, and</text>
+<text x="1440.0" y="2513.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">any judge&#x27;s prompt:</text>
+<text x="1440.0" y="2530.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">waits for the person</text>
+<rect x="1050.0" y="2647" width="400" height="50" rx="9" fill="#ffeff0" stroke="#c4505a" stroke-width="1.5"/>
+<text x="1250.0" y="2667.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">redesign/report.md: what was applied, how to undo it,</text>
+<text x="1250.0" y="2684.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">what was researched, what waits</text>
+<polyline points="1250.0,1796.0 1250.0,1874.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<rect x="1256.0" y="1802.0" width="18.6" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1258.0" y="1813.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">no</text>
+<polyline points="1250.0,1924.0 1250.0,1960.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
 <polyline points="1250.0,2010.0 1250.0,2046.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<rect x="1256.0" y="2016.0" width="24.9" height="15" fill="#ffffff" opacity="0.92"/>
-<text x="1258.0" y="2027.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">yes</text>
-<polyline points="1385.0,1965.0 1505.0,1965.0 1505.0,2071.0 1450.0,2071.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<rect x="1394.0" y="1946.0" width="138.3" height="15" fill="#ffffff" opacity="0.92"/>
-<text x="1396.0" y="1957.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">no: free ARC auditors</text>
-<polyline points="1250.0,2096.0 1250.0,2132.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1250.0,2182.0 1250.0,2218.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1115.0,2263.0 1035.0,2263.0 1035.0,2350.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1250.0,2308.0 1250.0,2350.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1385.0,2263.0 1465.0,2263.0 1465.0,2350.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1035.0,2468.0 1035.0,2486.0 1250.0,2486.0 1250.0,2504.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1250.0,2417.0 1250.0,2504.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<polyline points="1465.0,2417.0 1465.0,2486.0 1250.0,2486.0 1250.0,2504.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<circle cx="1250" cy="2603.0" r="12" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/><circle cx="1250" cy="2603.0" r="7" fill="#1f2933"/>
-<polyline points="1250.0,2554.0 1250.0,2590.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
-<text x="1250.0" y="2636.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="middle">Stopped for a person&#x27;s decision, never silently</text>
+<polyline points="1250.0,2136.0 1250.0,2172.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<rect x="1256.0" y="2142.0" width="24.9" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1258.0" y="2153.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">yes</text>
+<polyline points="1385.0,2091.0 1505.0,2091.0 1505.0,2197.0 1450.0,2197.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<rect x="1394.0" y="2072.0" width="138.3" height="15" fill="#ffffff" opacity="0.92"/>
+<text x="1396.0" y="2083.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="start">no: free ARC auditors</text>
+<polyline points="1250.0,2222.0 1250.0,2258.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1250.0,2308.0 1250.0,2344.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1115.0,2389.0 1060.0,2389.0 1060.0,2476.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1250.0,2434.0 1250.0,2476.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1385.0,2389.0 1440.0,2389.0 1440.0,2476.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1060.0,2611.0 1060.0,2629.0 1250.0,2629.0 1250.0,2647.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1250.0,2560.0 1250.0,2647.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1440.0,2543.0 1440.0,2629.0 1250.0,2629.0 1250.0,2647.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<circle cx="1250" cy="2746.0" r="12" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/><circle cx="1250" cy="2746.0" r="7" fill="#1f2933"/>
+<polyline points="1250.0,2697.0 1250.0,2733.0" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<text x="1250.0" y="2779.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="middle">Stopped for a person&#x27;s decision, never silently</text>
 <rect x="640.0" y="2471" width="280" height="101" rx="9" fill="#ffeff0" stroke="#c4505a" stroke-width="1.5"/>
 <text x="780.0" y="2491.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">Deliverable: deliverable/&lt;project</text>
 <text x="780.0" y="2508.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">id&gt;.zip with the solution, task.txt,</text>
 <text x="780.0" y="2525.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">plan.json, knowledge.json, the wiki</text>
 <text x="780.0" y="2542.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">pages used and the public blackboard</text>
 <text x="780.0" y="2559.5" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="12" font-weight="normal" fill="#1f2933" text-anchor="middle">as provenance</text>
-<polyline points="1115.0,1499.0 1000.0,1499.0 1000.0,2521.5 920.0,2521.5" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
+<polyline points="1115.0,1499.0 968.0,1499.0 968.0,2521.5 920.0,2521.5" fill="none" stroke="#1f2933" stroke-width="1.4" marker-end="url(#solid)"/>
 <rect x="1017.1" y="1482.0" width="87.9" height="15" fill="#ffffff" opacity="0.92"/>
 <text x="1107.0" y="1493.0" font-family="DejaVu Sans Mono, Consolas, Menlo, monospace" font-size="11" font-weight="normal" fill="#52606d" text-anchor="end">yes: approved</text>
 <circle cx="780" cy="2613.0" r="12" fill="#ffffff" stroke="#1f2933" stroke-width="1.6"/><circle cx="780" cy="2613.0" r="7" fill="#1f2933"/>
