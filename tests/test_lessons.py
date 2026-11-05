@@ -117,26 +117,14 @@ def test_the_run_events_are_shown_to_the_lessons_call(cfg, tmp_path):
     assert "final QA failed" in prompt and "re-designed" in prompt
 
 
-def test_arc_only_entries_are_not_copied_into_the_prompt(cfg, tmp_path):
-    p = Project.create(tmp_path / "projects", "t")
-    p.board.post("request", "person", {"text": "x"})
-    p.board.post("source", "research_orchestrator", {"id": "lab:1", "title": "Secret lab list"}, license="arc_only")
-    arc = Scripted(lessons_reply())
-    write_lessons(LLM(cfg, tmp_path, use_cache=False, providers={"arc": arc}), p, "delivered", lessons_dir(tmp_path))
-    assert "Secret lab list" not in arc.requests[0].messages[-1]["content"]
-
-
-def test_events_are_withheld_when_the_project_holds_arc_only_entries(cfg, tmp_path):
+def test_a_project_with_arc_only_entries_writes_no_lessons_at_all(cfg, tmp_path):
     p = Project.create(tmp_path / "projects", "t")
     p.board.post("request", "person", {"text": "x"})
     p.board.post("source", "research_orchestrator", {"id": "lab:1"}, license="arc_only")
-    (tmp_path / "run").mkdir()
     arc = Scripted(lessons_reply())
-    llm = LLM(cfg, tmp_path / "run", use_cache=False, providers={"arc": arc})
-    EventLog(llm.run_dir / "events.jsonl", "run").record("qa", "failed on LABPROTEIN42", stage="final QA")
-    write_lessons(llm, p, "delivered", lessons_dir(tmp_path))
-    prompt = arc.requests[0].messages[-1]["content"]
-    assert "LABPROTEIN42" not in prompt and "final QA" in prompt
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": arc})
+    assert write_lessons(llm, p, "delivered", lessons_dir(tmp_path)) is None
+    assert arc.requests == [] and not (tmp_path / "lessons").exists()
 
 
 def test_the_bad_source_file_sits_in_the_workspace_the_cli_and_page_use(cfg, tmp_path):
@@ -229,3 +217,20 @@ def test_the_page_lists_only_unexpired_bad_sources(tmp_path):
     bad.record("bio", "t", "d:old", "no", now=datetime.now(UTC) - timedelta(days=40))
     bad.record("bio", "t", "d:new", "no")
     assert [r["id"] for r in bad.rows()] == ["d:new"]
+
+
+def test_a_live_lock_is_left_alone_after_the_wait_and_an_expired_source_is_reviewed_again(cfg, tmp_path):
+    bad = BadSources(tmp_path / "bad.json")
+    lock = tmp_path / "bad.lock"
+    lock.write_text("")  # a live run holds it (fresh)
+    from factory.pipeline import lessons as mod
+    with mod._exclusive(lock, bad._lock, timeout=0.1):
+        pass  # the wait times out and goes ahead unlocked
+    assert lock.exists()  # and the other run's lock file is not removed
+
+    kl, arc, project, _ = knowledge(cfg, tmp_path, queries(), review(1, 2), draft(1, 2), check(True), docs=(1, 2, 3))
+    old = datetime.now(UTC) - timedelta(days=40)
+    for p in ("a", "b"):
+        kl.bad.record(kl.domain, "PCR primer design", "europepmc:PMC3", "off topic", project=p, now=old)
+    kl.research(Topic(name="PCR primer design", why="needed"))
+    assert "PMC3" in arc.requests[1].messages[-1]["content"]  # expired: it is reviewed again

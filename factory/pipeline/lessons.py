@@ -11,7 +11,8 @@ its entry. A rejection is about one topic only: the same paper can be right for 
 
 **Lessons** (``lessons.jsonl`` and a page per domain, ``<domain>.md``) are written after a project is delivered or
 re-designed, by one free ARC call. The call sees the blackboard's entries by id and the run's event log, and must
-cite blackboard ids for every lesson. Code drops a lesson that cites no entry that exists, so a lesson cannot float
+cite blackboard ids for every lesson. A project that holds any ARC-only entry writes no lessons, because the page is shared
+across the machine. Code drops a lesson that cites no entry that exists, so a lesson cannot float
 free of what happened. The page is rendered from the saved rows by code; the model never writes the file.
 
 The domain is the project's tag from ``factory/pipeline/domain.py``, so lessons from a bio task do not steer a code task.
@@ -64,9 +65,9 @@ def _now() -> datetime:
 
 
 @contextlib.contextmanager
-def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0):
+def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0, stale: float = 60.0):
     """Threads share ``threads``; separate runs on one machine share the lock file (created exclusively, so it works on
-    Windows too). A lock file older than ``timeout`` belongs to a crashed run and is removed. If a live run still holds
+    Windows too). A lock file older than ``stale`` seconds (longer than any wait) belongs to a crashed run and is removed. If a live run still holds
     it after ``timeout``, the write goes ahead unlocked (these files are by-products) and that run's lock is left alone."""
     lock.parent.mkdir(parents=True, exist_ok=True)
     with threads:
@@ -78,7 +79,7 @@ def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0):
                 held = True
             except FileExistsError:
                 with contextlib.suppress(OSError):
-                    if time.time() - lock.stat().st_mtime > timeout:
+                    if time.time() - lock.stat().st_mtime > stale:
                         lock.unlink()  # a crashed run's
                         continue
                 if time.monotonic() - start > timeout:
@@ -232,9 +233,7 @@ def _entries_text(project: Project) -> str:
                      for e in keep)
 
 
-def _events_text(events: list[Event], withhold: bool = False) -> str:
-    if withhold:  # an event's message can quote ARC-only text; the page it feeds is shared
-        return "\n".join(f"{e.id} | {e.stage} | {e.status}" for e in events[:30]) or "none"
+def _events_text(events: list[Event]) -> str:
     return "\n".join(f"{e.id} | {e.stage} | {e.status} | {e.message[:160]} | {e.how[:100]}" for e in events[:30]) or "none"
 
 
@@ -291,11 +290,13 @@ def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> 
     model gave nothing usable or nothing survived the check (a failure here never changes the run's result)."""
     domain = domain_of(project)
     restricted = any(e.license == "arc_only" for e in project.board.entries())
+    if restricted:  # lessons go to a machine-wide shared page; a project with ARC-only data teaches nothing there
+        return None
     log = EventLog(llm.run_dir / FILE, llm.run_dir.name) if getattr(llm, "run_dir", None) else None
     try:
         found, _, _ = complete_validated(
             llm, ROLE, PROMPT.format(domain=domain, outcome=outcome, entries=_entries_text(project),
-                                     events=_events_text(log.events() if log else [], withhold=restricted), n=MAX_LESSONS),
+                                     events=_events_text(log.events() if log else []), n=MAX_LESSONS),
             SYSTEM, Lessons, tag="lessons", rescue=False)
     except Exception:  # noqa: BLE001 (no usable answer: no lessons this time)
         return None
