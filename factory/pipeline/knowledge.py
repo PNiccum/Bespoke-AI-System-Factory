@@ -29,6 +29,8 @@ are covered, by which pages, and what is still missing.
 from __future__ import annotations
 
 import json
+import os
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -40,6 +42,7 @@ from pydantic import BaseModel
 from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
+from factory.pipeline.scout import Scout
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
 from factory.pipeline.wiki import words as wiki_words
@@ -120,6 +123,31 @@ class KnowledgeResult(BaseModel):
     # no verified page. The build goes ahead with the gap recorded (the builders are told, the final report shows
     # it) and the critic loop can research it again if the work turns out to need it.
     gaps: dict[str, str] = {}
+    skipped: str = ""  # why research did not run at all (a self-contained plan, factory/pipeline/knowledge.py)
+
+
+# Words that point outside the project: a network service, a named data source, a file format only a specification
+# settles, or a field with its own methods. The check is plain code, so it errs toward research: one hit keeps the loop.
+OUTSIDE_SIGNALS = re.compile(r"""
+    https?://|www\.|\bapis?\b|\bendpoints?\b|\brest(?:ful)?\b|\bgraphql\b|\bhttp\b|\bwebhooks?\b|\bsdk\b|
+    \bdatabases?\b|\bsql\b|\bdownload|\bscrap(?:e|ing)|\bcrawl|\bfetch|\bweb\s?(?:site|page|service)s?\b|
+    \bonline\b|\bpubmed|\bncbi\b|\buniprot|\bensembl|\bopenalex|\bchembl|\bgenbank|\brefseq|\bwikipedia|
+    \bgithub\b|\bpypi\b|\bnpm\b|\bcrossref|\bdoi\b|\bpubchem|\bkegg\b|\bpdb\b|\bgo\s+(?:term|ontology)|
+    \bfasta|\bfastq|\bvcf\b|\bbam\b|\bsam\b|\bgff|\bbed\s+file|\bparquet|\bxlsx|\bpdf\b|\bhdf5|\bnetcdf|
+    \bgenom|\bgene\b|\bgenes\b|\bprotein|\bpeptide|\bproteom|\bprimer|\bpcr\b|\bsequenc|\brna\b|\bdna\b|
+    \bmass\s+spec|\bclinical|\bpatient|\bdrug|\bmolecul|\bchemi|\bphysic|\bastronom|\bgeospatial|\bgis\b|
+    \btax(?:es|ation)?\b|\bregulat|\bcompliance|\bhipaa|\bgdpr|\bfinanc|\bstock|\bforex|\bcurrency|
+    \bexchange\s+rate|\bweather|\bmachine\s+learning|\bneural|\bembedding|\btransformer|\bllm\b|
+    \bcryptograph|\boauth|\bencrypt|\bprotocol\b|\bstandard\s+(?:iso|rfc)|\brfc\s?\d|\biso\s?\d
+""", re.I | re.X)
+
+
+def self_contained(task: str, plan: str) -> str:
+    """Plain code, no model call: "" when the task or plan names an outside source or a domain method (research may
+    be needed), else why research can be skipped. The 2026-11-05 project runs spent 50-70 calls a project asking an
+    evaluator for topics on tools such as word counters and log parsers, where every topic came back "project"."""
+    hit = OUTSIDE_SIGNALS.search(f"{task}\n{plan}")
+    return "" if hit else "no external API, data source, file format or domain method in the task or plan"
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
@@ -129,13 +157,16 @@ textbook facts any practitioner knows (a reverse complement, a well-known identi
 scoring and tie-breaking rules the plan can simply state), and rules the task or plan sets for itself (an output \
 format, how to tokenise or validate input, a stopword list, escaping, error handling, window or bucket sizes): the \
 builders already know or are told them, and research cannot add to them. Ask for the domain knowledge the task turns \
-on: facts about the outside world, its data sources and its file formats.
+on: facts about the outside world, its data sources and its file formats. Where an existing tool below already does part of the job, ask for how to use it (for example "<package> API for <step>", with the package name as a hint) rather than for the method it implements.
 
 ## Task
 {task}
 
 ## Plan
 {plan}
+
+## Existing tools found by code (verified to exist; [import] runs in the sandbox, [reference] is to read and follow)
+{reuse}
 
 ## Wiki pages already available
 {pages}
@@ -165,6 +196,8 @@ Search hints: {hints}
 PMC, Human Protein Atlas, Gene Ontology, ChEMBL, Open Targets GraphQL, DAVID, Cellosaurus, Europe PMC search syntax, OpenAlex, Apache logs, Python csv/codecs/datetime/json, Markdown \
 tables, pytest and pyproject packaging); use it for how a \
 tool, API or format works, and keyword queries such as "efetch rettype fasta nucleotide"
+- pypi: exact Python package names, space-separated (e.g. "rapidfuzz pyahocorasick"); returns each package's README
+- github: public Python repositories by plain words (e.g. "apache log anomaly detection"); returns descriptions
 {previous}
 Reply with JSON only: {{"queries": [{{"connector": one of {connectors}, "query": "<search>"}}]}}, at most \
 {max_queries}."""
@@ -262,8 +295,11 @@ class _TopicState:
 
 
 class KnowledgeLoop:
-    def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher]):
+    def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
+                 scout: Scout | None = None):
+        """``scout``: look for existing tools before research (default_scout). None skips it, as in the tests."""
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
+        self.scout = scout
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
         self._topics: dict[str, _TopicState] = {}
@@ -285,6 +321,9 @@ class KnowledgeLoop:
             raise RuntimeError("this project's knowledge is already approved (rerun with --again)")
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         plan = (self.project.root / "plan.json").read_text(encoding="utf-8")
+        reuse = self.find_prior_art(task, plan)
+        if not again and (why := self_contained(task, plan)) and os.environ.get("ASPIRE_SKIP_RESEARCH", "1") != "0":
+            return self._skipped(why)
         covered: dict[str, str] = {}
         missing: list[str] = []
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
@@ -307,7 +346,7 @@ class KnowledgeLoop:
                             "it or you list it under \"dropped\" with why the work can go ahead without it.\n"
                             if still else "") + "\n")
             listing = "\n".join(f"- {p.topic}: {p.summary[:300]}" for p in pages) or "(none)"
-            needs = self._call(EVALUATOR, EVALUATE_PROMPT.format(task=task, plan=plan, pages=listing, again=again,
+            needs = self._call(EVALUATOR, EVALUATE_PROMPT.format(task=task, plan=plan, pages=listing, again=again, reuse=reuse,
                                                                  max_topics=MAX_TOPICS), Needs, f"knowledge-{rnd}")
             topics = [t.model_copy(update={"name": same_topic(t.name, asked)}) for t in needs.topics[:MAX_TOPICS]]
             decided |= {t.name: t.why for t in topics if t.kind == "project"}
@@ -374,6 +413,25 @@ class KnowledgeLoop:
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
+
+    def _skipped(self, why: str) -> KnowledgeResult:
+        """Research skipped by the plain-code check: the build goes ahead with no pages. The prior-art scout has
+        already run, because stdlib modules it finds are what a self-contained build most needs."""
+        self.board.post("note", "code", {"text": f"research skipped: {why}"})
+        result = KnowledgeResult(ok=True, covered={}, missing=[], rounds=0, skipped=why)
+        k = self.board.post("knowledge", "code", result.model_dump())
+        self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
+        return result
+
+    def find_prior_art(self, task: str, plan: str) -> str:
+        """Existing tools for the task, found and checked by code (factory/pipeline/scout.py), written to reuse.json
+        for the head orchestrator; returns the block the evaluator sees."""
+        if self.scout is None:
+            return "(not looked up)"
+        found = self.scout.run(task, plan)
+        e = self.board.post("prior_art", "code", found.model_dump())
+        self.project.write_file("reuse.json", found.model_dump_json(indent=1), "code", refs=[e.id])
+        return found.render() or "(none found)"
 
     def _open_gaps(self, missing: list[str], covered: int = 0) -> dict[str, str]:
         """The one or two topics that stopped a run which otherwise has its knowledge, when each was really researched
@@ -548,8 +606,14 @@ class KnowledgeLoop:
                 f"after the quote check the page cites {len(sources)} documents; it needs {MIN_SOURCES} (or one "
                 "reference manual)",
                 *[f"dropped {x}" for x in lost]]
-            if not issues:
-                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(), quotes=cite.quotes(paragraphs),
+            if not issues and not cite.needs_model_check(paragraphs):
+                # every kept sentence restates its own quote, which code already matched word for word: there is
+                # nothing for a model to weigh, so the page is verified by code (recorded as such on the board)
+                self.board.post("wiki_check", "code", {"topic": topic.name, "accurate": True, "issues": [],
+                                                       "by": "restatement check"}, license=license)
+            elif not issues:
+                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(),
+                                                                  quotes=cite.quotes(paragraphs, only_doubtful=True),
                                                                   docs=show_docs([d for d in docs
                                                                                   if d.id in sources])),
                                    Check, f"verify-{topic.name}-{attempt}", docs)
@@ -564,6 +628,21 @@ class KnowledgeLoop:
                                                  "verified": page.verified, "sources": page.sources},
                         license=license)
         return page
+
+
+def default_scout(llm: LLM, registry: Registry, cache_dir: Path) -> Scout | None:
+    """The live scout: PyPI and GitHub lookups with their own small call budget, proposals from the research
+    orchestrator's ARC role. ``ASPIRE_SCOUT=0`` turns it off."""
+    import os
+    if os.environ.get("ASPIRE_SCOUT", "1") == "0":
+        return None
+
+    from factory.net.http import CallBudget
+    from factory.pipeline.sources import GitHubRepos, PyPI
+    budget = CallBudget("scout", 30)
+    token = os.environ.get("GITHUB_TOKEN")
+    return Scout(llm, registry.agents[ORCHESTRATOR], PyPI(cache_dir / "pypi", budget),
+                 GitHubRepos(cache_dir / "github", budget, headers={"Authorization": f"Bearer {token}"} if token else {}))
 
 
 def default_searchers(cache_dir: Path) -> dict[str, Searcher]:

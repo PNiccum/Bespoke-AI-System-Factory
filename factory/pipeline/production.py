@@ -29,6 +29,8 @@ from pydantic import BaseModel, model_validator
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
+from factory.pipeline.precedent import offer
+from factory.pipeline.scout import ReuseResult
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
 from factory.tools.sandbox import RunTestsIn, run_tests
@@ -51,6 +53,7 @@ class Design(BaseModel):
     layout: list[str]  # files the solution will have, with one line on each
     task_notes: dict[str, str] = {}  # task id -> how it fits the design
     template: str = ""  # the wiki page or pattern it follows, if any
+    reuse: list[str] = []  # existing tools from reuse.json it adopts: "<name>: how" (the scout's candidates)
 
 
 class WorkOrder(BaseModel):
@@ -119,9 +122,14 @@ without any model: plain code, using a model only where the task truly needs lan
 ## Knowledge the team gathered (wiki pages)
 {wiki}
 
+## Existing tools found by code
+{reuse}
+Prefer these over writing the same thing again. Import only [import] tools (the sandbox has no network and no other \
+packages); for a [reference] tool follow its approach in your own code and credit it in the README.
+
 Reply with JSON only: {{"language": "...", "entry_point": "<file under output/>", "run_command": "<command run inside \
 output/>", "layout": ["<path>: <what it holds>", ...], "task_notes": {{"T1": "<how this task fits>"}}, "template": \
-"<the wiki page or known pattern this follows, or empty>"}}
+"<the wiki page or known pattern this follows, or empty>", "reuse": ["<tool name>: <what the solution takes from it>"]}}
 Include tests under tests/ that check each task's acceptance criterion."""
 
 ORDERS_PROMPT = """Break this task into work orders for builders. Each order writes whole files.
@@ -186,6 +194,27 @@ def parse_files(completion) -> dict:
             "notes": notes.group(1).strip() if notes else ""}
 
 
+class FileSalvage:
+    """Keeps the FILE blocks that finished before a builder reply hit max_tokens. In the Nov 2-4 live runs 12 cut-off
+    build replies cost 180 minutes, and the retry re-wrote every file. The finished blocks are plain text that code can
+    parse, so the retry is asked only for the files not yet received, and ``merge`` joins the two replies."""
+
+    def __init__(self):
+        self.files: dict[str, str] = {}
+
+    def keep(self, partial: str) -> str | None:
+        for path, body in FILE_BLOCK.findall(partial):
+            self.files[path.strip().strip("`")] = body
+        if not self.files:
+            return None
+        return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
+
+    def merge(self, data: dict) -> dict:
+        new = {f["path"]: f["content"] for f in data.get("files", [])}
+        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
+        return {**data, "files": files}
+
+
 class Production:
     def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki):
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
@@ -235,6 +264,8 @@ class Production:
         plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text(encoding="utf-8"))
         pages = self.pages()
         wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
+        if earlier := offer(self.project, task):  # a delivered project with a similar request, as a starting template
+            wiki += "\n\n" + earlier
         gaps = (self.board.latest("knowledge").data.get("gaps") or {})
         if gaps:
             wiki += ("\n\n## Known gaps (research found no verified source)\n"
@@ -244,7 +275,11 @@ class Production:
         if feedback:
             task += f"\n\n## Problems to fix in this round\n{feedback}"
 
-        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki),
+        reuse_path = self.project.root / "reuse.json"
+        reuse = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8")).render()
+                 if reuse_path.exists() else "") or "(none looked up)"
+        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki,
+                                                       reuse=reuse),
                             Design, "design", pages)
         d = self.board.post("design", HEAD, design.model_dump(), license=_license(pages))
         for t in plan.tasks:  # plan order respects depends_on (check_plan rules out forward references)
@@ -283,7 +318,8 @@ class Production:
             built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                             order=order.model_dump_json(indent=1), wiki=wiki,
                                                             reads="\n\n".join(reads) or "(none)"), Built,
-                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks")
+                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
+                               salvage=FileSalvage())
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": ""}, refs=[ref])

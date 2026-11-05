@@ -280,3 +280,67 @@ def test_replays_can_be_skipped(cfg, monkeypatch, own_registry):
     assert replayed == [] and result.status == "adopted"
     from factory.failures import FailureArchive
     assert FailureArchive.of(cfg).get("c1").status == "open"  # unverified, so not marked fixed
+
+
+def test_a_tie_in_solved_tasks_goes_to_the_candidate_with_fewer_logged_errors(cfg, monkeypatch, own_registry, tmp_path):
+    from factory.events import EventLog
+    names = ["coder_a", "coder_b"]
+
+    def fake_evaluate(cfg, tasks, agents, **_):
+        mine = next((a.name for a in agents if a.name in names), "")
+        out = []
+        for i, t in enumerate(tasks):
+            o = outcome(t.name, True, 800 if mine == "coder_a" else 900)  # a is cheaper, b is steadier
+            if mine:
+                d = tmp_path / f"{mine}-{i}"
+                log = EventLog(d / "events.jsonl")
+                for _ in range(3 if mine == "coder_a" else 0):
+                    log.record("llm", "unusable output", stage="coder")
+                o.run_dir = str(d)
+            out.append(o)
+        return out
+    monkeypatch.setattr(extend, "evaluate", fake_evaluate)
+    arc = Scripted(*[GOOD.model_copy(update={"name": n}).model_dump_json() for n in names], ACCEPT)
+    result = propose(cfg, "coder", providers={"arc": arc, "openai": Scripted(), "claude": Scripted()},
+                     registry_dir=own_registry, tasks_file=ROOT / "bench" / "tasks.yaml", dev_runs=[], candidates=2)
+    assert result.candidate.name == "coder_b" and "logged errors" in result.gates[1].detail
+
+
+def seed_recurrence(cfg, stage="coder", n=3):
+    from factory.events import EventLog
+    for i in range(n):
+        d = cfg.root / cfg.runs_dir / f"2026110{i + 1}T000000Z"
+        EventLog(d / "events.jsonl", d.name).record("llm", "coder: unusable output: not a diff", stage=stage)
+
+
+def test_a_recurring_error_opens_a_case_and_tries_one_change_for_its_agent(cfg, monkeypatch, own_registry):
+    from factory.failures import FailureArchive
+    seed_recurrence(cfg)
+    monkeypatch.setattr(extend, "evaluate", lambda cfg, tasks, agents, **_: [outcome(t.name, True, 800) for t in tasks])
+    arc = Scripted(GOOD.model_copy(update={"name": "coder_v2"}).model_dump_json(), ACCEPT)
+    rows = extend.redesign_from_events(cfg, adopt=True, registry_dir=own_registry, candidates=1, dev_runs=[],
+                                       tasks_file=ROOT / "bench" / "tasks.yaml",
+                                       providers={"arc": arc, "openai": Scripted(), "claude": Scripted()})
+    (rec, note, res), = rows
+    assert res.status == "adopted" and "not a diff" in arc.requests[0].messages[0]["content"]
+    case = FailureArchive.of(cfg).cases()[0]
+    assert case.fingerprint == rec.fingerprint and case.status == "fixed" and not FailureArchive.of(cfg).replayable(case.id)
+    # the same error is not taken up again until it recurs in three later runs
+    assert extend.redesign_from_events(cfg, registry_dir=own_registry) == []
+
+
+def test_a_recurring_error_with_no_owner_or_past_the_limit_is_only_reported(cfg, own_registry):
+    seed_recurrence(cfg, stage="final QA")
+    (rec, note, res), = extend.redesign_from_events(cfg, registry_dir=own_registry)
+    assert res is None and "no single model agent" in note
+    assert extend.redesign_from_events(cfg, registry_dir=own_registry, max_changes=0)[0][2] is None
+
+
+def test_a_judge_found_by_recurrence_still_waits_for_a_person(cfg, monkeypatch, own_registry):
+    seed_recurrence(cfg, stage="reviewer")
+    monkeypatch.setattr(extend, "evaluate", lambda cfg, tasks, agents, **_: [outcome(t.name, True, 800) for t in tasks])
+    arc = Scripted(GOOD.model_copy(update={"name": "reviewer_v2"}).model_dump_json(), ACCEPT)
+    (_, _, res), = extend.redesign_from_events(cfg, adopt=True, registry_dir=own_registry, candidates=1, dev_runs=[],
+                                               tasks_file=ROOT / "bench" / "tasks.yaml",
+                                               providers={"arc": arc, "openai": Scripted(), "claude": Scripted()})
+    assert res.status == "awaiting a person" and "structural" in res.gates[-1].detail
