@@ -76,7 +76,11 @@ def defer_to_code(qa: QA, checks: Checks) -> None:
         named = t.failing_check.strip()
         if t.met:
             continue
-        contradicted = any(p and re.search(rf"(?<![\w.]){re.escape(p)}(?![\w])", named) for p in checks.passed)
+        contradicted = False
+        for pid in checks.passed:  # the check names only a test that passed: nothing concrete fails
+            pat = rf"(?<![\w.]){re.escape(pid)}(?![\w])"
+            if pid and re.search(pat, named) and len(re.sub(r"\W+", " ", re.sub(pat, " ", named)).split()) < 4:
+                contradicted = True
         if not named or contradicted:
             t.met, t.overridden = True, True
             t.evidence = ("[code: tests pass and QA named no failing check] " if not named else
@@ -100,6 +104,8 @@ class FinalEvaluator:
         defer_to_code(qa, checks)
         met = {t.id for t in qa.tasks if t.met}
         issues = list(qa.issues)
+        issues += [f"QA called {t.id} unmet but named no failing check while the tests pass; code kept it met"
+                   for t in qa.tasks if t.overridden]
         if not checks.ok:
             issues.insert(0, "the plain-code checks fail: " + (", ".join(checks.syntax_errors) or
                                                                ", ".join(checks.failed) or "tests fail"))

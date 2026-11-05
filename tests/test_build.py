@@ -445,6 +445,14 @@ def test_qa_naming_a_test_that_passed_is_overridden_but_a_concrete_failure_stand
     qp = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="test_ab fails: expected 1, got 2")])
     defer_to_code(qp, prefix)
     assert not qp.tasks[0].met
+    ctx = QA(tasks=[TaskResult(id="T1", met=False, evidence="x",
+                               failing_check="tests/t.py::test_a passes but `a.py 3` prints 6, expected 9")])
+    defer_to_code(ctx, green)  # a passing test named as context does not hide a concrete failure
+    assert not ctx.tasks[0].met
+    for ran, ok in ((False, None), (True, None)):  # no tests ran: nothing is green, QA stands
+        qn = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
+        defer_to_code(qn, green.model_copy(update={"tests_ran": ran, "tests_ok": ok}))
+        assert not qn.tasks[0].met
     red = green.model_copy(update={"tests_ok": False})
     qb = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
     defer_to_code(qb, red)
