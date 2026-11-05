@@ -306,6 +306,8 @@ class LLM:
         info = self.cfg.model_info(rc.model)
         self.ledger.check(paid=info.real)
         hold = None
+        if info.real and (old := self._pending_batch(rc, keys, reqs)[1].get("hold")):
+            self.spend.release(old)  # resuming: the earlier run's hold would count this batch twice
         if info.real:  # one approval covers the whole batch, at the batch price
             est = sum(estimate_usd(info, len(json.dumps(r.messages)) + len(r.system or ""), r.max_tokens)
                       for r in reqs.values()) * info.batch_discount
@@ -315,18 +317,25 @@ class LLM:
         finally:
             self._release(hold)
 
-    def _run_batch(self, role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s) -> list:
-        provider = self.providers[rc.provider]
+    def _pending_batch(self, rc, keys, reqs) -> tuple[Path, dict]:
+        """The file recording a submitted batch for this request set, and its contents ({} if none yet)."""
         pending_dir = self.cfg.work_dir / "batches"
         pending_dir.mkdir(parents=True, exist_ok=True)
         batch_key = request_key({"provider": rc.provider, "keys": [keys[int(c[1:])] for c in sorted(reqs)]})
         pending = pending_dir / f"{batch_key[:24]}.json"
-        if pending.exists():
-            batch_id = json.loads(pending.read_text(encoding="utf-8"))["batch_id"]  # resume the batch an earlier run submitted
+        return pending, (json.loads(pending.read_text(encoding="utf-8")) if pending.exists() else {})
+
+    def _run_batch(self, role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s) -> list:
+        provider = self.providers[rc.provider]
+        pending, record = self._pending_batch(rc, keys, reqs)
+        if record:
+            batch_id = record["batch_id"]  # resume the batch an earlier run submitted
         else:
             batch_id = provider.submit_batch(reqs)
-            pending.write_text(json.dumps({"batch_id": batch_id, "provider": rc.provider, "role": role,
-                                           "n": len(reqs), "submitted": datetime.now(UTC).isoformat()}), encoding="utf-8")
+            record = {"batch_id": batch_id, "provider": rc.provider, "role": role, "n": len(reqs),
+                      "submitted": datetime.now(UTC).isoformat()}
+        record["hold"] = hold.rid if hold else None  # so a later resume can drop this run's hold if it dies
+        pending.write_text(json.dumps(record), encoding="utf-8")
         self._log(event="batch_submitted", role=role, model=rc.model, provider=rc.provider, batch_id=batch_id,
                   n=len(reqs))
         t0 = time.monotonic()

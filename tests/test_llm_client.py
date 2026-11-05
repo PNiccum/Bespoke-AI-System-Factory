@@ -206,6 +206,29 @@ def test_batch_resumes_a_submitted_batch_after_an_interruption(cfg, tmp_path):
     assert out[0].text == "x done" and second.submitted == []  # waited for the first batch, did not resubmit
 
 
+def test_resuming_a_batch_drops_the_dead_runs_hold_instead_of_counting_it_twice(cfg, tmp_path):
+    from factory.config import Credits
+    cfg.providers["claude"].batch = True
+    cfg.credits = Credits(by_provider={"claude": 5.0}, reserve_usd=0.0)
+
+    class Interrupted(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            raise KeyboardInterrupt
+
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
+    with pytest.raises(KeyboardInterrupt):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    # a killed process leaves its hold behind (an interrupt releases it): plant one that fills the whole credit
+    stale = llm.spend.reserve("claude", cfg.credits.by_provider["claude"] - 0.001)
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    record = json.loads(pending.read_text())
+    pending.write_text(json.dumps({**record, "hold": stale}))
+    second = FakeBatchProvider({"i0": ok("x done")})
+    llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": second}, approver=approve_all)
+    assert llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)[0].text == "x done"
+    assert not llm2.spend._read_reserved()
+
+
 def test_providers_without_batch_api_fall_back_to_single_calls(cfg, tmp_path):
     llm, p = make_llm(cfg, tmp_path, arc=[ok("a"), ok("b")])
     out = llm.complete_batch("writer", [{"user": "p1"}, {"user": "p2"}], data="public", workers=1)
