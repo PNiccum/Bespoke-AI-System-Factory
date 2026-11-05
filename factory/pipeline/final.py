@@ -12,6 +12,7 @@ left out on purpose: it sends data outside the system, so it waits for the perso
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -75,7 +76,7 @@ def defer_to_code(qa: QA, checks: Checks) -> None:
         named = t.failing_check.strip()
         if t.met:
             continue
-        contradicted = any(p and p in named for p in checks.passed)
+        contradicted = any(p and re.search(rf"(?<![\w.]){re.escape(p)}(?![\w])", named) for p in checks.passed)
         if not named or contradicted:
             t.met, t.overridden = True, True
             t.evidence = ("[code: tests pass and QA named no failing check] " if not named else

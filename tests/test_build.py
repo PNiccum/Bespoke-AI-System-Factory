@@ -441,6 +441,10 @@ def test_qa_naming_a_test_that_passed_is_overridden_but_a_concrete_failure_stand
                     TaskResult(id="T2", met=False, evidence="x", failing_check="run `a.py 3`: expected 9, got 6")])
     defer_to_code(qa_, green)
     assert qa_.tasks[0].met and not qa_.tasks[1].met
+    prefix = green.model_copy(update={"passed": ["test_a"]})  # a passed id that is a prefix of a failing one
+    qp = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="test_ab fails: expected 1, got 2")])
+    defer_to_code(qp, prefix)
+    assert not qp.tasks[0].met
     red = green.model_copy(update={"tests_ok": False})
     qb = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
     defer_to_code(qb, red)
