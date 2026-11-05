@@ -3,7 +3,7 @@
 import json
 
 from factory.events import EventLog, fingerprint, log_of, meta_analysis, run_events, summary
-from factory.historian import write_meta_history, write_run_history
+from factory.historian import ask, write_meta_history, write_run_history
 from factory.llm import LLM, Usage
 from factory.llm.providers import RawResult, TransientHTTPError
 from tests.test_fallbacks import ByModel, cfg, llm_with, not_found  # noqa: F401
@@ -157,6 +157,38 @@ def test_the_meta_analysis_drops_unknown_fingerprints(cfg, tmp_path):
     assert "QA keeps failing" in text and "made up" not in text and "Corrected once, then came back" in text
 
 
+def _log_with_two(tmp_path):
+    log = EventLog(tmp_path / "run1" / "events.jsonl", "run1")
+    a = log.record("pipeline", "final QA failed", stage="final QA")
+    b = log.record("pipeline", "solver crashed on the matrix", stage="critic loop")
+    log.resolve(a, "delivered after 1 QA repair(s)")
+    return log.events(), a, b
+
+
+def test_the_answer_cites_only_real_events_and_status_comes_from_the_log(cfg, tmp_path):
+    events, a, b = _log_with_two(tmp_path)
+    reply = json.dumps({"answer": "QA failed and was repaired.", "cited": [f"run1:{a}", "run1:E9999"]})
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(reply)})
+    text, cited = ask(llm, "What happened in QA?", events)
+    assert text.startswith("QA failed") and [e.id for e in cited] == [a]
+    assert cited[0].status == "corrected" and cited[0].how
+
+
+def test_an_answer_that_cites_nothing_real_is_replaced_by_matching_events(cfg, tmp_path):
+    events, a, b = _log_with_two(tmp_path)
+    llm = LLM(cfg, tmp_path, use_cache=False,
+              providers={"arc": Scripted(json.dumps({"answer": "It was fine.", "cited": ["E9999"]}))})
+    text, cited = ask(llm, "why did the solver crash?", events)
+    assert "It was fine" not in text and [e.id for e in cited] == [b]
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted("not json")})
+    assert [e.id for e in ask(llm, "solver crash?", events)[1]] == [b]
+
+
+def test_asking_an_empty_log_needs_no_model(cfg, tmp_path):
+    text, cited = ask(None, "anything?", [])
+    assert "nothing to answer" in text and cited == []
+
+
 def seed_runs(base, spec):
     """spec: {run name: [(message, corrected?)]}"""
     for name, evs in spec.items():
@@ -192,3 +224,37 @@ def test_only_the_newest_window_counts_and_a_case_resets_it(tmp_path):
     fp = recurring(tmp_path, window=99)[0].fingerprint
     assert recurring(tmp_path, window=99, since={fp: "20261102T000000Z"}) == []  # one run left after the case
     assert recurring(tmp_path, window=99, min_runs=1, since={fp: "20261102T000000Z"})[0].runs == ["20261103T000000Z"]
+
+
+def test_the_historian_runs_on_free_models_and_its_calls_are_private(cfg, tmp_path):
+    """The event log carries test output and error text from the project, so the historian's role is ARC-only with
+    no paid step, and its calls are marked private: a provider that may only see public data is never called."""
+    role = cfg.roles["historian"]
+    assert role.provider == "arc" and role.quality is None
+    run = tmp_path / "run1"
+    EventLog(run / "events.jsonl", "run1").record("checks", "1 failing test(s): test_secret_sample")
+
+    class Counting(Scripted):
+        calls = 0
+
+        def complete(self, req):
+            Counting.calls += 1
+            return super().complete(req)
+
+    cfg.providers["arc"].data_scope = "public_only"  # were the call public, this provider would answer
+    cfg.data_public = False
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Counting('{"summary": "x", "entries": []}')})
+    text = write_run_history(llm, run).read_text()
+    assert Counting.calls == 0 and "test_secret_sample" in text and "**open**" in text  # the plain table, no model
+
+
+def test_ids_repeat_between_runs_so_citations_name_the_run(cfg, tmp_path):
+    ev = []
+    for run, msg in (("r1", "disk full"), ("r2", "timeout")):
+        log = EventLog(tmp_path / run / "events.jsonl", run)
+        log.record("code", msg)
+        ev += log.events()
+    reply = json.dumps({"answer": "A timeout.", "cited": ["r2:E0001"]})
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(reply)})
+    text, cited = ask(llm, "what timed out?", ev, scope="All runs")
+    assert [(e.run, e.message) for e in cited] == [("r2", "timeout")]

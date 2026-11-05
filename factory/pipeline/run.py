@@ -64,7 +64,7 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
     if k is not None and not k.data.get("ok") and not allow_unapproved:
         raise RuntimeError(f"the knowledge loop did not approve this project's knowledge (missing: "
                            f"{', '.join(k.data.get('missing', [])) or 'unknown'}); rerun research first")
-    events = log_of(llm)
+    events = log_of(llm, project)
     production = Production(llm, registry, project, wiki)
     knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)

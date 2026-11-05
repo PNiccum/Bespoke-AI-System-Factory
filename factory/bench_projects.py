@@ -177,7 +177,8 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
                 ok, missing = True, []
             else:
                 knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers,
-                                          scout=default_scout(llm, registry, cfg.work_dir / "research-cache")).run()
+                                          scout=default_scout(llm, registry, cfg.work_dir / "research-cache", wiki,
+                                                              project.root.name)).run()
                 ok, missing = knowledge.ok, knowledge.missing
             if not ok:
                 out.why = f"knowledge not approved; missing: {', '.join(missing) or 'unknown'}"
