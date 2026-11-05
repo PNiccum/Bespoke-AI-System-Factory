@@ -681,7 +681,7 @@ def default_scout(llm: LLM, registry: Registry, cache_dir: Path, wiki: Wiki | No
     from factory.pipeline.reuse_memory import ReuseMemory
     return Scout(llm, registry.agents[ORCHESTRATOR], PyPI(cache_dir / "pypi", budget),
                  GitHubRepos(cache_dir / "github", budget, headers={"Authorization": f"Bearer {token}"} if token else {}),
-                 memory=ReuseMemory(wiki.root) if wiki else None, project=project)
+                 memory=ReuseMemory(wiki.root) if wiki is not None else None, project=project)
 
 
 def default_searchers(cache_dir: Path) -> dict[str, Searcher]:

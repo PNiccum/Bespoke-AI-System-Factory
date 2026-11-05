@@ -148,4 +148,13 @@ def test_good_candidates_are_remembered_by_task_kind_and_reused_without_searchin
     assert mem.find("apache log parsing").projects == ["p1", "p2"]
     mem.now = lambda: NOW + timedelta(days=200)
     assert mem.recall("apache log parsing") is None  # stale: search again
+    # a loosely similar kind gets its own page and does not recall (or change) this one
+    assert mem.recall("nginx log parsing") is None and mem.recall("") is None
+    (tmp_path / "wiki/reuse/broken.json").write_text("{not json")
+    assert mem.find("apache log parsing")  # a corrupt page is skipped, not fatal
+    mem.remember("nginx log parsing", first.candidates[:1])
+    assert len(mem.find("apache log parsing").candidates) == len(page.candidates)
+    # a fresh search replaces old candidates
+    mem.remember("apache log parsing", first.candidates[:1])
+    assert len(mem.find("apache log parsing").candidates) == 1
     assert not mem.remember("empty kind", [c for c in first.candidates if c.use == "skip"])

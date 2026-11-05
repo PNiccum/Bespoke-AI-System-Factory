@@ -149,7 +149,7 @@ class Scout:
             out = Proposal()
         if not out.queries:
             out.queries = [keywords(task)] if keywords(task) else []
-        out.kind = " ".join(out.kind.split())[:60] or keywords(task, 4)
+        out.kind = " ".join(out.kind.split())[:60]  # empty when the model gave none: then nothing is recalled or saved
         return out
 
     def run(self, task: str, plan: str) -> ReuseResult:
@@ -167,7 +167,7 @@ class Scout:
                     why="in the standard library, so the sandbox has it", fetched=fetched))
         have = sandbox_packages()
         result.kind = prop.kind
-        if self.memory and (page := self.memory.recall(prop.kind)):
+        if self.memory and (page := self._safe(self.memory.recall, prop.kind, result)):
             for c in page.candidates:  # what an earlier run found: the lookups below are skipped
                 if f"{c.kind}:{c.name.lower()}" in seen:
                     continue
@@ -177,7 +177,8 @@ class Scout:
                                              else "reference"})
                 result.candidates.append(c.model_copy(update={"why": f"remembered for '{page.kind}': {c.why}"}))
             result.recalled = True
-            self.memory.touch(page, self.project)
+            result.queries = prop.queries[:MAX_QUERIES]  # what this run would have searched, for the record
+            self._safe(self.memory.touch, page, result, self.project)
             return self._order(result)
         for name in prop.packages[:MAX_PACKAGES]:
             try:
@@ -204,8 +205,17 @@ class Scout:
                 result.candidates.append(self._repo_candidate(r, stamp, fetched))
         result = self._order(result)
         if self.memory:
-            self.memory.remember(prop.kind, result.candidates, self.project)
+            self._safe(self.memory.remember, prop.kind, result, result.candidates, self.project)
         return result
+
+    @staticmethod
+    def _safe(call, arg, result: ReuseResult, *more):
+        """Memory is an extra: a failure there is recorded and the scout searches as if it had no memory."""
+        try:
+            return call(arg, *more)
+        except Exception as e:  # noqa: BLE001
+            result.errors.append(f"reuse memory: {type(e).__name__}: {str(e)[:120]}")
+            return None
 
     @staticmethod
     def _order(result: ReuseResult) -> ReuseResult:
