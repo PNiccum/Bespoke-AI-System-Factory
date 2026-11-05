@@ -101,9 +101,14 @@ def test_classify_is_deterministic_and_bio_wins_a_tie():
     assert classify("Fix the failing test in this repository") == "code"
     assert classify("Hello") == "other"
     assert classify("protein csv") == "bio"  # one hint each: bio wins the tie
-    assert classify("a general internal client with a different report") == "text"  # gene/rna/cli/diff: no match
+    assert classify("a general internal client with a different summary") == "text"  # gene/rna/cli/diff: no match
     assert classify("a general internal client, suitable and different") == "other"
     assert classify("proteomics of the proteome") == "bio"  # stem hints match word starts
+    # generic words do not count: a bio request that mentions a report and a document several times stays bio
+    mixed = ("Write a report on the protein list: the report should document each gene in a table, and the "
+             "document must profile every function of the module")
+    assert classify(mixed) == "bio"
+    assert classify("write a report that documents the functions in a table") == "other"
 
 
 def test_a_project_without_a_tag_is_classified_from_its_task_text(tmp_path):
@@ -148,3 +153,13 @@ def test_time_lost_counts_cut_offs_and_failures():
     t = inspect.time_lost(calls)
     assert t == {"model_seconds": 40.0, "lost_seconds": 30.0, "lost_share": 0.75, "cut_off": 1, "refused": 0,
                  "failed_calls": 2, "fallbacks": 1}
+
+
+def test_a_budget_deferred_topic_is_recorded_once(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_RESEARCHED", 1)
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 1)
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics("Primer3 settings", "Salt correction"), queries(), review(1, 2),
+                            draft(1, 2), check(True))
+    kl.run()
+    salt = [e for e in events_of(kl) if "topic:Salt correction" in e.refs]
+    assert len(salt) == 1 and salt[0].message.startswith("topic deferred: research budget")

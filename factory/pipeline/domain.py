@@ -15,19 +15,19 @@ from factory.pipeline.blackboard import Project
 DOMAINS = ("bio", "data", "text", "code", "other")
 
 # A hint matches a whole word (``gene`` never matches "general"); a hint ending in ``*`` matches a word that starts
-# with it (``proteom*`` matches proteomics and proteome). A word belongs to one domain only.
+# with it (``proteom*`` matches proteomics and proteome). A word belongs to one domain only, and only words that
+# name the subject count: "report", "document", "table", "function" or "module" appear in requests of every kind,
+# so they are left out rather than letting one generic word decide the tag.
 HINTS: dict[str, tuple[str, ...]] = {
     "bio": ("protein*", "proteom*", "gene", "genes", "genom*", "primer*", "pcr", "rna", "mrna", "dna", "sequence*",
             "uniprot", "ncbi", "pubmed", "pmc", "cell line*", "mcf7", "assay*", "enzyme*", "antibod*", "clinical",
             "drug*", "chembl", "open targets", "pathway*", "ontology", "biolog*", "peptide*", "serum", "refseq"),
-    "data": ("csv", "dataframe*", "spreadsheet*", "table", "tables", "column", "columns", "dataset*", "statistic*",
-             "profile", "aggregate*", "pivot", "dedup*", "log file*", "logs", "metric*", "anomal*", "time series",
-             "parquet", "null*"),
-    "text": ("summar*", "article*", "document*", "report*", "citation*", "literature", "openalex", "abstract*",
-             "essay*", "transcript*", "translat*", "classif*", "sentiment", "claims", "wiki"),
+    "data": ("csv", "dataframe*", "spreadsheet*", "dataset*", "statistic*", "aggregate*", "pivot", "dedup*",
+             "log file*", "logs", "metric*", "anomal*", "time series", "parquet", "null*", "tsv", "excel"),
+    "text": ("summar*", "article*", "citation*", "literature", "openalex", "abstract*", "essay*", "transcript*",
+             "translat*", "classif*", "sentiment", "claims", "wiki"),
     "code": ("bug", "bugs", "patch", "pull request*", "diff", "refactor*", "unit test*", "pytest", "repositor*",
-             "repo", "function*", "module*", "library", "api client", "cli", "failing test*", "stack trace",
-             "exception*"),
+             "repo", "api client", "cli", "failing test*", "stack trace", "exception*", "traceback"),
 }
 _PATTERNS = {d: re.compile("|".join(rf"\b{re.escape(h[:-1])}\w*" if h.endswith("*") else rf"\b{re.escape(h)}\b"
                                     for h in hints)) for d, hints in HINTS.items()}

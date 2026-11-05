@@ -421,6 +421,8 @@ class KnowledgeLoop:
             self.events.record("knowledge", "knowledge loop stopped: topic still has no verified page",
                                stage="knowledge gate", refs=[f"topic:{n}"])
         for n in deferred:
+            if n in over_budget:  # already recorded as "topic deferred: research budget" when it was skipped
+                continue
             self.events.record("knowledge", "topic left to the critic loop without a page", stage="knowledge gate",
                                severity="warning", refs=[f"topic:{n}"])
         ok = not missing
