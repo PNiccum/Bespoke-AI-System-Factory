@@ -490,7 +490,7 @@ class CutFirstBuild(Scripted):
         if first_build and not getattr(self, "cut", False):
             self.cut = True
             self.requests.append(req)
-            return RawResult(f"=== FILE: primer.py ===\n{CODE}=== END FILE ===\n=== FILE: util.py ===\nx = (",
+            return RawResult(f"=== FILE: output/primer.py ===\n{CODE}=== END FILE ===\n=== FILE: util.py ===\nx = (",
                              "", "max_tokens", Usage(500, 200))
         return super().complete(req)
 
@@ -506,6 +506,7 @@ def test_a_cut_off_build_keeps_its_finished_files_and_says_so_on_the_board(cfg, 
                                          orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
     Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
     out = project.root / "output"
+    assert llm.providers["arc"].cut  # the double really cut a builder reply
     assert (out / "primer.py").read_text() == CODE and (out / "util.py").read_text() == "X = 1\n"
     assert salvage_notes(project) == [{"order": "T1.1", "salvaged": ["primer.py"],
                                        "text": "cut-off builder reply: finished files kept and written"}]
@@ -516,9 +517,20 @@ def test_kept_files_are_not_reported_as_written_when_the_retry_fails(cfg, tmp_pa
     llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), "no blocks", "still none",
                                          orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
     Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert llm.providers["arc"].cut
     assert not (project.root / "output" / "primer.py").exists() and salvage_notes(project) == []
     failed = project.board.entries("build")[0].data
     assert failed["written"] == [] and failed["failed"] and failed["salvaged"] == ["primer.py"]
+
+
+def test_a_kept_file_the_retry_writes_again_is_not_counted_as_saved(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    again = "=== FILE: primer.py ===\nX = 2\n=== END FILE ===\n=== FILE: util.py ===\nX = 1\n=== END FILE ==="
+    llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), again,
+                                         orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert llm.providers["arc"].cut and salvage_notes(project) == []
+    assert (project.root / "output" / "primer.py").read_text() == "X = 2\n"
 
 
 def test_a_build_that_is_not_cut_off_leaves_no_salvage_note(cfg, tmp_path):

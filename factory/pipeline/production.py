@@ -202,6 +202,11 @@ class FileSalvage:
 
     def __init__(self):
         self.files: dict[str, str] = {}
+        self.rewritten: set[str] = set()  # kept files the retry wrote again anyway: not saved work
+
+    def kept(self) -> list[str]:
+        """Kept files the retry did not replace, as output-relative paths (the way ``_write`` names them)."""
+        return sorted({_out_rel(p) for p in self.files if p not in self.rewritten})
 
     def keep(self, partial: str) -> str | None:
         for path, body in FILE_BLOCK.findall(partial):
@@ -211,8 +216,10 @@ class FileSalvage:
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
 
     def merge(self, data: dict) -> dict:
-        new = {f["path"]: f["content"] for f in data.get("files", [])}
-        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
+        new = {_out_rel(f["path"]): f["content"] for f in data.get("files", [])}
+        self.rewritten = {p for p in self.files if _out_rel(p) in new}
+        kept = {_out_rel(p): c for p, c in self.files.items()}
+        files = [{"path": p, "content": c} for p, c in {**kept, **new}.items()]
         return {**data, "files": files}
 
 
@@ -326,13 +333,13 @@ class Production:
             # files kept from a cut-off reply are not written when the retry fails; "salvaged" says what was lost
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": "",
-                                               **({"salvaged": sorted(salvage.files)} if salvage.files else {})},
+                                               **({"salvaged": salvage.kept()} if salvage.files else {})},
                             refs=[ref])
             return
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
             written = self._write(built, order, ref)
         # kept files that reached disk, recorded so live runs can count the salvage (llm_calls.jsonl has no prompts)
-        if kept := sorted(set(salvage.files) & set(written)):
+        if kept := sorted(set(salvage.kept()) & set(written)):
             self.board.post("note", "code", {"order": order.id, "salvaged": kept,
                                              "text": "cut-off builder reply: finished files kept and written"},
                             refs=[ref])
@@ -340,7 +347,7 @@ class Production:
     def _write(self, built: Built, order: WorkOrder, ref: str) -> list[str]:
         written, refused = [], []
         for f in built.files:
-            rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
+            rel = _out_rel(f.path)
             if len(self.files()) >= MAX_FILES and rel not in self.files():
                 refused.append(f"{rel}: more than {MAX_FILES} files")
             elif len(f.content) > MAX_FILE_CHARS:
@@ -464,6 +471,11 @@ def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:
         level.append(1 + max((level[i] for i in range(j) if touches & {_rel(p) for p in orders[i].write}
                               or writes & {_rel(p) for p in orders[i].read}), default=-1))
     return [[o for o, lv in zip(orders, level, strict=True) if lv == n] for n in range(max(level, default=-1) + 1)]
+
+
+def _out_rel(path: str) -> str:
+    """A path the builder gave, relative to output/ (the builder may or may not prefix it)."""
+    return path.removeprefix(f"{OUTPUT}/").lstrip("/")
 
 
 def _rel(path: str) -> str:
