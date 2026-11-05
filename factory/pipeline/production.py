@@ -36,6 +36,9 @@ from factory.tools.sandbox import RunTestsIn, run_tests
 HEAD, SUB, BUILDER = "head_orchestrator", "sub_orchestrator", "builder"
 # 60 files: the 2026-11-03 primer build hit 30 with core modules unwritten (part of the 30 was a stale tree)
 MAX_FILES, MAX_ORDERS, MAX_FILE_CHARS, MAX_READ_CHARS = 60, 6, 60_000, 12_000
+# Files one builder reply may write. In the Nov 2-4 runs 12 builder replies on GLM hit max_tokens and threw away
+# 180 min; each had been asked for a whole task's worth of files at once. A larger order is split in code.
+MAX_ORDER_FILES = 3
 BUILD_WORKERS = 3  # independent work orders of one task built at once
 OUTPUT = "output"
 SETUP_FAILURE = re.compile(r"(ModuleNotFoundError|ImportError)[^\n]{0,160}")
@@ -132,7 +135,8 @@ ORDERS_PROMPT = """Break this task into work orders for builders. Each order wri
 {files}
 
 Reply with JSON only: {{"orders": [{{"id": "{task_id}.1", "write": ["<path>"], "read": ["<existing path>"], \
-"instructions": "<what the files must do, precisely>"}}]}}, at most {max_orders} orders.
+"instructions": "<what the files must do, precisely>"}}]}}, at most {max_orders} orders, each writing at most \
+{max_files} files (a long file gets an order of its own).
 Keep each order small enough to write in one reply: at most two files, each under about 300 lines. Split a large \
 test suite into several test files, one order each."""
 
@@ -240,7 +244,9 @@ class Production:
             orders = self._call(SUB, ORDERS_PROMPT.format(design=design.model_dump_json(indent=1),
                                                           task_json=t.model_dump_json(indent=1), task_id=t.id,
                                                           files="\n".join(self.files()) or "(none yet)",
-                                                          max_orders=MAX_ORDERS), Orders, f"orders-{t.id}")
+                                                          max_orders=MAX_ORDERS, max_files=MAX_ORDER_FILES), Orders,
+                                f"orders-{t.id}")
+            orders.orders = split_orders(orders.orders)
             o = self.board.post("orders", SUB, {"task": t.id, "orders": [x.model_dump() for x in orders.orders]},
                                 refs=[d.id])
             for wave in order_waves(orders.orders[:MAX_ORDERS]):
@@ -330,6 +336,22 @@ class Production:
         return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
                       passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
                       setup_error=setup)
+
+
+def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:
+    """Orders that write more than ``limit`` files, split into parts (T2.1a, T2.1b, ...) with the same reads and
+    instructions; a later part reads what the earlier parts write, so the waves keep them in order."""
+    out = []
+    for o in orders:
+        if len(o.write) <= limit:
+            out.append(o)
+            continue
+        chunks = [o.write[i:i + limit] for i in range(0, len(o.write), limit)]
+        for n, chunk in enumerate(chunks):
+            earlier = [w for c in chunks[:n] for w in c]
+            out.append(o.model_copy(update={"id": f"{o.id}{chr(ord('a') + n)}", "write": chunk,
+                                            "read": [*o.read, *(w for w in earlier if w not in o.read)]}))
+    return out
 
 
 def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:

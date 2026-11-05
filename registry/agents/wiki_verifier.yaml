@@ -1,7 +1,7 @@
 name: wiki_verifier
 description: Checks each wiki page against its source documents before it can count as knowledge.
 kind: llm
-role: plan_critic
+role: wiki_verifier
 capabilities: [verify_wiki]
 domains: [any]
 risk: low
