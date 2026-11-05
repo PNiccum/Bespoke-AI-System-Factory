@@ -436,3 +436,27 @@ def test_a_resumed_build_starts_at_the_critic_on_the_earlier_builds_files(cfg, t
     assert project.board.latest("note").data["resumed"] == len(files) or any(
         e.data.get("resumed") for e in project.board.entries("note"))
     assert not llm.providers["arc"].texts  # every scripted reply was used: the critic and QA ran, nothing else
+
+
+def test_a_cut_off_build_keeps_its_finished_files_and_says_so_on_the_board(cfg, tmp_path):
+    from factory.llm import Usage
+    from factory.llm.providers import RawResult
+
+    class CutOnce(Scripted):
+        def complete(self, req):
+            if len(self.requests) == 2:  # the first builder reply: one file finished, the next cut off
+                self.requests.append(req)
+                return RawResult(f"=== FILE: primer.py ===\n{CODE}=== END FILE ===\n=== FILE: util.py ===\nx = (",
+                                 "", "max_tokens", Usage(500, 200))
+            return super().complete(req)
+
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = CutOnce(design(), orders("T1", "primer.py", "util.py"),
+                                   "=== FILE: util.py ===\nX = 1\n=== END FILE ===\nNOTES: rest",
+                                   orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    out = project.root / "output"
+    assert (out / "primer.py").read_text() == CODE and (out / "util.py").read_text() == "X = 1\n"
+    notes = [e.data for e in project.board.entries("note") if "salvaged" in e.data]
+    assert notes == [{"order": "T1.1", "salvaged": ["primer.py"],
+                      "text": "cut-off builder reply: finished files kept, retry asked only for the rest"}]

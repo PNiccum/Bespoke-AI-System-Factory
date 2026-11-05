@@ -314,16 +314,22 @@ class Production:
             path = (self.out / rel).resolve()
             if path.is_relative_to(self.out.resolve()) and path.is_file():
                 reads.append(f"### {rel}\n```\n{path.read_text(errors='replace', encoding='utf-8')[:MAX_READ_CHARS]}\n```")
+        salvage = FileSalvage()
         try:
             built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                             order=order.model_dump_json(indent=1), wiki=wiki,
                                                             reads="\n\n".join(reads) or "(none)"), Built,
                                f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
-                               salvage=FileSalvage())
+                               salvage=salvage)
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": ""}, refs=[ref])
             return
+        finally:
+            if salvage.files:  # a cut-off reply's finished files were kept: recorded so live runs can count it
+                self.board.post("note", "code", {"order": order.id, "salvaged": sorted(salvage.files),
+                                                 "text": "cut-off builder reply: finished files kept, retry asked "
+                                                         "only for the rest"}, refs=[ref])
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
             self._write(built, order, ref)
 
