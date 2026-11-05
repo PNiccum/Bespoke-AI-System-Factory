@@ -205,7 +205,7 @@ def test_noted_weaknesses_survive_a_repair_round_and_add_what_the_repair_left_no
     two = json.dumps({"weaknesses": ["no subtasks", "extra step"], "plan_b": PLAN_B})
     a = json.dumps({"open": [{"id": "W1", "why": "x", "blocks": True}, {"id": "W2", "why": "y", "blocks": False}]})
     repaired = json.dumps({"open": [{"id": "W1", "why": "z", "blocks": False}]})
-    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), a, recheck("W1"), vote("A"), vote("A"),
+    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), a, a, vote("A"), vote("A"),
                     json.dumps({**PLAN, "title": "repaired"}), repaired)
     out = pl.run()
     assert out.winner == "A" and out.problems == []
