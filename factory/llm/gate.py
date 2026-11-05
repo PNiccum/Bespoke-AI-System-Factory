@@ -168,6 +168,8 @@ class SpendLedger:
         try:
             held = json.loads(self.reserved_path.read_text(encoding="utf-8"))
             now = time.time()
+            for v in held.values():
+                v["provider"], v["usd"], v["at"]  # a malformed entry raises KeyError here, below, as unreadable
             return {k: v for k, v in held.items() if now - v["at"] < v.get("ttl", RESERVATION_TTL_S)}
         except FileNotFoundError:
             return {}

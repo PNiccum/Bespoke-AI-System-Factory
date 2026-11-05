@@ -245,6 +245,7 @@ def test_a_settle_failure_after_a_paid_call_is_logged_with_its_cost(cfg, tmp_pat
     lost = [l for l in lines if l.get("event") == "spend_unrecorded"]
     assert lost and lost[0]["real_usd"] > 0
     assert llm.ledger.held_usd == 0.0
+    assert len(llm.spend._read_reserved()) == 1  # the shared hold stays (until its TTL): the cost is on no book
 
 
 def test_settle_records_spend_before_dropping_the_hold(tmp_path, monkeypatch):
@@ -310,3 +311,10 @@ def test_replace_and_read_retry_when_windows_has_the_file_open(tmp_path, monkeyp
     monkeypatch.setattr("factory.llm.gate.os.replace", flaky)
     ledger.add("claude", 0.5)
     assert calls["n"] == 3 and ledger.spent["claude"] == pytest.approx(0.5)
+
+
+def test_a_malformed_reservation_entry_fails_closed(tmp_path):
+    ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 5.0}, reserve_usd=0.0))
+    ledger.reserved_path.write_text(json.dumps({"x": {"at": 1e12}}))
+    with pytest.raises(BudgetExceeded, match="unreadable"):
+        ledger.check("claude")

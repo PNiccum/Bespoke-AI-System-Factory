@@ -140,7 +140,7 @@ class _Hold:
     """An upper-bound estimate held on the shared credit (``rid``) and the run's cap while a paid call is in flight."""
     rid: str
     left: float
-    settled: bool = False  # the shared reservation is already gone
+    settled: bool = False  # leave the shared reservation alone: it is gone, or must stay to cover an unrecorded cost
 
 
 class LLM:
@@ -418,6 +418,8 @@ class LLM:
         except Exception as e:
             self._log(event="spend_unrecorded", role=role, provider=provider, real_usd=round(real, 6),
                       error=f"{type(e).__name__}: {e}"[:300])
+            if hold:
+                hold.settled = True  # fail closed: the cost is on no book, so the shared hold stays until its TTL
             self.events.record("llm", f"{tag or role}: ${real:.4f} was spent on {provider} but could not be written "
                                f"to the spend ledger: {type(e).__name__}: {e}"[:400], stage=tag or role)
             raise
