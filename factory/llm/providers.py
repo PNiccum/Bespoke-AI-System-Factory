@@ -47,6 +47,7 @@ class Request:
     effort: str | None = None
     params: dict = field(default_factory=dict)
     tools: list[dict] | None = None  # Anthropic tool schemas: {name, description, input_schema}
+    tag: str = ""  # the calling stage; not part of as_dict, so it never changes a cache key. Replays match on it.
 
     def as_dict(self) -> dict:
         d = {"model": self.model, "messages": self.messages, "max_tokens": self.max_tokens,

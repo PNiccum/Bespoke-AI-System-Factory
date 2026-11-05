@@ -204,14 +204,14 @@ class LLM:
             raise DataScopeError(f"role {role!r} uses {rc.provider!r}, which may only receive public data, "
                                  f"and this config does not declare its inputs public (data_public)")
         req = Request(model=rc.model, messages=messages, max_tokens=max_tokens or rc.max_tokens, system=system,
-                      effort=rc.effort, params=rc.params, tools=tools)
+                      effort=rc.effort, params=rc.params, tools=tools, tag=tag)
         key = request_key({"provider": rc.provider, **req.as_dict()})
 
         if self.cache and (hit := self.cache.get(key)):
             raw = RawResult(hit["text"], hit["thinking"], hit["stop_reason"], Usage(**hit["usage"]),
                             hit.get("tool_calls", []))
             self.ledger.add(0.0, 0.0, 0, cached=True)
-            self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, cached=True)
+            self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, cached=True, prompt_sha256=key)
             return Completion(role, rc.model, raw.text, raw.thinking, raw.stop_reason, raw.usage, 0.0, 0.0, 0.0, True,
                               raw.tool_calls)
 
@@ -278,7 +278,8 @@ class LLM:
                 raw = RawResult(hit["text"], hit["thinking"], hit["stop_reason"], Usage(**hit["usage"]),
                                 hit.get("tool_calls", []))
                 self.ledger.add(0.0, 0.0, 0, cached=True)
-                self._log(tag=it.get("tag", ""), role=role, model=rc.model, provider=rc.provider, cached=True)
+                self._log(tag=it.get("tag", ""), role=role, model=rc.model, provider=rc.provider, cached=True,
+                          prompt_sha256=key)
                 out[i] = Completion(role, rc.model, raw.text, raw.thinking, raw.stop_reason, raw.usage, 0.0, 0.0,
                                     0.0, True, raw.tool_calls)
             else:
