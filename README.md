@@ -136,7 +136,9 @@ the PyPI JSON and the GitHub search API (an invented name is dropped), then appl
 release or push in the last three years, and whether the sandbox can import it. Importable means the standard library,
 the pinned set in `sandbox/requirements.txt` (numpy, pandas, scipy, requests, pyyaml, openpyxl, biopython, pydantic),
 and anything in `ASPIRE_SANDBOX_PACKAGES`. In the default `process` sandbox the tests run in the factory's own Python,
-so a listed package counts only if it is installed there; in a container the list is the truth (rebuild the image after
+so a listed package counts only if it is installed there (any version: the check looks for the module, so install
+only the missing ones, for example `pip install scipy biopython`, and never `pip install -r` into the factory's venv,
+which would downgrade its own packages to the image pins); in a container the list is the truth (rebuild the image after
 changing it). Everything else is a reference to follow, not import; for the top three reference repositories code also
 reads the README and file list. The result, with URLs and fetch dates, is `reuse.json`; the evaluator sees it, the head
 orchestrator records what it adopts, and the checks block an import the sandbox cannot satisfy (`ASPIRE_SCOUT=0` turns
