@@ -216,6 +216,10 @@ class FileSalvage:
             return None
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
 
+    def discard(self) -> None:
+        """Forget the kept pieces: a reply that was not told about them (the paid rescue) replaces them all."""
+        self.files, self.rewritten = {}, set()
+
     def merge(self, data):
         """The retry's data with the kept files added. A reply in an unexpected shape is returned as it is, so model
         validation rejects it and the usual retry follows (an exception here would end the run)."""
@@ -344,8 +348,8 @@ class Production:
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
             written = self._write(built, order, ref)
         # kept files that reached disk, recorded so live runs can count the salvage (llm_calls.jsonl has no prompts)
-        kept = [p for p in salvage.kept() if p in written
-                and (self.out / p).read_text(encoding="utf-8") == salvage.files[p]]  # the kept text is what landed
+        sent = {_rel(f.path): f.content for f in built.files}
+        kept = [p for p in salvage.kept() if p in written and sent.get(p) == salvage.files[p]]  # kept text was written
         if kept:
             self.board.post("note", "code", {"order": order.id, "salvaged": kept,
                                              "text": "cut-off builder reply: finished files kept and written"},
@@ -482,7 +486,7 @@ def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:
 
 def _rel(path: str) -> str:
     """A path a model gave, relative to output/ (it may or may not be prefixed, or padded with spaces)."""
-    return path.strip().removeprefix("./").removeprefix(f"{OUTPUT}/").lstrip("/")
+    return path.strip().removeprefix(f"{OUTPUT}/").lstrip("/")
 
 
 def _license(pages: list[WikiPage]) -> str:

@@ -544,20 +544,21 @@ def test_a_paid_rescue_that_rewrites_kept_files_is_not_counted_as_salvage(cfg, t
     assert salvage_notes(project) == [] and (project.root / "output" / "primer.py").read_text() == "X = 2\n"
 
 
-def test_a_paid_rescue_that_writes_only_the_rest_counts_the_kept_file(cfg, tmp_path):
+def test_a_paid_rescue_replaces_the_kept_files_instead_of_merging_them(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)  # approve_all on a scripted provider: no real spend
     llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), "no blocks", "still none",
                                          orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
     llm.providers["openai"] = Scripted("=== FILE: util.py ===\nX = 1\n=== END FILE ===")
     Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
-    assert llm.providers["arc"].cut and (project.root / "output" / "primer.py").read_text() == CODE
-    assert [n["salvaged"] for n in salvage_notes(project)] == [["primer.py"]]
+    # the rescue never saw the kept primer.py, so its reply stands alone: nothing kept is written or counted
+    assert llm.providers["arc"].cut and not (project.root / "output" / "primer.py").exists()
+    assert salvage_notes(project) == []
 
 
 def test_salvage_merge_leaves_a_malformed_reply_for_validation_to_reject():
     from factory.pipeline.production import FileSalvage
     sv = FileSalvage()
-    sv.keep("=== FILE: ./output/a.py ===\nA = 1\n=== END FILE ===\n")
+    sv.keep("=== FILE: output/a.py ===\nA = 1\n=== END FILE ===\n")
     assert list(sv.files) == ["a.py"]
     for bad in ([1, 2], {"files": "x"}, {"other": 1}):
         assert sv.merge(bad) == bad  # no exception: validation fails and the retry loop carries on
