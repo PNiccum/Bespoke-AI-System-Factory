@@ -28,3 +28,4 @@ exports/
 # benchmark results (copy the summary you want to keep into docs/)
 bench/results/
 .coverage
+deploy/server/queue.yaml

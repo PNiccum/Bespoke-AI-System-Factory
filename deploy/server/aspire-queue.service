@@ -1,0 +1,18 @@
+# systemd USER unit (no root). Installed by setup.sh. Start: systemctl --user start aspire-queue
+# Survive logout: loginctl enable-linger $USER   (an admin may need to allow it)
+[Unit]
+Description=ASPIRE run queue (free ARC models)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__ROOT__
+ExecStart=__ROOT__/.venv/bin/python deploy/server/queue_runner.py deploy/server/queue.yaml
+# Finished jobs are skipped on restart, so a reboot resumes the queue.
+Restart=on-failure
+RestartSec=60
+# Paid-model keys are not read from the unit; .env is read by the runner, which strips them for private jobs.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
