@@ -282,15 +282,19 @@ class ReferenceDocs(CachedAPI):
         scored = sorted(((len(want & words(f"{title} {about}")), key, title, url)
                          for key, title, url, about in DOCS_CATALOG), reverse=True)
         docs = []
+        self.skipped = []  # pages passed over in this search and why, for the caller's event log
         for score, key, title, url in scored[:n]:
             if score == 0:
                 break
             accept = "application/json" if url.startswith(JSON_HELP) else "text/html"
             try:  # one page that errors skips itself: on 2026-11-04 a 406 from one entry emptied 25 of 32 searches
                 text = readable(self.get_text(url, accept=accept))
-            except httpx.HTTPError:
+            except httpx.HTTPError as e:
+                self.skipped.append(f"{key}: {type(e).__name__}: {str(e)[:120]}")
                 continue
-            if not looks_blocked(text):
+            if looks_blocked(text):
+                self.skipped.append(f"{key}: blocked or stub page ({len(text)} chars)")
+            else:
                 docs.append(Doc(id=f"docs:{key}", connector="docs", title=title, url=url,
                                 text=best_window(text, query, MAX_TEXT), citation=f"{title}. {url}"))
         return docs

@@ -122,7 +122,8 @@ class Interview:
     def start(self, request: str) -> Entry:
         if self.board.entries():
             raise RuntimeError("this project already has a conversation")
-        self.board.post("request", "person", {"text": request})
+        from factory.pipeline.domain import classify
+        self.board.post("request", "person", {"text": request, "domain": classify(request)})
         return self._next()
 
     def reply(self, text: str) -> Entry:

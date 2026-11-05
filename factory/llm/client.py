@@ -418,6 +418,7 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
         except TruncatedError as e:
             errors.append(str(e))
+            events.record("llm", f"{tag}: reply cut off at max_tokens", stage=tag, severity="warning")
             cut_off = True
         except (ValueError, ValidationError) as e:
             errors.append(f"{type(e).__name__}: {str(e)[:200]}")

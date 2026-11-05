@@ -26,6 +26,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, model_validator
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
@@ -329,7 +330,9 @@ class Production:
                     errors[rel] = f"line {e.lineno}: {e.msg}"
         has_tests = any(r.startswith("tests/") and r.endswith(".py") for r in self.files())
         if not has_tests:
-            return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            checks = Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            self._record_checks(checks)
+            return checks
         # a src layout imports without an install: pytest gets src/ (and the root) on its path
         paths = ["src", "."] if (self.out / "src").is_dir() else ["."]
         report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300, pythonpath=paths))  # throwaway copy
@@ -340,10 +343,27 @@ class Production:
         if not report.passed and not report.failed and m:
             setup = (f"the tests could not be imported ({m.group(0)}): fix the package layout or imports so that "
                      f"`pytest` run inside {OUTPUT}/ with {' and '.join(paths)} on the path can import them")
-        return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
-                      passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
-                      reasons=report.reasons,
-                      setup_error=setup)
+        checks = Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
+                        passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
+                        reasons=report.reasons, setup_error=setup)
+        self._record_checks(checks, timed_out=report.timed_out)
+        return checks
+
+    def _record_checks(self, checks: Checks, timed_out: bool = False) -> None:
+        """The plain-code checks as events: each kind of failure is one open event until a later check passes."""
+        events = log_of(self.llm)
+        if checks.ok:
+            events.resolve_open("a later plain-code check passed", source="checks")
+            return
+        if timed_out:
+            events.record("checks", "the test run timed out in the sandbox", stage="checks")
+        elif checks.setup_error:
+            events.record("checks", f"tests could not be imported: {checks.setup_error[:200]}", stage="checks")
+        for rel, why in checks.syntax_errors.items():
+            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning")
+        if checks.tests_ok is False and not checks.setup_error and not timed_out:
+            events.record("checks", f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}",
+                          stage="checks", severity="warning")
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:

@@ -39,6 +39,7 @@ class Event(BaseModel):
     id: str
     at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     run: str = ""
+    domain: str = ""  # the project's subject area, set once per project by code (factory/pipeline/domain.py)
     source: str  # llm | pipeline | qa | redesign | code: the part of the system that met it
     stage: str = ""
     severity: Severity = "error"
@@ -56,6 +57,7 @@ class EventLog:
     def __init__(self, path: Path, run: str = ""):
         self.path = path
         self.run = run or path.parent.name
+        self.domain = ""  # copied onto every event recorded from now on
         self._lock = threading.Lock()
 
     def _append(self, row: dict) -> None:
@@ -69,7 +71,7 @@ class EventLog:
         try:
             with self._lock:
                 n = sum(1 for _ in self._rows()) + 1  # ids count lines, so they stay unique with resolutions in
-            ev = Event(id=f"E{n:04d}", run=self.run, source=source, stage=stage, severity=severity,
+            ev = Event(id=f"E{n:04d}", run=self.run, domain=self.domain, source=source, stage=stage, severity=severity,
                        message=" ".join(str(message).split())[:600], fingerprint=fingerprint(source, stage, str(message)),
                        refs=list(refs))
             self._append({"type": "event", **ev.model_dump(exclude={"status", "how", "evidence", "corrected_at"})})
@@ -88,11 +90,13 @@ class EventLog:
         return len(todo)
 
     def resolve_open(self, how: str, evidence: list[str] | tuple[str, ...] = (), *, source: str | None = None,
-                     stage: str | None = None, since: str = "") -> int:
-        """Correct every open event matching, e.g. all the events of one stage once that stage went through."""
+                     stage: str | None = None, since: str = "", ref: str | None = None) -> int:
+        """Correct every open event matching, e.g. all the events of one stage once that stage went through, or
+        every event carrying one ref (a topic) once a verified page covers it."""
         return self.resolve([e.id for e in self.events()
                              if e.status == "open" and (source is None or e.source == source)
-                             and (stage is None or e.stage == stage) and e.at >= since], how, evidence)
+                             and (stage is None or e.stage == stage) and e.at >= since
+                             and (ref is None or ref in e.refs)], how, evidence)
 
     def _rows(self) -> Iterator[dict]:
         if not self.path.exists():
@@ -196,6 +200,20 @@ def meta_analysis(events: list[Event]) -> list[Group]:
                             how=sorted({e.how for e in es if e.how}), first_seen=es[0].at, last_seen=es[-1].at,
                             returned_after_fix=bool(later)))
     return sorted(groups, key=lambda g: (-g.count, g.fingerprint))
+
+
+def by_domain(events: list[Event]) -> list[dict]:
+    """Events per domain: how many, how many corrected, and the most frequent problem. "" is an untagged run."""
+    rows: dict[str, list[Event]] = {}
+    for e in events:
+        rows.setdefault(e.domain, []).append(e)
+    out = []
+    for d, es in sorted(rows.items()):
+        top = meta_analysis(es)[0]
+        out.append({"domain": d or "(untagged)", "runs": len({e.run for e in es}), "events": len(es),
+                    "corrected": sum(e.status == "corrected" for e in es), "open": sum(e.status == "open" for e in es),
+                    "most frequent": f"{top.stage}: {top.message[:100]} ({top.count}x)"})
+    return out
 
 
 def summary(events: list[Event]) -> dict:
