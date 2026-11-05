@@ -155,3 +155,40 @@ def test_the_meta_analysis_drops_unknown_fingerprints(cfg, tmp_path):
     llm = LLM(cfg, tmp_path / "h", use_cache=False, providers={"arc": Scripted(reply)})
     text = write_meta_history(llm, runs, tmp_path / "out" / "meta.md").read_text()
     assert "QA keeps failing" in text and "made up" not in text and "Corrected once, then came back" in text
+
+
+def seed_runs(base, spec):
+    """spec: {run name: [(message, corrected?)]}"""
+    for name, evs in spec.items():
+        (base / name).mkdir(parents=True, exist_ok=True)
+        log = EventLog(base / name / "events.jsonl", name)
+        for msg, fixed in evs:
+            i = log.record("llm", msg, stage="coder")
+            if fixed:
+                log.resolve(i, "retry")
+
+
+def test_an_error_open_in_three_runs_recurs(tmp_path):
+    from factory.events import recurring
+    seed_runs(tmp_path, {f"2026110{n}T000000Z": [("coder: unusable output: bad diff", False)] for n in range(1, 4)})
+    seed_runs(tmp_path, {"20261104T000000Z": [("rare", False)]})
+    got = recurring(tmp_path)
+    assert len(got) == 1 and len(got[0].runs) == 3 and got[0].stage == "coder" and got[0].window == 4
+
+
+def test_corrected_events_and_replays_do_not_count(tmp_path):
+    from factory.events import recurring
+    seed_runs(tmp_path, {f"2026110{n}T000000Z": [("timeout", True)] for n in range(1, 5)})
+    seed_runs(tmp_path, {f"2026110{n}T000000Z-replay-x": [("bad", False)] for n in range(5, 9)})
+    assert recurring(tmp_path) == []
+
+
+def test_only_the_newest_window_counts_and_a_case_resets_it(tmp_path):
+    from factory.events import recurring
+    seed_runs(tmp_path, {f"2026110{n}T000000Z": [("bad diff", False)] for n in range(1, 4)})
+    seed_runs(tmp_path, {f"202611{n}T000000Z": [] for n in range(10, 20)})  # ten clean runs after push them out of the window
+    assert recurring(tmp_path) == []
+    seed_runs(tmp_path, {f"2026110{n}T000000Z": [("bad diff", False)] for n in range(1, 4)})
+    fp = recurring(tmp_path, window=99)[0].fingerprint
+    assert recurring(tmp_path, window=99, since={fp: "20261102T000000Z"}) == []  # one run left after the case
+    assert recurring(tmp_path, window=99, min_runs=1, since={fp: "20261102T000000Z"})[0].runs == ["20261103T000000Z"]

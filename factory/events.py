@@ -198,6 +198,54 @@ def meta_analysis(events: list[Event]) -> list[Group]:
     return sorted(groups, key=lambda g: (-g.count, g.fingerprint))
 
 
+# Runs that are not builds: self-extension and replays write their own run folders (and their own events).
+NOT_BUILDS = ("-extend-", "-replay-")
+WINDOW = 10  # recurrence looks at this many of the newest runs
+MIN_RUNS = 3  # an open fingerprint in this many of them is a recurring error
+
+
+class Recurrence(BaseModel):
+    """One problem that is still open in several of the newest runs."""
+
+    fingerprint: str
+    source: str
+    stage: str
+    message: str
+    runs: list[str]  # the runs in the window where it is open, oldest first
+    window: int  # how many runs were looked at
+
+
+def recurring(base: Path, *, window: int = WINDOW, min_runs: int = MIN_RUNS,
+              since: dict[str, str] | None = None) -> list[Recurrence]:
+    """Open fingerprints that appear in at least ``min_runs`` of the newest ``window`` runs, most runs first.
+
+    Plain code, no model. Only *open* events count: one that code corrected (a retry, a fallback, a QA repair) is the
+    system working, not a problem. ``since`` maps a fingerprint to a run stamp (``YYYYmmddTHHMMSSZ``); runs at or
+    before it are ignored for that fingerprint, so a problem a re-design already took up must come back in
+    ``min_runs`` *later* runs before it is taken up again, which also shows whether the change held."""
+    if not base.is_dir():
+        return []
+    runs = sorted(d for d in base.iterdir() if d.is_dir() and not any(m in d.name for m in NOT_BUILDS))[-window:]
+    seen: dict[str, list[tuple[str, Event]]] = {}
+    for d in runs:
+        for e in EventLog(d / FILE, d.name).open_events():
+            seen.setdefault(e.fingerprint, []).append((d.name, e))
+    out = []
+    for fp, rows in seen.items():
+        after = (since or {}).get(fp, "")
+        names = sorted({name for name, _ in rows if name[:16] > after})
+        if len(names) >= min_runs:
+            first = next(e for name, e in rows if name == names[0])
+            out.append(Recurrence(fingerprint=fp, source=first.source, stage=first.stage, message=first.message,
+                                  runs=names, window=len(runs)))
+    return sorted(out, key=lambda r: (-len(r.runs), r.fingerprint))
+
+
+def event_count(run_dir: str | Path) -> int:
+    """How many events one run wrote (0 for a run with no log)."""
+    return len(EventLog(Path(run_dir) / FILE).events()) if str(run_dir) else 0
+
+
 def summary(events: list[Event]) -> dict:
     return {"events": len(events), "open": sum(e.status == "open" for e in events),
             "corrected": sum(e.status == "corrected" for e in events),
