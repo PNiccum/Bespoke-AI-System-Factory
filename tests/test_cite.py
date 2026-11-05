@@ -110,3 +110,22 @@ def test_wiki_index_log_and_lint(tmp_path):
     assert "lonely: links to missing page gone" in problems
     assert any(p.startswith("primer-tm: not verified") for p in problems)
     assert not any(p.startswith("pcr-basics: orphan") for p in problems)
+
+
+def test_a_sentence_that_restates_its_quote_needs_no_model_check():
+    from factory.pipeline.cite import needs_model_check, restates
+
+    texts = {"a:1": "Primers should have a Tm of 55-65 C. GC content of 40-60% gives stable binding."}
+    same = parse("Primers should have a Tm of 55-65 C. {{q:a:1|Primers should have a Tm of 55-65 C}}")
+    check(same, texts)
+    assert restates(same[0].sentences[0]) and not needs_model_check(same)
+    # a number, a negation or a real paraphrase is for the verifier
+    for body in ("Primers should have a Tm of 55-70 C. {{q:a:1|Primers should have a Tm of 55-65 C}}",
+                 "Primers should not have a Tm of 55-65 C. {{q:a:1|Primers should have a Tm of 55-65 C}}",
+                 "Melting temperature matters for primers. {{q:a:1|Primers should have a Tm of 55-65 C}}",
+                 "Primers should have a Tm of 55-65 C. {{q:a:1|Primers should have a Tm of 55-65 C}} "
+                 "So GC matters. {{inference}}"):
+        blocks = parse(body)
+        check(blocks, texts)
+        assert needs_model_check(blocks), body
+    assert quotes(same, only_doubtful=True) == ""
