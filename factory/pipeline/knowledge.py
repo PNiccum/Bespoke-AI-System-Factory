@@ -1,6 +1,7 @@
 """The knowledge loop: make sure the wiki holds what the plan needs before any work on the solution starts.
 
-1. The knowledge evaluator (gpt-oss) reads the task and the refined plan and lists the topics the work needs.
+1. The knowledge evaluator (gpt-oss) reads the task and the refined plan, and the SHOWN_PAGES wiki pages most relevant to
+   them, and lists the topics the work needs. The wiki is shared by every run and only grows.
 2. The librarian checks the wiki in plain code: a topic is covered by a verified page with enough sources.
 3. For each missing topic, the research orchestrator (GLM) writes searches; the researchers are plain-code
    connectors (sources.py), since searching an API needs no model. The orchestrator then approves or rejects each
@@ -21,7 +22,7 @@
 
 Stop rules: at most MAX_ROUNDS evaluations, MAX_TOPICS topics a round, RESEARCH_ROUNDS search rounds a topic plus
 GAP_SEARCHES after a rejected page,
-MAX_QUERIES searches a round, and the connectors' shared call budget. The result is ``knowledge.json``: which topics
+MAX_RESEARCHED topics researched in a run (extras are deferred to the critic loop), MAX_QUERIES searches a round, and the connectors' shared call budget. The result is ``knowledge.json``: which topics
 are covered, by which pages, and what is still missing.
 """
 
@@ -47,7 +48,9 @@ from factory.registry import Registry
 EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER = ("knowledge_evaluator", "research_orchestrator", "librarian",
                                                 "wiki_verifier")
 # MAX_ROUNDS evaluations, so at most MAX_ROUNDS - 1 research passes, each followed by a fresh evaluation
-MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 3, 6, 3, 3, 5
+MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 4, 6, 3, 3, 5
+MAX_RESEARCHED = 12  # topics researched in one run; the rest are left to the critic loop, so more rounds stay bounded
+SHOWN_PAGES = 40  # wiki pages the evaluator sees, the most relevant to the task
 GAP_SEARCHES = 1  # search rounds after a page fails its checks, aimed at what the verifier found unsupported
 RESEARCH_WORKERS = 4  # topics researched at once; ARC allows 20 requests in flight per user
 
@@ -281,11 +284,13 @@ class KnowledgeLoop:
         missing: list[str] = []
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
         deferred: list[str] = []
+        researched = 0
+        over_budget: list[str] = []  # topics left unresearched because the run's budget was spent
         dropped: dict[str, str] = {}
         decided: dict[str, str] = {}
         for rnd in range(1, MAX_ROUNDS + 1):
             if rnd == 1:  # only verified pages: one the verifier rejected must not count toward "enough"
-                pages = [p for p in self.wiki.pages() if p.verified][:40]
+                pages = self.wiki.relevant(f"{task}\n{plan}", SHOWN_PAGES)
                 again = ""
             else:
                 pages = [p for p in (self.wiki.find(t) for t in covered) if p]
@@ -320,14 +325,26 @@ class KnowledgeLoop:
             # 2026-11-03 primer run lost an unresearched topic by simply not naming it again
             missing = [t.name for t in topics if have[t.name] is None and t.name not in fresh]
             missing += [n for n in asked if n not in missing and n not in have and n not in dropped
-                        and n not in decided and n not in covered and self.wiki.covers(n) is None]
-            deferred = [n for n in fresh if have[n] is None]
+                        and n not in decided and n not in covered and n not in over_budget
+                        and self.wiki.covers(n) is None]
+            missing = [n for n in missing if n not in over_budget]
+            deferred = [*over_budget, *(n for n in fresh if have[n] is None and n not in over_budget)]
             covered |= {name: page.slug for name, page in have.items() if page}
             if needs.enough and not topics:  # approved on the pages shown, so those are what the builders get
                 covered |= {p.topic: p.slug for p in pages}
             self.board.post("coverage", LIBRARIAN, {"covered": {n: p.slug for n, p in have.items() if p},
                                                     "missing": missing, "deferred": deferred}, refs=[ev.id])
             todo = [t for t in topics if t.name in missing or t.name in deferred]
+            room = MAX_RESEARCHED - researched
+            if len(todo) > room:  # over the run's budget: the extra topics are left to the critic loop, not blocking
+                skipped = {t.name for t in todo[max(room, 0):]}
+                todo = todo[:max(room, 0)]
+                over_budget += sorted(skipped)
+                missing = [n for n in missing if n not in skipped]
+                deferred = [*deferred, *(n for n in sorted(skipped) if n not in deferred)]
+                self.board.post("note", "code", {"text": f"research budget of {MAX_RESEARCHED} topics reached; "
+                                                 f"deferred: {'; '.join(sorted(skipped))}"})
+            researched += len(todo)
             if not todo:  # nothing missing, or only earlier topics not named again: already researched, no new work
                 break
             for topic, page in zip(todo, self.research_many(todo), strict=True):

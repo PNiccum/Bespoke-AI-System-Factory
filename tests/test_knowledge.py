@@ -336,3 +336,41 @@ def test_the_docs_catalog_finds_a_manual_for_formats_the_project_tiers_needed():
     assert best("RefSeq NM_ XM_ accession prefix") == "refseq_release_notes"
     assert not any("ncbi.nlm.nih.gov/books/" in d[2] for d in DOCS_CATALOG)  # Bookshelf serves scripts a captcha
     assert len({d[0] for d in DOCS_CATALOG}) == len(DOCS_CATALOG)
+
+
+def test_the_evaluator_sees_the_wiki_pages_most_relevant_to_the_task_not_the_first_alphabetically(cfg, tmp_path,
+                                                                                                 monkeypatch):
+    monkeypatch.setattr(knowledge_module, "SHOWN_PAGES", 2)
+    wiki = Wiki(tmp_path / "wiki")
+    for topic, summary in [("Aardvark facts", "animals"), ("Zebra stripes", "animals"),
+                           ("PCR primer design", "primer melting temperature"),
+                           ("Primer3 settings", "primer design settings")]:
+        wiki.save(WikiPage(topic=topic, summary=summary, body="b", sources=["a", "b"], verified=True))
+    kl, arc, _, _ = knowledge(cfg, tmp_path, topics(enough=True), wiki=wiki)
+    task = (kl.project.root / "task.txt").read_text()
+    assert "primer" in task.lower()
+    kl.run()
+    shown = arc.requests[0].messages[-1]["content"]
+    assert "PCR primer design" in shown and "Primer3 settings" in shown
+    assert "Aardvark" not in shown and "Zebra" not in shown
+
+
+def test_relevant_ranks_by_overlap_and_skips_unverified(tmp_path):
+    wiki = Wiki(tmp_path / "wiki")
+    wiki.save(WikiPage(topic="Log parsing", summary="apache access log fields", body="b", sources=["a", "b"],
+                       verified=True))
+    wiki.save(WikiPage(topic="Apache logs unverified", summary="apache access log", body="b", sources=["a"]))
+    wiki.save(WikiPage(topic="Zzz", summary="unrelated", body="b", sources=["a", "b"], verified=True))
+    assert [p.topic for p in wiki.relevant("parse an apache access log", 5)] == ["Log parsing", "Zzz"]
+    assert [p.topic for p in wiki.relevant("parse an apache access log", 1)] == ["Log parsing"]
+
+
+def test_topics_over_the_run_budget_are_deferred_not_researched(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_RESEARCHED", 1)
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design", "Gel electrophoresis"), queries(),
+                                       review(1, 2), draft(1, 2), check(True), topics(enough=True))
+    result = kl.run()
+    assert result.ok and result.deferred == ["Gel electrophoresis"] and result.missing == []
+    assert result.covered == {"PCR primer design": "pcr-primer-design"} and arc.texts == []
+    assert wiki.get("Gel electrophoresis") is None
+    assert any("budget of 1 topics" in str(e.data) for e in project.board.entries("note"))

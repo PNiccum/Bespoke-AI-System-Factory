@@ -127,6 +127,18 @@ class Wiki:
                 out.append(f"{p.slug}: orphan (no links in or out)")
         return out
 
+    def relevant(self, text: str, limit: int = 40) -> list[WikiPage]:
+        """The verified pages most relevant to a text (a task and its plan), best first, at most ``limit``. A growing
+        wiki can hold more pages than fit in a prompt; listing the first 40 alphabetically hid the rest from the
+        knowledge evaluator. Ranked by the share of a page's topic and summary words that the text contains; ties
+        keep file order."""
+        want = words(text)
+        scored = []
+        for i, page in enumerate(p for p in self.pages() if p.verified):
+            have = words(f"{page.topic} {page.summary}")
+            scored.append((-len(want & have) / max(1, len(have)), i, page))
+        return [page for _, _, page in sorted(scored, key=lambda t: t[:2])[:limit]]
+
     def get(self, topic: str) -> WikiPage | None:
         path = self.root / f"{slugify(topic)}.json"
         with _LOCK:
