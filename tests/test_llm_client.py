@@ -292,3 +292,34 @@ def test_a_cut_off_reply_is_retried_with_a_request_for_a_shorter_one(cfg, tmp_pa
     out, _, errors = complete_validated(llm, "writer", "write it", "", Out, tag="t", data="public")
     assert out.a == 1 and len(errors) == 1
     assert "cut off at the output limit" in seen[1] and "much shorter" in seen[1]
+
+
+def test_a_stage_stops_at_its_token_ceiling_and_only_that_stage(cfg, tmp_path):
+    from factory.llm import StageCapReached
+    cfg.budget.stage_max_tokens = {"critic": 3000}
+    llm, p = make_llm(cfg, tmp_path, arc=[ok(f"r{i}") for i in range(8)])  # 1,500 tokens each
+    llm.complete("writer", "outside any stage 1")
+    llm.complete("writer", "outside any stage 2")
+    llm.complete("writer", "outside any stage 3")  # not counted: no stage
+    with llm.stage("critic"):
+        llm.complete("writer", "a")
+        llm.complete("writer", "b")
+        with pytest.raises(StageCapReached) as e:
+            llm.complete("writer", "c")
+    assert e.value.stage == "critic" and e.value.used == 3000 and p["arc"].calls == 5  # the refused call never ran
+    with llm.stage("critic"):  # a new entry starts from zero
+        llm.complete("writer", "d")
+    llm.complete("writer", "after")
+    assert llm.ledger.summary()["tokens_by_stage"] == {"critic": 4500}
+
+
+def test_a_stage_inside_a_stage_counts_toward_both(cfg, tmp_path):
+    from factory.llm import StageCapReached
+    cfg.budget.stage_max_tokens = {"critic": 3000, "research": 10000}
+    llm, _ = make_llm(cfg, tmp_path, arc=[ok(f"r{i}") for i in range(4)])
+    with llm.stage("critic"):
+        llm.complete("writer", "a")
+        with llm.stage("research"):
+            llm.complete("writer", "b")
+        with pytest.raises(StageCapReached):
+            llm.complete("writer", "c")

@@ -13,7 +13,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from factory.events import log_of
-from factory.llm import LLM, BudgetExceeded
+from factory.llm import LLM, BudgetExceeded, StageCapReached
 from factory.llm.gate import SpendDenied
 from factory.pipeline.blackboard import Project
 from factory.pipeline.critique import CriticLoop
@@ -62,26 +62,34 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
     for rnd in range(1, BUILD_ROUNDS + 1):
         try:
             on_stage(stage := f"production, round {rnd}")
-            checks = production.run(feedback)
+            with llm.stage("production"):
+                checks = production.run(feedback)
             on_stage(stage := "critic loop")
-            reviewed = critic.run(checks)
-            # final QA runs even when the critic escalates: its approval is gated in code on the checks passing,
-            # and a stalled critic is no reason to withhold a working result (2026-11-04: log_spikes passed 5/5
-            # acceptance tests but stopped after critic round 3 without QA)
+            with llm.stage("critic"):
+                reviewed = critic.run(checks)
+            # final QA runs even when the critic escalates or runs out of tokens: its approval is gated in code on the
+            # checks passing, and a stalled critic is no reason to withhold a working result (2026-11-04: log_spikes
+            # passed 5/5 acceptance tests but stopped after critic round 3 without QA)
             on_stage(stage := "final QA")
-            result = final.run(critic.shown_files())
-            if not result.approved:
-                events.record("qa", "final QA did not approve: " + "; ".join(result.issues)[:400], stage="final QA",
-                              severity="warning", refs=[f"round {rnd}"])
-            # QA rejects only after it has tried to repair: its findings go to the solver, then QA looks again
-            while not result.approved and repairs < REPAIRS * rnd:
-                on_stage(stage := "final QA repair")
-                if not critic.repair(result, rnd):
-                    break
-                repairs += 1
-                on_stage(stage := "final QA")
+            with llm.stage("qa"):
                 result = final.run(critic.shown_files())
-            if reviewed.redesign and not result.approved:
+                if not result.approved:
+                    events.record("qa", "final QA did not approve: " + "; ".join(result.issues)[:400], stage="final QA",
+                                  severity="warning", refs=[f"round {rnd}"])
+                # QA rejects only after it has tried to repair: its findings go to the solver, then QA looks again
+                try:
+                    while not result.approved and repairs < REPAIRS * rnd:
+                        on_stage(stage := "final QA repair")
+                        if not critic.repair(result, rnd):
+                            break
+                        repairs += 1
+                        on_stage(stage := "final QA")
+                        result = final.run(critic.shown_files())
+                except StageCapReached as e:  # QA's own ceiling: keep the last verdict, do not rebuild
+                    events.record("qa", f"QA repairs stopped early: {e}", stage="final QA repair", severity="warning",
+                                  refs=[f"round {rnd}"])
+                    reviewed.capped = True
+            if (reviewed.redesign or reviewed.capped) and not result.approved:
                 break
         except (SpendDenied, BudgetExceeded):
             raise  # a person said no to spending, or the cap was reached: stop, do not re-design
@@ -99,7 +107,12 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
     if not redesign:
         return BuildResult(status="stopped", final=result, rounds=rnd, repairs=repairs)
     on_stage("re-design")
-    rd = Redesign(llm, registry, project, research=knowledge.research).run()
+    try:
+        with llm.stage("redesign"):
+            rd = Redesign(llm, registry, project, research=knowledge.research).run()
+    except StageCapReached as e:  # its ceiling: report the failure as it stands, with no re-design report
+        events.record("pipeline", f"re-design stopped early: {e}", stage="re-design", severity="warning")
+        return BuildResult(status="redesign", final=result, rounds=rnd, repairs=repairs)
     adopted = [a for a in rd.prompt_changes if a.status == "adopted"]
     if adopted:  # an adopted change passed the scope, benchmark, panel and failure-replay gates for this very case
         for src in ("qa", "pipeline"):

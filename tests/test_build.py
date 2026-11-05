@@ -421,3 +421,30 @@ def test_failing_checks_tell_the_solver_why_each_test_fails(cfg, tmp_path):
     assert not checks.ok and "assert 12 == 99" in " ".join(checks.reasons.values())
     text = json_checks(checks)
     assert "why each fails" in text and "the test or the code is wrong" in text
+
+
+def test_a_critic_that_runs_out_of_tokens_stops_where_it_is(cfg, tmp_path):
+    cfg.budget.stage_max_tokens = {"critic": 1500}  # a scripted call uses 700 tokens: the fourth is refused
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE)
+    _, production, critic = parts(cfg, llm, project, wiki)
+    checks = production.run()
+    critic.closest_pages = lambda texts, n=3: []
+    llm.providers["arc"] = Scripted(review(False, "I1"), fixes("I1"), verdicts(I1=False))
+    with llm.stage("critic"):
+        result = critic.run(checks)
+    assert result.capped and not result.accepted and not result.redesign and result.rounds == 1
+    assert result.step == "research"  # 2,100 of 1,500 tokens used: the costly research step does not start
+    assert any("stopped early" in e.data.get("text", "") for e in project.board.entries("note"))
+    assert llm.ledger.summary()["tokens_by_stage"]["critic"] == 2100
+
+
+def test_a_capped_critic_goes_to_final_qa_and_a_failed_qa_does_not_rebuild(cfg, tmp_path, monkeypatch):
+    from factory.pipeline.critique import CriticLoop, CriticResult
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    monkeypatch.setattr(CriticLoop, "run", lambda self, checks: CriticResult(accepted=False, redesign=False,
+                                                                               rounds=2, capped=True))
+    monkeypatch.setattr(CriticLoop, "repair", lambda self, result, rnd: False)
+    llm.providers["arc"] = Scripted(*PRODUCE, qa(("T1", True), ("T2", False)))
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.status == "stopped" and result.rounds == 1 and result.final is not None  # QA ran; no second build

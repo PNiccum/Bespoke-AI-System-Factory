@@ -20,6 +20,7 @@ its free default.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
@@ -151,6 +152,21 @@ class LLM:
                 r: {"provider": rc.provider, "model": rc.model, "max_tokens": rc.max_tokens, "effort": rc.effort,
                     "on_truncation": rc.on_truncation}
                 for r, rc in cfg.roles.items()}}, indent=1), encoding="utf-8")
+
+    @contextlib.contextmanager
+    def stage(self, name: str):
+        """Count the tokens of every call made inside against ``budget.stage_max_tokens[name]``. A stage entered
+        inside another counts toward both."""
+        led = self.ledger
+        with led._lock:
+            outer, outer_tokens = led.stage, led.stage_tokens
+            led.stage, led.stage_tokens = name, 0
+        try:
+            yield
+        finally:
+            with led._lock:
+                used = led.stage_tokens
+                led.stage, led.stage_tokens = outer, outer_tokens + (used if outer else 0)
 
     def complete(self, role: str, user: str, system: str | None = None, *, tag: str = "",
                  data: DataClass = "private", max_tokens: int | None = None, escalate: bool = False,
