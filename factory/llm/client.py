@@ -397,7 +397,8 @@ class LLM:
         atomic hold of the estimate on the credit and on the run's cap. Returns the hold for ``_release``."""
         self.spend.check(rc.provider, estimate, ignoring=replaces)
         req = SpendRequest(role=role, provider=rc.provider, model=rc.model, estimate_usd=round(estimate, 4),
-                           run_spent_usd=round(self.ledger.real_usd, 4), reason="")
+                           run_spent_usd=round(self.ledger.real_usd + self.ledger.held_usd, 4), reason="")  # in-flight
+                           # worst-case holds count, so parallel workers cannot each slip under the soft limit
         try:
             self.gate.check(req)
         finally:

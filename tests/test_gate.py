@@ -318,3 +318,13 @@ def test_a_malformed_reservation_entry_fails_closed(tmp_path):
     ledger.reserved_path.write_text(json.dumps({"x": {"at": 1e12}}))
     with pytest.raises(BudgetExceeded, match="unreadable"):
         ledger.check("claude")
+
+
+def test_soft_limit_counts_calls_already_in_flight(cfg, tmp_path):
+    cfg.budget = Budget(approve_above_usd=1.0)
+    ask = Recorder(True, True)
+    llm, _ = make(cfg, tmp_path, approver=ask)
+    llm.complete("agent", "one", data="public")  # first call for the role: asks once
+    llm.ledger.hold(0.99)  # another worker's paid call is in flight
+    llm.complete("agent", "two", data="public")
+    assert [r.reason for r in ask.seen] == ["first paid call for this role", "over the run's soft limit"]
