@@ -285,7 +285,7 @@ def _entries_text(project: Project) -> str:
 
 
 def _events_text(events: list[Event]) -> str:
-    return "\n".join(f"{e.id} | {e.stage} | {e.status} | {e.message[:160]} | {e.how[:100]}" for e in events[:30]) or "none"
+    return "\n".join(f"{e.id} | {_plain(e.stage, 40)} | {e.status} | {_plain(e.message, 160)} | {_plain(e.how, 100)}" for e in events[:30]) or "none"
 
 
 def checked(found: Lessons, project: Project) -> list[Lesson]:
