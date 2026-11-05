@@ -642,7 +642,7 @@ class KnowledgeLoop:
                     self.board.post("rejected", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
                                                                        "topic": topic.name, "why": why},
                                             license=d.license)
-                    if d.license == "public":  # an ARC-only document's title and reason stay out of shared files
+                    if d.license == "public" and self.llm.cfg.data_public:  # an ARC-only document's title and reason stay out of shared files
                         with contextlib.suppress(OSError):
                             self.bad.record(self.domain, topic.name, d.id, why, title=d.title, url=d.url,
                                             project=self.project.id)
