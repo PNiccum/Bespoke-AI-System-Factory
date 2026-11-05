@@ -348,8 +348,8 @@ def is_free_role(cfg) -> bool:
 def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> Path | None:
     """Ask for lessons once, keep the ones that cite real entries, and re-render the domain's page. None when the
     model gave nothing usable or nothing survived the check (a failure here never changes the run's result)."""
-    if not is_free_role(llm.cfg):
-        return None  # lessons are a free by-product: never spend on them
+    if not is_free_role(llm.cfg) or not llm.cfg.data_public:
+        return None  # a free by-product: never spend on it, and nothing goes to a shared page unless the data is public
     domain = domain_of(project)
     restricted = any(e.license == "arc_only" for e in project.board.entries())
     if restricted:  # lessons go to a machine-wide shared page; a project with ARC-only data teaches nothing there

@@ -312,3 +312,22 @@ def test_web_text_in_the_lessons_prompt_is_plain_and_one_project_two_outcomes_ge
     assert "<b>" not in prompt and '{"lessons"' not in prompt.split("Write at most")[0]
     text = page.read_text()
     assert text.count("## ") == 2 and "(delivered," in text and "(re-designed (not delivered)," in text
+
+
+def test_no_lessons_unless_the_config_declares_its_data_public(cfg, tmp_path):
+    p = Project.create(tmp_path / "projects", "t")
+    p.board.post("request", "person", {"text": "x"})
+    n = p.board.post("note", "code", {"text": "y"})
+    arc = Scripted(lessons_reply(("Keep it small.", "watch", [n.id])))
+    cfg.data_public = False
+    assert write_lessons(LLM(cfg, tmp_path, use_cache=False, providers={"arc": arc}), p, "delivered",
+                         lessons_dir(tmp_path)) is None and arc.requests == []
+
+
+def test_a_redesigned_build_also_writes_lessons(cfg, tmp_path):
+    p = Project.create(tmp_path / "projects", "t")
+    p.board.post("request", "person", {"text": "x"})
+    n = p.board.post("note", "code", {"text": "y"})
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(lessons_reply(("Keep it small.", "failed", [n.id])))})
+    page = lessons_after_build(llm, p, "redesign", tmp_path)
+    assert page and "re-designed (not delivered)" in page.read_text()
