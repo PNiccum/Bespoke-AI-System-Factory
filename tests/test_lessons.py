@@ -7,7 +7,14 @@ from factory.events import EventLog
 from factory.llm import LLM
 from factory.pipeline.blackboard import Project
 from factory.pipeline.knowledge import Topic
-from factory.pipeline.lessons import BadSources, domain_of, lessons_dir, read_lessons, write_lessons
+from factory.pipeline.lessons import (
+    BadSources,
+    domain_of,
+    lessons_after_build,
+    lessons_dir,
+    read_lessons,
+    write_lessons,
+)
 from tests.test_knowledge import Engine, check, doc, draft, knowledge, queries, review, topics  # noqa: F401
 from tests.test_orchestrator import ROOT, Scripted, cfg  # noqa: F401
 
@@ -115,3 +122,56 @@ def test_arc_only_entries_are_not_copied_into_the_prompt(cfg, tmp_path):
     arc = Scripted(lessons_reply())
     write_lessons(LLM(cfg, tmp_path, use_cache=False, providers={"arc": arc}), p, "delivered", lessons_dir(tmp_path))
     assert "Secret lab list" not in arc.requests[0].messages[-1]["content"]
+
+
+def test_events_are_withheld_when_the_project_holds_arc_only_entries(cfg, tmp_path):
+    p = Project.create(tmp_path / "projects", "t")
+    p.board.post("request", "person", {"text": "x"})
+    p.board.post("source", "research_orchestrator", {"id": "lab:1"}, license="arc_only")
+    (tmp_path / "run").mkdir()
+    arc = Scripted(lessons_reply())
+    llm = LLM(cfg, tmp_path / "run", use_cache=False, providers={"arc": arc})
+    EventLog(llm.run_dir / "events.jsonl", "run").record("qa", "failed on LABPROTEIN42", stage="final QA")
+    write_lessons(llm, p, "delivered", lessons_dir(tmp_path))
+    prompt = arc.requests[0].messages[-1]["content"]
+    assert "LABPROTEIN42" not in prompt and "final QA" in prompt
+
+
+def test_the_bad_source_file_sits_in_the_workspace_the_cli_and_page_use(cfg, tmp_path):
+    kl, *_ = knowledge(cfg, tmp_path, topics("x"))
+    assert kl.bad.path == lessons_dir(tmp_path) / "bad_sources.json"  # wiki is <workspace>/wiki
+
+
+def test_only_delivered_or_redesigned_builds_teach_and_it_never_raises(cfg, tmp_path):
+    p = Project.create(tmp_path / "projects", "t")
+    p.board.post("request", "person", {"text": "x"})
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted()})
+    assert lessons_after_build(llm, p, "stopped", tmp_path) is None
+    assert lessons_after_build(llm, p, "delivered", tmp_path) is None  # the model call fails: swallowed
+
+
+def test_arc_only_and_unjudged_documents_are_not_recorded(cfg, tmp_path):
+    kl, arc, project, _ = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), review(1, 2),
+                                    draft(1, 2), check(True), topics(enough=True),
+                                    engines={"europepmc": Engine([doc(1), doc(2), doc(3, "arc_only"), doc(4)])})
+    # 3 is rejected but ARC-only; 4 gets no verdict at all
+    arc.texts[1] = json.dumps({"verdicts": [
+        {"id": "europepmc:PMC1", "approve": True, "why": "ok"}, {"id": "europepmc:PMC2", "approve": True, "why": "ok"},
+        {"id": "europepmc:PMC3", "approve": False, "why": "lab text"}]})
+    kl.run()
+    assert [e.data["id"] for e in project.board.entries("rejected")] == ["europepmc:PMC3"]  # judged, not unjudged PMC4
+    assert kl.bad.known(kl.domain, "PCR primer design") == {}
+
+
+def test_two_stores_on_one_file_do_not_lose_each_others_entries(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    path = tmp_path / "bad_sources.json"
+    stores = [BadSources(path) for _ in range(4)]  # separate instances, as in separate runs
+
+    def work(n):
+        for i in range(10):
+            stores[n].record("bio", "t", f"d:{n}-{i}", "why")
+    with ThreadPoolExecutor(4) as pool:
+        list(pool.map(work, range(4)))
+    assert len(BadSources(path).known("bio", "t")) == 40
+    assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob("*.lock"))

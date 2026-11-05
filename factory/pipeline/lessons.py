@@ -19,10 +19,13 @@ The domain is the project's tag from ``factory/pipeline/domain.py``, so lessons 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+import tempfile
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -76,14 +79,37 @@ class BadSources:
 
     def _save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=1, ensure_ascii=False), encoding="utf-8")
+        fd, tmp = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")  # its own name, so runs never share one
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(data, indent=1, ensure_ascii=False))
         os.replace(tmp, self.path)  # a run stopped mid-write never leaves half a file
+
+    @contextlib.contextmanager
+    def _locked(self, timeout: float = 5.0):
+        """Threads share ``self._lock``; separate runs on one machine share a lock file (created exclusively, so it
+        works on Windows too). A lock older than ``timeout`` is a crashed run's: it is taken over."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        lock = self.path.with_suffix(".lock")
+        with self._lock:
+            start = time.monotonic()
+            while True:
+                try:
+                    os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                    break
+                except FileExistsError:
+                    if time.monotonic() - start > timeout:
+                        break  # stale: carry on rather than hold up a run for a by-product file
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                with contextlib.suppress(OSError):
+                    lock.unlink()
 
     def record(self, domain: str, topic: str, doc_id: str, why: str, *, title: str = "", url: str = "",
                project: str = "", now: datetime | None = None) -> None:
         now = now or _now()
-        with self._lock:
+        with self._locked():
             data = self._load()
             row = data.setdefault(domain, {}).setdefault(_key(topic), {}).setdefault(
                 doc_id, {"title": title[:160], "url": url, "why": why, "count": 0, "projects": [], "first": now.isoformat()})
@@ -101,7 +127,7 @@ class BadSources:
 
     def clear(self, domain: str, topic: str, doc_id: str) -> bool:
         """A document that was approved after all is no longer a bad source."""
-        with self._lock:
+        with self._locked():
             data = self._load()
             rows = data.get(domain, {}).get(_key(topic), {})
             if doc_id not in rows:
@@ -172,7 +198,9 @@ def _entries_text(project: Project) -> str:
                      for e in keep)
 
 
-def _events_text(events: list[Event]) -> str:
+def _events_text(events: list[Event], withhold: bool = False) -> str:
+    if withhold:  # an event's message can quote ARC-only text; the page it feeds is shared
+        return "\n".join(f"{e.id} | {e.stage} | {e.status}" for e in events[:30]) or "none"
     return "\n".join(f"{e.id} | {e.stage} | {e.status} | {e.message[:160]} | {e.how[:100]}" for e in events[:30]) or "none"
 
 
@@ -223,11 +251,12 @@ def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> 
     """Ask for lessons once, keep the ones that cite real entries, and re-render the domain's page. None when the
     model gave nothing usable or nothing survived the check (a failure here never changes the run's result)."""
     domain = domain_of(project)
+    restricted = any(e.license == "arc_only" for e in project.board.entries())
     log = EventLog(llm.run_dir / FILE, llm.run_dir.name) if getattr(llm, "run_dir", None) else None
     try:
         found, _, _ = complete_validated(
             llm, ROLE, PROMPT.format(domain=domain, outcome=outcome, entries=_entries_text(project),
-                                     events=_events_text(log.events() if log else []), n=MAX_LESSONS),
+                                     events=_events_text(log.events() if log else [], withhold=restricted), n=MAX_LESSONS),
             SYSTEM, Lessons, tag="lessons", rescue=False)
     except Exception:  # noqa: BLE001 (no usable answer: no lessons this time)
         return None
