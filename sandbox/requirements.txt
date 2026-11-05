@@ -1,6 +1,8 @@
 # Third-party packages the sandbox image installs, so generated code may import them (tests still run with no
 # network). The prior-art scout reads this file: a package listed here is "import", anything else is "reference".
 # Keep it small and pinned; a change needs an image rebuild (docker build -t aspire-sandbox sandbox/).
+# The pins are for the image only. Do not pip install -r this into the factory's own venv (the process sandbox):
+# it would downgrade the factory's packages. There, install only the missing names; any version counts.
 pytest==8.3.5
 numpy==2.2.6
 pandas==2.2.3
