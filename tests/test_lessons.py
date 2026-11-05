@@ -208,7 +208,9 @@ def test_a_damaged_or_old_lesson_row_is_skipped_not_fatal(tmp_path):
     good = {"domain": "bio", "project": "p", "outcome": "delivered", "at": "2026-11-05", "lesson": "x", "kind": "watch",
             "evidence": ["0001-note"]}
     (d / "lessons.jsonl").write_text(json.dumps({"domain": "bio", "lesson": "no project"}) + "\n" + "{broken\n"
-                                     + json.dumps(good) + "\n", encoding="utf-8")
+                                     + json.dumps({**good, "evidence": "0001-note"}) + "\n"
+                                     + json.dumps({**good, "at": None}) + "\n" + json.dumps(good) + "\n",
+                                     encoding="utf-8")
     assert read_lessons(d, "bio") == [good]
 
 

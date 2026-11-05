@@ -310,7 +310,9 @@ def read_lessons(directory: Path, domain: str | None = None) -> list[dict]:
                 row = json.loads(line)
             except ValueError:
                 continue
-            if not isinstance(row, dict) or not LESSON_KEYS <= row.keys():
+            if (not isinstance(row, dict) or not LESSON_KEYS <= row.keys()
+                    or not all(isinstance(row[k], str) for k in LESSON_KEYS - {"evidence"})
+                    or not isinstance(row["evidence"], list) or not all(isinstance(i, str) for i in row["evidence"])):
                 continue  # a row from an older version or a damaged line
             if domain is None or row["domain"] == domain:
                 rows.append(row)
