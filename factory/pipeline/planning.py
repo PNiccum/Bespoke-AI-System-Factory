@@ -42,6 +42,7 @@ from factory.risks import render, risks_for
 
 CRITIC, ANALYST, EDITOR = "plan_critic", "plan_analyst", "plan_editor"
 VOTERS = (CRITIC, ANALYST)  # the editor edits and does not vote
+NOTED_SHOWN = 5  # noted weaknesses listed in full on the blackboard summary; the rest are counted
 
 
 class Critique(BaseModel):
@@ -86,6 +87,7 @@ class Outcome(BaseModel):
     plan: ProjectPlan
     votes: dict[str, str]  # agent -> "A", "B" or "spoiled"
     problems: list[str] = []  # left in the winning plan; empty unless the repair round also failed
+    noted: list[str] = []  # open weaknesses the winning plan carries into the build (they do not block it)
 
 
 SHAPE = ('{"title", "goal", "deliverable", "tasks": [{"id": "T1", "title", "acceptance", "depends_on": [], '
@@ -180,6 +182,13 @@ a working result they can run again, at the lowest cost.
 ## Pros and cons
 {analysis}
 
+## Problems the code found
+A plan with a blocking problem cannot win: a vote for it is thrown away. Weigh these in your choice. A plan that is \
+slightly worse but has no blocking problem beats one that cannot win. Weaknesses marked "noted" are carried into the \
+build without blocking it, so when both plans can win, fewer is better.
+Plan A: {problems_a}
+Plan B: {problems_b}
+
 Reply with JSON only: {{"choice": "A" or "B", "why": "<one sentence>"}}"""
 
 FIX_PROMPT = """{prompt}
@@ -196,6 +205,7 @@ class PlanningLoop:
         self.llm, self.project, self.board = llm, project, project.board
         self.agents = {name: registry.agents[name] for name in (CRITIC, ANALYST, EDITOR)}
         self.data = "public" if llm.cfg.data_public else "private"
+        self.noted: dict[str, list[str]] = {}  # plan label -> weaknesses noted, not blocking, at the last re-check
         log_of(llm, project)
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str):
@@ -217,8 +227,12 @@ class PlanningLoop:
         except RuntimeError:
             found = Recheck(open=[Open(id=k, why="the re-check gave no valid reply") for k in weaknesses])
         left = _open(found, weaknesses)
+        noted = _noted(found, weaknesses)
+        if tag == "plan-recheck-repair":  # a repair re-checks only the blocking ones: add what they became to the rest
+            noted = self.noted.get(label, []) + noted
+        self.noted[label] = noted
         self.board.post("recheck", CRITIC, {"plan": label, "open": [o.model_dump() for o in found.open],
-                                            "problems": left, "noted": _noted(found, weaknesses)}, refs=[ref])
+                                            "problems": left, "noted": noted}, refs=[ref])
         return left
 
     def run(self) -> Outcome:
@@ -283,7 +297,9 @@ class PlanningLoop:
         problems["A"] += open_a
         problems["B"] += open_b
         vote_prompt = VOTE_PROMPT.format(task=task, plan_a=show(plan_a), plan_b=show(plan_b),
-                                         analysis=json.dumps(analysis.model_dump()))
+                                         analysis=json.dumps(analysis.model_dump()),
+                                         problems_a=_tally(problems["A"], self.noted.get("A", [])),
+                                         problems_b=_tally(problems["B"], self.noted.get("B", [])))
         votes = {}
 
         def cast(agent: str):
@@ -315,9 +331,19 @@ class PlanningLoop:
                                                                                          for p in left)},
                                      {}, fixed, ed.id, label=winner, tag="plan-recheck-repair")
                 plan, left = fixed, still
-        outcome = Outcome(winner=winner, plan=plan, votes=votes, problems=left)
-        d = self.board.post("decision", "code", {"winner": winner, "votes": votes, "problems": left},
+        noted = self.noted.get(winner, [])
+        outcome = Outcome(winner=winner, plan=plan, votes=votes, problems=left, noted=noted)
+        d = self.board.post("decision", "code", {"winner": winner, "votes": votes, "problems": left,
+                                                 "noted_count": len(noted)},
                             refs=[e.id for e in self.board.entries("vote")] or [ed.id])
+        if noted:  # carried into the build: say so on the board instead of silently (2026-11-05 MCF7: 22 noted)
+            self.board.post("note", "code", {"text": f"Plan {winner} goes ahead with {len(noted)} open noted "
+                                                        f"weakness{'' if len(noted) == 1 else 'es'}"
+                                                        + (f", and {len(left)} blocking problem(s) remain" if left else "")
+                                                        + ": " + "; ".join(noted[:NOTED_SHOWN])
+                                                        + (f"; and {len(noted) - NOTED_SHOWN} more (see the "
+                                                           "recheck entries)" if len(noted) > NOTED_SHOWN else ""),
+                                             "noted": noted}, refs=[d.id])
         self.project.write_file("plan.json", json.dumps(plan.model_dump(), indent=1), "code", refs=[d.id])
         return outcome
 
@@ -330,6 +356,12 @@ def _open(found: Recheck, weaknesses: dict[str, str]) -> list[str]:
 def _noted(found: Recheck, weaknesses: dict[str, str]) -> list[str]:
     """The open weaknesses that do not change the result: recorded, not held against the plan."""
     return [f"{o.id} noted: {weaknesses[o.id]} ({o.why})" for o in found.open if o.id in weaknesses and not o.blocks]
+
+
+def _tally(blocking: list[str], noted: list[str]) -> str:
+    """What the voters are told about a plan: its blocking problems in full, and how many noted weaknesses it has."""
+    return ("blocking problems: " + ("; ".join(blocking) if blocking else "none")
+            + f". Noted weaknesses (not blocking): {len(noted)}")
 
 
 def decide(votes: dict[str, str], problems: dict[str, list[str]]) -> Literal["A", "B"]:
