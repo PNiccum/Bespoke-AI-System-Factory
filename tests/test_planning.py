@@ -184,7 +184,7 @@ def test_noted_weaknesses_carried_into_the_build_are_summarised_on_the_board(cfg
     out = pl.run()
     assert out.noted == ["W1 noted: no subtasks (still no subtasks)"]
     note = project.board.latest("note")
-    assert note.data["text"].startswith("Plan A goes ahead with 1 open noted weaknesses")
+    assert note.data["text"].startswith("Plan A goes ahead with 1 open noted weakness")
     assert project.board.latest("decision").data["noted_count"] == 1
 
 

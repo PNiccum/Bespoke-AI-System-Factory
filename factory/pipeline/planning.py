@@ -330,7 +330,9 @@ class PlanningLoop:
                             refs=[e.id for e in self.board.entries("vote")] or [ed.id])
         if noted:  # carried into the build: say so on the board instead of silently (2026-11-05 MCF7: 22 noted)
             self.board.post("note", "code", {"text": f"Plan {winner} goes ahead with {len(noted)} open noted "
-                                                        f"weaknesses: " + "; ".join(noted[:NOTED_SHOWN])
+                                                        f"weakness{'' if len(noted) == 1 else 'es'}"
+                                                        + (f", and {len(left)} blocking problem(s) remain" if left else "")
+                                                        + ": " + "; ".join(noted[:NOTED_SHOWN])
                                                         + (f"; and {len(noted) - NOTED_SHOWN} more (see the "
                                                            "recheck entries)" if len(noted) > NOTED_SHOWN else ""),
                                              "noted": noted}, refs=[d.id])
