@@ -64,6 +64,31 @@ def _now() -> datetime:
 
 
 
+def _take_over_stale(lock: Path, stale: float) -> bool:
+    """Remove a crashed run's lock. The lock is first renamed to a name of our own, so two runs that both judged it
+    stale cannot delete each other's fresh lock; if what we renamed turns out to be fresh after all, it is put back."""
+    try:
+        if time.time() - lock.stat().st_mtime <= stale:
+            return False  # fresh: a live run's, never touched (renaming it even briefly would let a third run in)
+    except OSError:
+        return False
+    mine = lock.with_name(f"{lock.name}.{os.getpid()}.{threading.get_ident()}.old")
+    try:
+        os.rename(lock, mine)
+        old = time.time() - mine.stat().st_mtime > stale
+    except OSError:
+        return False
+    if old:
+        with contextlib.suppress(OSError):
+            mine.unlink()
+        return True
+    with contextlib.suppress(OSError):
+        os.link(mine, lock)  # put the live run's lock back (fails if another run took the name meanwhile)
+    with contextlib.suppress(OSError):
+        mine.unlink()
+    return False
+
+
 @contextlib.contextmanager
 def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0, stale: float = 60.0):
     """Threads share ``threads``; separate runs on one machine share the lock file (created exclusively, so it works on
@@ -78,10 +103,8 @@ def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0, stale:
                 os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
                 held = True
             except FileExistsError:
-                with contextlib.suppress(OSError):
-                    if time.time() - lock.stat().st_mtime > stale:
-                        lock.unlink()  # a crashed run's
-                        continue
+                if _take_over_stale(lock, stale):
+                    continue
                 if time.monotonic() - start > timeout:
                     break
                 time.sleep(0.02)
@@ -111,8 +134,10 @@ def _write_atomic(path: Path, text: str) -> None:
 # --------------------------------------------------------------------------
 
 class BadSources:
-    def __init__(self, path: Path):
-        self.path = path
+    def __init__(self, path: Path, enabled: bool = True):
+        """``enabled=False`` (benchmarks and failure replays): nothing is read or written, so deliberately bad test
+        documents never become real projects' skips."""
+        self.path, self.enabled = path, enabled
         self._lock = threading.Lock()  # topics are researched in parallel threads
 
     def _load(self) -> dict:
@@ -129,6 +154,8 @@ class BadSources:
 
     def record(self, domain: str, topic: str, doc_id: str, why: str, *, title: str = "", url: str = "",
                project: str = "", now: datetime | None = None) -> None:
+        if not self.enabled:
+            return
         now = now or _now()
         with self._locked():
             data = self._load()
@@ -149,13 +176,15 @@ class BadSources:
 
     def known(self, domain: str, topic: str, *, now: datetime | None = None) -> dict[str, dict]:
         """The unexpired bad sources for this topic in this domain, by document id."""
+        if not self.enabled:
+            return {}
         cutoff = ((now or _now()) - timedelta(days=TTL_DAYS)).isoformat()
         rows = self._load().get(domain, {}).get(_key(topic), {})
         return {i: r for i, r in rows.items() if r.get("last", "") >= cutoff}
 
     def clear(self, domain: str, topic: str, doc_id: str) -> bool:
         """A document that was approved after all is no longer a bad source."""
-        if doc_id not in self._load().get(domain, {}).get(_key(topic), {}):
+        if not self.enabled or doc_id not in self._load().get(domain, {}).get(_key(topic), {}):
             return False  # nothing to clear: no lock, no write
         with self._locked():
             data = self._load()
@@ -174,9 +203,15 @@ class BadSources:
                 if r.get("last", "") >= cutoff]
 
 
+def _plain(text: str, width: int) -> str:
+    """Text that came from a web page or a model, made safe to show in a later prompt: letters, digits and light
+    punctuation only (no quotes, brackets, newlines or markup), and short."""
+    return " ".join(re.sub(r"[^A-Za-z0-9 .,;:'()/_-]", " ", text).split())[:width]
+
+
 def bad_sources_text(known: dict[str, dict]) -> str:
-    """For the orchestrator's prompt."""
-    return "; ".join(f"{i} ({r.get('title', '')[:60]}): {r.get('why', '')[:100]}" for i, r in list(known.items())[:8])
+    """For the orchestrator's prompt: the document id and a short plain reason. The page title is not repeated here."""
+    return "; ".join(f"{_plain(i, 60)} ({_plain(r.get('why', ''), 80)})" for i, r in list(known.items())[:8])
 
 
 # --------------------------------------------------------------------------

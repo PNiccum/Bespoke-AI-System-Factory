@@ -299,14 +299,15 @@ class _TopicState:
 
 class KnowledgeLoop:
     def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
-                 scout: Scout | None = None):
-        """``scout``: look for existing tools before research (default_scout). None skips it, as in the tests."""
+                 scout: Scout | None = None, learn: bool = True):
+        """``scout``: look for existing tools before research (default_scout). None skips it, as in the tests.
+        ``learn=False``: benchmarks and failure replays neither read nor add to the known-bad-sources list."""
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
         self.scout = scout
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
         # sources that failed before in this domain: skipped in code, and named to the orchestrator
-        self.bad = BadSources(lessons_dir(wiki.root.parent) / "bad_sources.json")
+        self.bad = BadSources(lessons_dir(wiki.root.parent) / "bad_sources.json", enabled=learn)
         self._domain = ""
         self.events = log_of(llm, project)  # every topic that stalls is an event, corrected by a verified page
         self._topics: dict[str, _TopicState] = {}
