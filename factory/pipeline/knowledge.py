@@ -360,6 +360,16 @@ class KnowledgeLoop:
     # --- one topic: search, approve, write, verify ---
 
     def research(self, topic: Topic) -> WikiPage | None:
+        """One topic's research; a model step that never gives valid output leaves the topic without a page (it
+        stays missing) instead of ending the whole loop. The 2026-11-05 MCF7 run lost all its research when one
+        page's writer returned malformed JSON three times."""
+        try:
+            return self._research(topic)
+        except RuntimeError as e:
+            self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": f"research failed: {str(e)[:300]}"})
+            return None
+
+    def _research(self, topic: Topic) -> WikiPage | None:
         """Search until enough approved documents, write and verify a page; on a rejected page, search once more for
         what the verifier found unsupported and write again. State carries over when the topic is researched again."""
         st = self._state_for(topic.name)

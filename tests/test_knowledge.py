@@ -74,6 +74,15 @@ def knowledge(cfg, tmp_path, *replies, docs=(1, 2, 3), wiki=None, engines=None):
     return KnowledgeLoop(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, engines), arc, project, wiki
 
 
+def test_a_page_writer_that_never_gives_valid_output_leaves_the_topic_missing(cfg, tmp_path):
+    kl, arc, project, _ = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), review(1, 2),
+                                    "not json", "still not", "nope", topics())
+    result = kl.run()
+    assert not result.ok and result.missing == ["PCR primer design"] and arc.texts == []
+    assert (project.root / "knowledge.json").exists()
+    assert any("research failed" in e.data.get("text", "") for e in project.board.entries("note"))
+
+
 def test_missing_topic_is_researched_written_verified_then_rechecked(cfg, tmp_path):
     kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), review(1, 2, reject=[3]),
                                        draft(1, 2), check(True), topics(enough=True))
