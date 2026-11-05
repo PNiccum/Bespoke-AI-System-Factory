@@ -554,6 +554,17 @@ def test_a_paid_rescue_that_writes_only_the_rest_counts_the_kept_file(cfg, tmp_p
     assert [n["salvaged"] for n in salvage_notes(project)] == [["primer.py"]]
 
 
+def test_salvage_merge_leaves_a_malformed_reply_for_validation_to_reject():
+    from factory.pipeline.production import FileSalvage
+    sv = FileSalvage()
+    sv.keep("=== FILE: ./output/a.py ===\nA = 1\n=== END FILE ===\n")
+    assert list(sv.files) == ["a.py"]
+    for bad in ([1, 2], {"files": "x"}, {"other": 1}):
+        assert sv.merge(bad) == bad  # no exception: validation fails and the retry loop carries on
+    assert sv.merge({"files": [{"path": "b.py"}, {"path": "a.py", "content": "A = 2\n"}]})["files"] == [
+        {"path": "a.py", "content": "A = 2\n"}] and sv.kept() == []
+
+
 def test_a_build_that_is_not_cut_off_leaves_no_salvage_note(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["arc"] = Scripted(*PRODUCE)

@@ -216,11 +216,16 @@ class FileSalvage:
             return None
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
 
-    def merge(self, data: dict) -> dict:
-        new = {_rel(f["path"]): f["content"] for f in data.get("files", [])}
+    def merge(self, data):
+        """The retry's data with the kept files added. A reply in an unexpected shape is returned as it is, so model
+        validation rejects it and the usual retry follows (an exception here would end the run)."""
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, list):
+            return data
+        new = {_rel(f["path"]): f["content"] for f in files
+               if isinstance(f, dict) and isinstance(f.get("path"), str) and "content" in f}
         self.rewritten = {p for p in self.files if p in new}
-        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
-        return {**data, "files": files}
+        return {**data, "files": [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]}
 
 
 class Production:
@@ -339,7 +344,9 @@ class Production:
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
             written = self._write(built, order, ref)
         # kept files that reached disk, recorded so live runs can count the salvage (llm_calls.jsonl has no prompts)
-        if kept := sorted(set(salvage.kept()) & set(written)):
+        kept = [p for p in salvage.kept() if p in written
+                and (self.out / p).read_text(encoding="utf-8") == salvage.files[p]]  # the kept text is what landed
+        if kept:
             self.board.post("note", "code", {"order": order.id, "salvaged": kept,
                                              "text": "cut-off builder reply: finished files kept and written"},
                             refs=[ref])
@@ -475,7 +482,7 @@ def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:
 
 def _rel(path: str) -> str:
     """A path a model gave, relative to output/ (it may or may not be prefixed, or padded with spaces)."""
-    return path.strip().removeprefix(f"{OUTPUT}/").lstrip("/")
+    return path.strip().removeprefix("./").removeprefix(f"{OUTPUT}/").lstrip("/")
 
 
 def _license(pages: list[WikiPage]) -> str:
