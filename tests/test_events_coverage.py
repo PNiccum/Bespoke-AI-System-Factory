@@ -147,6 +147,15 @@ def test_stage_tallies_count_from_the_blackboards(cfg, tmp_path):
     assert tallies[("wiki", "pages verified per check")] == "1/1 (100%)"
     assert tallies[("interview", "plans approved per plan proposed")].startswith("1/")
     assert tallies[("final QA", "approved on first QA")] == "-"
+    # a QA repair is counted from the note's qa_repair field, not from its wording
+    project.board.post("final", "qa", {"approved": False})
+    project.board.post("note", "code", {"text": "final QA found problems: repairing I1"})
+    tallies = {(r["stage"], r["measure"]): r["value"] for r in inspect.stage_tallies([project])}
+    assert tallies[("final QA", "approved on first QA")] == "0/1 (0%)"
+    assert tallies[("final QA", "projects that needed a QA repair")] == "0/1 (0%)"
+    project.board.post("note", "code", {"qa_repair": True, "text": "whatever the wording"})
+    tallies = {(r["stage"], r["measure"]): r["value"] for r in inspect.stage_tallies([project])}
+    assert tallies[("final QA", "projects that needed a QA repair")] == "1/1 (100%)"
 
 
 def test_time_lost_counts_cut_offs_and_failures():
@@ -272,3 +281,56 @@ def test_a_changing_set_of_failing_tests_does_not_stack_events(tmp_path):
     assert run("test_b") == [("1", "corrected"), ("2", "open")]  # test_a passes now; test_b is already known
     assert run() == [("1", "corrected"), ("2", "corrected")]
     assert [e.how for e in log.events()] == ["those tests pass in a later run", "a later test run passed"]
+
+
+def test_a_reply_cut_off_at_max_tokens_is_a_warning_corrected_by_a_later_valid_reply(cfg, tmp_path):
+    from pydantic import BaseModel
+
+    from factory.llm import LLM
+    from factory.llm.client import RawResult, Usage, complete_validated
+    from tests.test_fallbacks import approve_all
+
+    class Out(BaseModel):
+        a: int
+
+    class P:
+        n = 0
+
+        def complete(self, req):
+            P.n += 1
+            return RawResult('{"a": ', "", "max_tokens", Usage(10, 10)) if P.n == 1 else \
+                RawResult('{"a": 1}', "", "end_turn", Usage(10, 10))
+
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": P()}, approver=approve_all)
+    out, _, _ = complete_validated(llm, "coder", "write it", "", Out, tag="build-T1.1")
+    (ev,) = llm.events.events()
+    assert out.a == 1 and ev.severity == "warning" and ev.message == "build-T1.1: reply cut off at max_tokens"
+    assert ev.status == "corrected" and ev.how.startswith("a later attempt returned valid output")
+
+
+def test_a_timeout_and_an_import_failure_are_check_events(tmp_path):
+    from types import SimpleNamespace
+
+    from factory.pipeline.production import Checks, Production
+    log = EventLog(tmp_path / "r" / "events.jsonl", "r")
+    me = SimpleNamespace(llm=SimpleNamespace(events=log), project=Project.create(tmp_path, "p"))
+    failing = dict(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=False)
+    Production._record_checks(me, Checks(**failing), timed_out=True)
+    Production._record_checks(me, Checks(**failing), timed_out=True)  # once: not stacked
+    Production._record_checks(me, Checks(**failing, setup_error="No module named pkg"))
+    Production._record_checks(me, Checks(**failing, output_tail="FAILED somewhere"))
+    assert [e.message[:22] for e in log.events()] == ["the test run timed out", "tests could not be imp",
+                                                      "pytest failed without "]
+    Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True))
+    assert not log.open_events()
+
+
+def test_a_gap_the_gate_allows_through_is_an_event(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2), draft(1, 2),
+                            check(False), draft(1, 2), check(False), queries(), topics("Primer3 settings"),
+                            queries(), queries(), queries())
+    result = kl.run()
+    gaps = [e for e in events_of(kl) if e.message.startswith("build goes ahead with a gap")]
+    assert result.ok and result.gaps and len(gaps) == 1 and gaps[0].stage == "knowledge gate"
+    assert gaps[0].status == "open" and "topic:Primer3 settings" in gaps[0].refs

@@ -276,8 +276,8 @@ class CriticLoop:
         if not issues:
             return False
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
-        note = self.board.post("note", "code", {"round": rnd, "text": "final QA found problems: repairing "
-                                                f"{', '.join(i.id for i in issues)}"})
+        note = self.board.post("note", "code", {"round": rnd, "qa_repair": True,  # the tallies count this field
+                                                "text": f"final QA found problems: repairing {', '.join(i.id for i in issues)}"})
         before_checks = self.production.check()
         snapshot = {rel: (self.production.out / rel).read_text(errors="replace", encoding="utf-8")
                     for rel in self.production.files()}

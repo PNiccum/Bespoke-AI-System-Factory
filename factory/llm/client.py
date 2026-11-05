@@ -191,6 +191,8 @@ class LLM:
                 return done
             except Exception as e:
                 last = i == len(models) - 1 or not model_unavailable(e)
+                if last and isinstance(e, TruncatedError):
+                    raise  # complete_validated records a cut-off as its own warning and retries on a lighter model
                 skipped.append(self.events.record("llm", f"{role}: {model}: {type(e).__name__}: {e}"[:400],
                                                   stage=tag or role, severity="error" if last else "warning"))
                 if last:

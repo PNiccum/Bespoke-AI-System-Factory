@@ -223,7 +223,7 @@ def stage_tallies(items: list[Project]) -> list[dict]:
         if qa:
             with_qa += 1
             first_pass += bool(qa[0].data.get("approved"))
-            repaired += any("repairing" in str(e.data.get("text", "")) for e in entries if e.kind == "note")
+            repaired += any(e.data.get("qa_repair") for e in entries if e.kind == "note")  # set by the QA repair loop
 
     def rate(n: int, d: int) -> str:
         return f"{n}/{d} ({100 * n / d:.0f}%)" if d else "-"
