@@ -58,7 +58,7 @@ def test_a_rejected_document_is_remembered_and_skipped_in_the_next_project(cfg, 
     kl.bad.record(kl.domain, "PCR primer design", "europepmc:PMC3", "off topic again")  # a second rejection
     kl2.research(Topic(name="PCR primer design", why="needed"))
     assert "PMC3" not in arc2.requests[1].messages[-1]["content"] and "PMC4" in arc2.requests[1].messages[-1]["content"]
-    assert "Sources that failed for this topic" in arc2.requests[0].messages[-1]["content"]
+    assert "rejected repeatedly for this topic" in arc2.requests[0].messages[-1]["content"]
     assert [e.data["skipped_known_bad_sources"] for e in project2.board.entries("note")
             if "skipped_known_bad_sources" in e.data] == [["europepmc:PMC3"]]
 
@@ -177,3 +177,22 @@ def test_two_stores_on_one_file_do_not_lose_each_others_entries(tmp_path):
         list(pool.map(work, range(4)))
     assert len(BadSources(path).known("bio", "t")) == 40
     assert not list(tmp_path.glob("*.tmp")) and not list(tmp_path.glob("*.lock"))
+
+
+def test_one_rejection_warns_and_two_skip(cfg, tmp_path):
+    kl, arc, project, _ = knowledge(cfg, tmp_path, queries(), review(1, 2, 3), draft(1, 2), check(True), docs=(1, 2, 3))
+    kl.bad.record(kl.domain, "PCR primer design", "europepmc:PMC3", "off topic")  # once: reviewed again
+    kl.research(Topic(name="PCR primer design", why="needed"))
+    assert "PMC3" in arc.requests[1].messages[-1]["content"]
+    assert "rejected once" in arc.requests[0].messages[-1]["content"]
+    assert not [e for e in project.board.entries("note") if "skipped_known_bad_sources" in e.data]
+
+    (tmp_path / "b").mkdir()
+    kl2, arc2, _, _ = knowledge(cfg, tmp_path / "b", queries(), review(1, 2), draft(1, 2), check(True), docs=(1, 2, 3))
+    kl2.bad = kl.bad
+    assert kl.bad.known(kl.domain, "PCR primer design") == {}  # approving PMC3 cleared its warning
+    for _ in range(2):  # rejected twice: skipped
+        kl.bad.record(kl.domain, "PCR primer design", "europepmc:PMC3", "off topic")
+    kl2.research(Topic(name="PCR primer design", why="needed"))
+    assert "PMC3" not in arc2.requests[1].messages[-1]["content"]
+    assert "rejected repeatedly" in arc2.requests[0].messages[-1]["content"]

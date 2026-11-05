@@ -564,9 +564,14 @@ class KnowledgeLoop:
                              + (f" (rejected: {'; '.join(st.rejected[-6:])})" if st.rejected else "")
                              + ". Try different terms or engines.")
         known = self.bad.known(self.domain, topic.name)
-        if known:
-            notes.append("Sources that failed for this topic in earlier projects (they are skipped; look elsewhere): "
-                         + bad_sources_text(known) + ".")
+        out = {i: r for i, r in known.items() if r.get("count", 0) >= SKIP_AFTER}
+        warned = {i: r for i, r in known.items() if i not in out}
+        if out:
+            notes.append("Sources rejected repeatedly for this topic in earlier projects (they are skipped; look "
+                         "elsewhere): " + bad_sources_text(out) + ".")
+        if warned:
+            notes.append("Sources rejected once for this topic in earlier projects (they will be reviewed again, but "
+                         "prefer others): " + bad_sources_text(warned) + ".")
         if st.issues:
             notes.append(GAP_PROMPT.format(n=len(st.approved), issues="; ".join(st.issues[:6])).strip())
         previous = ("\n" + "\n".join(notes) + "\n") if notes else ""
@@ -599,6 +604,8 @@ class KnowledgeLoop:
             found |= {d.id: d for d in docs if d.text.strip() and d.id not in st.approved and d.id not in st.seen}
         skipped = [i for i in found if known.get(i, {}).get("count", 0) >= SKIP_AFTER]  # rejected often: no model reads them again
         if skipped:
+            st.seen.update(skipped)  # later rounds do not meet them again
+            st.rejected += [f"{found[i].title[:60]}: rejected repeatedly in earlier projects" for i in skipped]
             found = {i: d for i, d in found.items() if i not in skipped}
             self.board.post("note", "code", {"topic": topic.name, "skipped_known_bad_sources": skipped})
         if not found:
