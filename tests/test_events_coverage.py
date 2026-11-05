@@ -209,3 +209,20 @@ def test_a_verified_page_leaves_a_connector_fault_open(cfg, tmp_path):
     kl.run()
     by = {e.message[:14]: e.status for e in kl.events.events()}
     assert by["engine failed:"] == "open" and by["topic still ha"] == "corrected"
+
+
+def test_a_check_that_ran_no_tests_corrects_only_syntax_errors(tmp_path):
+    from types import SimpleNamespace
+
+    from factory.pipeline.production import Checks, Production
+    log = EventLog(tmp_path / "r" / "events.jsonl", "r")
+    p = Project.create(tmp_path, "p")
+    p.board.post("request", "person", {"text": "x", "domain": "code"})
+    me = SimpleNamespace(llm=SimpleNamespace(events=log), project=p)
+    Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={"a.py": "bad"}, tests_ran=True, tests_ok=False,
+                                         failed=["test_a"]))
+    assert [(e.message[:6], e.domain) for e in log.events()] == [("syntax", "code"), ("1 fail", "code")]
+    Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=False, tests_ok=None))
+    assert {e.message[:6]: e.status for e in log.events()} == {"syntax": "corrected", "1 fail": "open"}
+    Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True))
+    assert not log.open_events()

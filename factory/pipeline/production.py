@@ -386,23 +386,29 @@ class Production:
         return checks
 
     def _record_checks(self, checks: Checks, timed_out: bool = False) -> None:
-        """The plain-code checks as events: each kind of failure is one open event until a later check passes."""
-        events = log_of(self.llm)
+        """The plain-code checks as events: each kind of failure is one open event until a later check passes.
+        A check that ran no tests corrects only syntax errors, never an earlier failing-test event."""
+        events = log_of(self.llm, self.project)
         if checks.ok:
-            events.resolve_open("a later plain-code check passed", source="checks")
+            if not checks.syntax_errors:
+                events.resolve_open("a later plain-code check passed", source="checks", ref="check:syntax")
+            if checks.tests_ran:
+                events.resolve_open("a later plain-code check passed", source="checks", ref="check:tests")
             return
         # once=True: the checks run after every repair, and the same failure must not stack up as new events
         if timed_out:
-            events.record("checks", "the test run timed out in the sandbox", stage="checks", once=True)
+            events.record("checks", "the test run timed out in the sandbox", stage="checks", once=True,
+                          refs=["check:tests"])
         elif checks.setup_error:
             events.record("checks", f"tests could not be imported: {checks.setup_error[:200]}", stage="checks",
-                          once=True)
+                          once=True, refs=["check:tests"])
         for rel, why in checks.syntax_errors.items():
-            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True)
+            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True,
+                          refs=["check:syntax"])
         if checks.tests_ok is False and not checks.setup_error and not timed_out:
             what = (f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}" if checks.failed
                     else f"pytest failed without naming a test: {checks.output_tail[-200:]}")
-            events.record("checks", what, stage="checks", severity="warning", once=True)
+            events.record("checks", what, stage="checks", severity="warning", once=True, refs=["check:tests"])
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:
