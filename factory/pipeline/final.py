@@ -31,6 +31,7 @@ class TaskResult(BaseModel):
     met: bool
     evidence: str
     failing_check: str = ""  # for an unmet task: the concrete check that fails (a command or input, expected vs actual)
+    override_reason: str = ""
     overridden: bool = False  # set by code: QA said unmet, but the tests pass and it named no failing check
 
 
@@ -71,6 +72,9 @@ Reply with JSON only: {{"tasks": [{{"id": "T1", "met": true or false, "evidence"
 "issues": ["<anything the person would trip over>"]}}"""
 
 
+OBSERVED = re.compile(r"expected|actual|\bgot\b|prints?|returns?|raises?|error|output|exit code|[`=]", re.I)
+
+
 def defer_to_code(qa: QA, checks: Checks) -> None:
     """When the code checks are green (files compile, tests ran and all pass), QA may reject a task only by naming a
     concrete failing check. An unmet task with none, or one that names a test the sandbox saw pass, is set to met."""
@@ -80,15 +84,13 @@ def defer_to_code(qa: QA, checks: Checks) -> None:
         named = t.failing_check.strip()
         if t.met:
             continue
-        contradicted = False
-        for pid in checks.passed:  # the check names only a test that passed: nothing concrete fails
-            pat = rf"(?<![\w.]){re.escape(pid)}(?![\w])"
-            if pid and re.search(pat, named) and len(re.sub(r"\W+", " ", re.sub(pat, " ", named)).split()) < 4:
-                contradicted = True
+        # the check names a test that passed and gives no observed result: nothing concrete fails
+        contradicted = (any(pid and re.search(rf"(?<![\w.]){re.escape(pid)}(?![\w])", named) for pid in checks.passed)
+                        and not OBSERVED.search(named))
         if not named or contradicted:
             t.met, t.overridden = True, True
-            t.evidence = ("[code: tests pass and QA named no failing check] " if not named else
-                          "[code: the check QA named passes in the sandbox] ") + t.evidence
+            t.override_reason = "named no failing check" if not named else "named a check that passes in the sandbox"
+            t.evidence = f"[code: tests pass and QA {t.override_reason}] " + t.evidence
 
 
 class FinalEvaluator:
@@ -108,7 +110,7 @@ class FinalEvaluator:
         defer_to_code(qa, checks)
         met = {t.id for t in qa.tasks if t.met}
         issues = list(qa.issues)
-        issues += [f"QA called {t.id} unmet but named no failing check while the tests pass; code kept it met"
+        issues += [f"QA called {t.id} unmet but {t.override_reason} while the tests pass; code kept it met"
                    for t in qa.tasks if t.overridden]
         if not checks.ok:
             issues.insert(0, "the plain-code checks fail: " + (", ".join(checks.syntax_errors) or

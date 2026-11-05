@@ -430,7 +430,7 @@ def test_qa_cannot_reject_green_tests_without_naming_a_failing_check(cfg, tmp_pa
     result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
     assert result.status == "delivered" and result.repairs == 0 and result.final.approved
     t2 = next(t for t in result.final.tasks if t.id == "T2")
-    assert t2.met and t2.overridden and "QA named no failing check" in t2.evidence
+    assert t2.met and t2.overridden and "named no failing check" in t2.evidence
 
 
 def test_qa_naming_a_test_that_passed_is_overridden_but_a_concrete_failure_stands():
@@ -449,6 +449,12 @@ def test_qa_naming_a_test_that_passed_is_overridden_but_a_concrete_failure_stand
                                failing_check="tests/t.py::test_a passes but `a.py 3` prints 6, expected 9")])
     defer_to_code(ctx, green)  # a passing test named as context does not hide a concrete failure
     assert not ctx.tasks[0].met
+    wrong = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="tests/t.py::test_a fails: got 6")])
+    defer_to_code(wrong, green)  # an observed result, however short, stands
+    assert not wrong.tasks[0].met
+    bare = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="tests/t.py::test_a is wrong")])
+    defer_to_code(bare, green)
+    assert bare.tasks[0].met and "passes in the sandbox" in bare.tasks[0].override_reason
     for ran, ok in ((False, None), (True, None)):  # no tests ran: nothing is green, QA stands
         qn = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
         defer_to_code(qn, green.model_copy(update={"tests_ran": ran, "tests_ok": ok}))
