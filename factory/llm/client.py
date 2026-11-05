@@ -317,6 +317,10 @@ class LLM:
                                      replaces=self._pending_batch(rc, keys, reqs)[1].get("hold"))
         try:
             return self._run_batch(role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s)
+        except BaseException:
+            if hold and self._pending_batch(rc, keys, reqs)[1]:
+                hold.settled = True  # the submitted batch keeps running and billing: its hold stays, tied to the
+            raise  # pending record, until it lapses or a resume swaps it
         finally:
             self._release(hold)
 
@@ -421,7 +425,7 @@ class LLM:
             if hold:
                 hold.settled = True  # fail closed: the cost is on no book, so the shared hold stays until its TTL
             self.events.record("llm", f"{tag or role}: ${real:.4f} was spent on {provider} but could not be written "
-                               f"to the spend ledger: {type(e).__name__}: {e}"[:400], stage=tag or role)
+                               f"to the spend ledger (check spend.json): {type(e).__name__}: {e}"[:400], stage=tag or role)
             raise
 
     def _release(self, hold: _Hold | None) -> None:

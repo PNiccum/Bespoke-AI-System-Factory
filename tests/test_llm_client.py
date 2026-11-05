@@ -177,7 +177,7 @@ def test_batch_uses_cache_prices_at_half_and_returns_errors_in_place(cfg, tmp_pa
         out[1].real_usd + price_call(cfg.model_info(cfg.roles["agent"].model), cfg.models, Usage(10, 10), batch=True)[1])  # once each
 
 
-def test_a_batch_that_never_finishes_releases_its_hold(cfg, tmp_path):
+def test_a_batch_that_never_finishes_keeps_its_hold(cfg, tmp_path):
     cfg.providers["claude"].batch = True
 
     class Stuck(FakeBatchProvider):
@@ -186,7 +186,10 @@ def test_a_batch_that_never_finishes_releases_its_hold(cfg, tmp_path):
     llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Stuck({})}, approver=approve_all)
     with pytest.raises(TimeoutError):
         llm.complete_batch("agent", [{"user": "a"}], data="public", poll_seconds=0, max_wait_s=0)
-    assert llm.ledger.held_usd == 0.0 and not llm.spend._read_reserved()
+    # the provider's batch is still running and billing: its hold stays, tied to the pending record
+    assert llm.ledger.held_usd == 0.0 and len(llm.spend._read_reserved()) == 1
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    assert json.loads(pending.read_text())["hold"] in llm.spend._read_reserved()
 
 
 def test_batch_resumes_a_submitted_batch_after_an_interruption(cfg, tmp_path):
@@ -218,11 +221,10 @@ def test_resuming_a_batch_drops_the_dead_runs_hold_instead_of_counting_it_twice(
     llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
     with pytest.raises(KeyboardInterrupt):
         llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
-    # a killed process leaves its hold behind (an interrupt releases it): plant one that fills the whole credit
-    stale = llm.spend.reserve("claude", cfg.credits.by_provider["claude"] - 0.001)
-    (pending,) = (cfg.work_dir / "batches").glob("*.json")
-    record = json.loads(pending.read_text())
-    pending.write_text(json.dumps({**record, "hold": stale}))
+    # the interrupted run's submitted batch keeps its hold; with credit for one hold but not two, a resume only
+    # succeeds if it swaps the old hold for the new one instead of counting the batch twice
+    (held,) = llm.spend._read_reserved().values()
+    llm.spend.credits.by_provider["claude"] = held["usd"] * 1.5
     second = FakeBatchProvider({"i0": ok("x done")})
     llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": second}, approver=approve_all)
     assert llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)[0].text == "x done"

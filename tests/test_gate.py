@@ -276,13 +276,13 @@ def test_a_failed_release_still_drops_the_runs_in_memory_hold(cfg, tmp_path):
     assert llm.ledger.held_usd == 0.0
 
 
-def test_a_corrupt_reservations_file_fails_settle_before_any_cost_is_written(tmp_path):
+def test_a_corrupt_reservations_file_still_records_the_cost_then_raises(tmp_path):
     ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 5.0}, reserve_usd=0.0))
     rid = ledger.reserve("claude", 1.0)
     ledger.reserved_path.write_text("[]")
     with pytest.raises(BudgetExceeded):
         ledger.settle(rid, "claude", 0.4)
-    assert not ledger.path.exists()
+    assert ledger.spent["claude"] == pytest.approx(0.4)  # a call that happened is recorded; the error follows
     (tmp_path / "spend.json").write_text("[]")
     with pytest.raises(BudgetExceeded, match="unreadable"):
         ledger.check("claude")
