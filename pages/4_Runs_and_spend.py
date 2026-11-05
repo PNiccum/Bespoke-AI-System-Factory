@@ -10,7 +10,7 @@ import streamlit as st
 from factory import events as ev
 from factory import historian
 from factory.config import load_config
-from factory.llm import LLM, new_run_dir
+from factory.llm import LLM
 from factory.llm.gate import SpendLedger, deny_all
 from factory.ui import inspect
 
@@ -121,11 +121,16 @@ with st.form("ask-historian"):
 if asked and question.strip():
     pool = ev.run_events(base) if scope_all else elog
     if "historian_llm" not in st.session_state:
-        st.session_state.historian_llm = LLM(cfg, new_run_dir(cfg, "historian-ask"), approver=deny_all)
+        ask_dir = cfg.work_dir / "historian_ask"  # not under runs/, so it never shows up as a run
+        ask_dir.mkdir(parents=True, exist_ok=True)
+        st.session_state.historian_llm = LLM(cfg, ask_dir, approver=deny_all)
     with st.spinner("The historian is reading the log..."):
         reply, cited = historian.ask(st.session_state.historian_llm, question.strip(), pool,
                                      scope="All runs" if scope_all else f"Run {name}")
-    st.markdown(reply)
+    st.session_state.historian_answer = (question.strip(), reply, cited)
+if "historian_answer" in st.session_state:
+    q, reply, cited = st.session_state.historian_answer
+    st.markdown(f"**{q}**\n\n{reply}")
     if cited:
         st.dataframe([{"id": e.id, "run": e.run, "status": e.status, "stage": e.stage, "message": e.message[:160],
                        "corrected by": e.how} for e in cited], hide_index=True, use_container_width=True)

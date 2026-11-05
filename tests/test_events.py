@@ -167,7 +167,7 @@ def _log_with_two(tmp_path):
 
 def test_the_answer_cites_only_real_events_and_status_comes_from_the_log(cfg, tmp_path):
     events, a, b = _log_with_two(tmp_path)
-    reply = json.dumps({"answer": "QA failed and was repaired.", "cited": [a, "E9999"]})
+    reply = json.dumps({"answer": "QA failed and was repaired.", "cited": [f"run1:{a}", "run1:E9999"]})
     llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(reply)})
     text, cited = ask(llm, "What happened in QA?", events)
     assert text.startswith("QA failed") and [e.id for e in cited] == [a]
@@ -246,3 +246,15 @@ def test_the_historian_runs_on_free_models_and_its_calls_are_private(cfg, tmp_pa
     llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Counting('{"summary": "x", "entries": []}')})
     text = write_run_history(llm, run).read_text()
     assert Counting.calls == 0 and "test_secret_sample" in text and "**open**" in text  # the plain table, no model
+
+
+def test_ids_repeat_between_runs_so_citations_name_the_run(cfg, tmp_path):
+    ev = []
+    for run, msg in (("r1", "disk full"), ("r2", "timeout")):
+        log = EventLog(tmp_path / run / "events.jsonl", run)
+        log.record("code", msg)
+        ev += log.events()
+    reply = json.dumps({"answer": "A timeout.", "cited": ["r2:E0001"]})
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(reply)})
+    text, cited = ask(llm, "what timed out?", ev, scope="All runs")
+    assert [(e.run, e.message) for e in cited] == [("r2", "timeout")]
