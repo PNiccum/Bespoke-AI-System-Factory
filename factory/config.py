@@ -206,6 +206,9 @@ def load_models(path: Path) -> dict[str, ModelInfo]:
     return {name: ModelInfo(**info) for name, info in data.get("models", {}).items()}
 
 
+SPEND_KEYS = ("FACTORY_TIER", "FACTORY_ROLE_TIERS")  # choose a paid tier: the real environment only
+
+
 def load_dotenv(path: Path) -> dict[str, str]:
     """Set variables from a ``.env`` file (KEY=value lines) that the environment does not already set. Returns every
     variable the file declares, so a caller can check a flag against the file even when the environment shadows it."""
@@ -220,13 +223,15 @@ def load_dotenv(path: Path) -> dict[str, str]:
         key = key.strip()
         if sep and key and not key.startswith("#"):
             value = value.strip()
-            if value[:1] in ("'", '"') and (end := value.find(value[0], 1)) > 0:  # quoted: everything after the closing quote is ignored
+            if value[:1] in ("'", '"') and (end := value.find(value[0], 1)) > 0 and (
+                    not (rest := value[end + 1:].strip()) or rest.startswith("#")):  # quoted, then nothing or a comment
                 value = value[1:end]
             # otherwise kept whole: `KEY=0  # off` and a malformed `KEY="0` are not "0", so the lab-data flag reads them as on
             found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
             if key == "ASPIRE_DATA_PRIVATE" and _is_private(value):
                 found[key] = value  # except the lab-data flag: any line that turns it on counts, whatever the order
-            os.environ.setdefault(key, value)
+            if key not in SPEND_KEYS:  # never exported, or a later load_config in this process would read them
+                os.environ.setdefault(key, value)
     return found
 
 

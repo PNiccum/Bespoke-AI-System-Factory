@@ -189,6 +189,13 @@ def test_dotenv_malformed_quote_on_the_lab_flag_fails_closed(monkeypatch, tmp_pa
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
+@pytest.mark.parametrize("line", ['ASPIRE_DATA_PRIVATE="0"1', "ASPIRE_DATA_PRIVATE='0'x"])
+def test_dotenv_text_after_a_closing_quote_fails_closed(monkeypatch, tmp_path, line):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text(line + "\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
 def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
     clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nARC_API_KEY=ab #cd\n")
@@ -208,6 +215,8 @@ def test_spend_tier_settings_in_dotenv_are_ignored(monkeypatch, tmp_path):
     (tmp_path / ".env").write_text("FACTORY_TIER=quality\nFACTORY_ROLE_TIERS=planner=quality\n")
     cfg = load_config(write(tmp_path, shipped()))
     assert cfg.tier == "economy" and cfg.role_tiers == {}  # only the real environment can pick a paid tier
+    again = load_config(write(tmp_path, shipped()))  # a second load in the same process must not pick them up either
+    assert again.tier == "economy" and again.role_tiers == {}
 
 
 def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):
