@@ -144,3 +144,15 @@ def test_review_rerun_gives_its_pytest_no_keys(monkeypatch, tmp_path):
     marker.unlink()
     ns["clean_env"] = lambda: dict(ns["os"].environ)  # a regression: no scrubbing
     assert ns["broken"](repo, None) and marker.exists()  # the same test now fails, so this one would notice
+
+
+def test_mutation_runs_get_the_same_scrubbed_environment(monkeypatch):
+    from factory.tools.mutate import scrubbed_env
+
+    monkeypatch.setenv("MY_CREDENTIAL", "abc")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.example:8080")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    env = scrubbed_env()
+    assert not {"MY_CREDENTIAL", "GIT_CONFIG_COUNT", "HTTPS_PROXY", "ANTHROPIC_API_KEY"} & set(env)
+    assert "PATH" in env and env["PYTHONDONTWRITEBYTECODE"] == "1"
