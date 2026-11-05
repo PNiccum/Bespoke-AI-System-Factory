@@ -64,6 +64,12 @@ roles:
                  on_truncation: DeepSeek-V4.1-Flash-thinking-low}
   plan_analyst: {provider: arc, model: gpt-oss-120b-thinking-high, fallbacks: [gpt-oss-120b-thinking-low, gpt-oss-120b],
                  on_truncation: gpt-oss-120b-thinking-low}
+  # The wiki verifier checks a page against sources whose quotes code has already matched. In the Nov 2-4 runs it
+  # was the biggest stage (26% of model time, 232 s a call on thinking-max), so it starts on the low thinking
+  # budget of the same DeepSeek family; the max budget stays as a fallback. Same family as plan_critic, so it
+  # still never shares one with the librarian (GLM) that wrote the page.
+  wiki_verifier: {provider: arc, model: DeepSeek-V4.1-Flash-thinking-low, fallbacks: [DeepSeek-V4.1-Flash-thinking-max, DeepSeek-V4.1-Flash],
+                  on_truncation: DeepSeek-V4.1-Flash}
   # The re-design loop's auditors (factory/pipeline/redesign.py): the same free models as plan_critic and
   # plan_analyst, plus a stronger paid step for the audit and the expert debate. A re-design asks once, up front,
   # for its whole paid plan (an upper-bound estimate); if that is declined it audits on the free models.

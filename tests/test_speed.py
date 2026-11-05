@@ -196,3 +196,69 @@ def test_profile_finds_serial_calls_and_time_lost_to_cut_off_replies(tmp_path):
     assert p["cut_off_s"] == 100 and p["stages"][0]["stage"] == "build"
     assert p["errors"] == {"APIConnectionError": 1}
     assert "67% of model time" in report(p)
+
+
+def test_the_wiki_verifier_starts_on_the_low_thinking_budget_of_the_critics_family(cfg):
+    from pathlib import Path
+
+    from factory.registry import Registry
+    role = cfg.roles["wiki_verifier"]
+    assert role.model == "DeepSeek-V4.1-Flash-thinking-low"
+    assert "DeepSeek-V4.1-Flash-thinking-max" in role.fallbacks  # the slow budget stays as a fallback
+    assert cfg.model_info(role.model).family == cfg.model_info(cfg.roles["plan_critic"].model).family
+    assert cfg.model_info(role.model).family != cfg.model_info(cfg.roles["planner"].model).family  # not the librarian's
+    assert Registry.load(cfg, Path(__file__).resolve().parents[1] / "registry").agents["wiki_verifier"].role == "wiki_verifier"
+
+
+def test_a_work_order_writing_many_files_is_split_so_one_reply_stays_short():
+    from factory.pipeline.production import MAX_ORDER_FILES, split_orders
+    big = W("T1.1", [f"f{i}.py" for i in range(7)], read=["base.py"])
+    parts = split_orders([W("T1.0", ["one.py"]), big])
+    assert [o.id for o in parts] == ["T1.0", "T1.1a", "T1.1b", "T1.1c"]
+    assert all(len(o.write) <= MAX_ORDER_FILES for o in parts)
+    assert [w for o in parts[1:] for w in o.write] == big.write  # every file, once, in order
+    assert parts[3].read == ["base.py", *big.write[:6]]  # a later part reads the earlier parts' files
+    assert ids(order_waves(parts)) == [["T1.0", "T1.1a"], ["T1.1b"], ["T1.1c"]]  # so the waves keep them in order
+
+
+def _rescue_llm(cfg, tmp_path, approver, free_replies=3):
+    from tests.test_llm_client import FakeProvider, ok
+    bad = ok('{"a": "no"}')
+    providers = {"arc": FakeProvider([bad] * free_replies), "openai": FakeProvider([ok('{"a": 7}')])}
+    return LLM(cfg, tmp_path, use_cache=False, providers=providers, approver=approver), providers
+
+
+def test_after_the_free_attempts_fail_one_paid_attempt_goes_through_the_spend_gate(tmp_path):
+    from pydantic import BaseModel
+
+    from factory.llm.gate import approve_all
+    from tests.helpers import paid_config
+
+    class Out(BaseModel):
+        a: int
+
+    cfg = paid_config(tmp_path)
+    asked = []
+    llm, p = _rescue_llm(cfg, tmp_path, lambda req: asked.append(req) or True)
+    out, c, errors = complete_validated(llm, "grader", "grade it", "", Out, tag="eval", data="public")
+    assert out.a == 7 and c.model == "gpt-6.1-sol" and len(errors) == 3
+    assert p["arc"].calls == 3 and p["openai"].calls == 1
+    assert asked and asked[0].role == "grader" and asked[0].model == "gpt-6.1-sol"  # a person saw the estimate
+
+    # declined: no paid call, the usual error, and the reason is recorded
+    llm, p = _rescue_llm(cfg, tmp_path, lambda req: False)
+    with pytest.raises(RuntimeError, match="paid rescue skipped"):
+        complete_validated(llm, "grader", "grade it", "", Out, tag="eval", data="public")
+    assert p["openai"].calls == 0
+
+    # private data never goes to a paid provider, whatever the approver says
+    llm, p = _rescue_llm(cfg, tmp_path, approve_all)
+    with pytest.raises(RuntimeError, match="no valid output"):
+        complete_validated(llm, "grader", "grade it", "", Out, tag="eval", data="private")
+    assert p["openai"].calls == 0
+
+    # a role with no paid step, or a caller that turned the rescue off, behaves as before
+    llm, p = _rescue_llm(cfg, tmp_path, approve_all)
+    with pytest.raises(RuntimeError, match="no valid output"):
+        complete_validated(llm, "grader", "grade it", "", Out, tag="eval", data="public", rescue=False)
+    assert p["openai"].calls == 0

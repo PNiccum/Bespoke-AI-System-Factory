@@ -266,9 +266,11 @@ def test_a_work_order_with_no_usable_reply_is_recorded_and_the_build_goes_on(cfg
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["arc"] = Scripted(design(), orders("T1", "primer.py"), "not json", "still not", "nope",
                                     orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    llm.providers["openai"] = Scripted("not json either")  # the one paid rescue attempt, approved, also fails
     checks = Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
     first, second = project.board.entries("build")
     assert first.data["written"] == [] and "no valid output after 3 attempts" in first.data["failed"]
+    assert "paid rescue failed" in first.data["failed"] and len(llm.providers["openai"].requests) == 1
     assert second.data["written"] == ["tests/test_primer.py"] and checks.tests_ran
 
 

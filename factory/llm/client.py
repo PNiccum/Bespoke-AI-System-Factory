@@ -35,8 +35,8 @@ from pydantic import ValidationError
 
 from factory.config import FactoryConfig, RoleConfig
 from factory.llm.cache import ResponseCache, request_key
-from factory.llm.cost import Ledger, Usage, price_call
-from factory.llm.gate import Approver, SpendGate, SpendLedger, SpendRequest, estimate_usd
+from factory.llm.cost import BudgetExceeded, Ledger, Usage, price_call
+from factory.llm.gate import Approver, SpendDenied, SpendGate, SpendLedger, SpendRequest, estimate_usd
 from factory.llm.providers import TRANSIENT, RawResult, Request, TransientHTTPError, make_provider
 
 DataClass = Literal["public", "private"]
@@ -368,8 +368,12 @@ class LLM:
 
 def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls, tag: str,
                        attempts: int = 3, data: DataClass = "private", max_tokens: int | None = None,
-                       escalate: bool = False, parse=None, fmt: str = "JSON"):
+                       escalate: bool = False, parse=None, fmt: str = "JSON", rescue: bool = True):
     """Call the model until the output parses and validates, or give up.
+
+    ``rescue``: when every free attempt fails and the role has a paid ``quality`` step, one more attempt goes to that
+    step, through the spend gate (so a person, or the standing approval, decides) and only for public data. A
+    declined or unaffordable rescue leaves the usual "no valid output" error.
 
     A reply that does not parse is still cached, so a retry must change the request: it names the problem and
     asks for the corrected JSON. (Repeating the identical request would only return the cached bad reply.)
@@ -396,4 +400,15 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         except (ValueError, ValidationError) as e:
             errors.append(f"{type(e).__name__}: {str(e)[:200]}")
             cut_off = False
+    if rescue and not escalate and data == "public" and role in llm.cfg.escalations:
+        p = (f"{prompt}\n\nA weaker model could not produce usable output ({errors[-1][:160]}). "
+             f"Reply with only the {fmt}, nothing else.")
+        try:
+            c = llm.complete(role, p, system=system, tag=f"{tag}-paid", data=data, max_tokens=max_tokens,
+                             escalate=True)
+            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
+        except (SpendDenied, BudgetExceeded, DataScopeError) as e:  # not approved or not allowed: no spend
+            errors.append(f"paid rescue skipped: {str(e)[:160]}")
+        except (TruncatedError, ValueError, ValidationError) as e:
+            errors.append(f"paid rescue failed: {type(e).__name__}: {str(e)[:160]}")
     raise RuntimeError(f"{tag}: no valid output after {attempts} attempts: {errors}")
