@@ -55,7 +55,7 @@ def test_fold_col_names_a_column_outright_and_a_missing_one_warns(tmp_path, caps
     assert add_decoys.main([str(lst), str(out), "--fold-col", "Nope"]) == 1
     lst.write_text("Protein ID,Gene name,Notes\nP06493,CDK1,a\n", encoding="utf-8")
     assert add_decoys.main([str(lst), str(out)]) == 0
-    assert "WARNING: no fold-change column" in capsys.readouterr().out
+    assert "note: no fold-change column found" in capsys.readouterr().out
 
 
 def test_a_list_with_only_id_gene_and_description_gets_decoys_with_descriptions(tmp_path, capsys):
