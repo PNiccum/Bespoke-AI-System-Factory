@@ -329,4 +329,8 @@ def json_checks(checks: Checks) -> str:
                      + "\nFor each failing test decide whether the test or the code is wrong: fix a test that "
                        "contradicts the task or has a bug (a missing fixture argument, a wrong expected value); fix "
                        "the code when the test is right. Never weaken a check that states a task's acceptance criterion.")
+    if checks.unavailable_imports:
+        parts.append("imports the sandbox cannot satisfy (use the standard library, a package the design lists as "
+                     "[import], or the project's own modules instead): "
+                     + "; ".join(f"{m} in {', '.join(fs[:3])}" for m, fs in checks.unavailable_imports.items()))
     return "; ".join(parts) or "checks failed"

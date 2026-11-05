@@ -118,3 +118,75 @@ def test_connectors_and_helpers(tmp_path):
     assert judge_license("MIT") == (True, "MIT") and not judge_license("")[0] and not judge_license("GPL-3.0")[0]
     assert judge_license("LGPL-2.1")[0]
     assert keywords("parse parse logs logs logs with the data") == "logs parse"
+
+
+def test_sandbox_packages_come_from_the_image_list(tmp_path, monkeypatch):
+    from factory.pipeline import scout as scout_mod
+    req = tmp_path / "requirements.txt"
+    req.write_text("# pinned\npytest==8.3.5\nPyYAML==6.0.2\nnot_installed_pkg_zz==1.0\n")
+    monkeypatch.setattr(scout_mod, "SANDBOX_REQUIREMENTS", req)
+    monkeypatch.delenv("ASPIRE_SANDBOX_PACKAGES", raising=False)
+    assert scout_mod.listed_packages(req) == {"pytest", "pyyaml", "not-installed-pkg-zz"}
+    monkeypatch.setenv("ASPIRE_SANDBOX", "docker")
+    assert "not-installed-pkg-zz" in scout_mod.sandbox_packages()  # the image installs it
+    monkeypatch.setenv("ASPIRE_SANDBOX", "process")
+    have = scout_mod.sandbox_packages()  # the process sandbox is this interpreter: only what is installed here
+    assert "pyyaml" in have and "not-installed-pkg-zz" not in have
+    assert "yaml" in scout_mod.sandbox_imports() and "json" in scout_mod.sandbox_imports()
+
+
+def test_the_shipped_image_list_is_pinned():
+    from factory.pipeline.scout import SANDBOX_REQUIREMENTS
+    lines = [x.split("#")[0].strip() for x in SANDBOX_REQUIREMENTS.read_text().splitlines()]
+    assert all("==" in x for x in lines if x) and any(x.startswith("pytest==") for x in lines)
+
+
+def test_reference_repos_get_readme_and_files(cfg, tmp_path, monkeypatch):
+    monkeypatch.delenv("ASPIRE_SANDBOX_PACKAGES", raising=False)
+
+    def details(request):
+        url = str(request.url)
+        if url.endswith("/readme"):
+            return httpx.Response(200, text="# logspike\nRolling median of counts per minute.")
+        if url.endswith("/contents"):
+            return httpx.Response(200, json=[{"name": "logspike", "type": "dir"}, {"name": "README.md", "type": "file"}])
+        return handler(request)
+
+    http, _ = mock(details)
+    llm, _ = planned(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(PROPOSAL)
+    budget = CallBudget("t", 50)
+    s = Scout(llm, Registry.load(cfg, ROOT / "registry").agents["research_orchestrator"],
+              PyPI(tmp_path / "p", budget, http=http), GitHubRepos(tmp_path / "g", budget, http=http), now=lambda: NOW)
+    found = s.run("t", "{}")
+    c = next(c for c in found.candidates if c.name == "a/logspike")
+    assert "Rolling median" in c.readme and c.files == ["logspike/", "README.md"]
+    assert "Rolling median" in found.render(detail=True) and "Rolling median" not in found.render()
+    assert not next(c for c in found.candidates if c.name == "b/nolicence").readme  # skipped: not read
+
+
+def test_imports_the_sandbox_lacks_block_and_unused_reuse_is_recorded(tmp_path, monkeypatch):
+    from factory.pipeline.scout import Candidate, ReuseResult, check_imports, unused_reuse
+    monkeypatch.setenv("ASPIRE_SANDBOX", "process")
+    out = tmp_path / "output"
+    (out / "src" / "spikes").mkdir(parents=True)
+    (out / "tests").mkdir()
+    (out / "src" / "spikes" / "__init__.py").write_text("import json\nimport matplotlib.pyplot as plt\nfrom . import x\n")
+    (out / "tests" / "test_a.py").write_text("import pytest\nfrom spikes import run\nimport helper\n")
+    (out / "helper.py").write_text("import os\n")
+    files = ["src/spikes/__init__.py", "tests/test_a.py", "helper.py"]
+    assert check_imports(out, files) == {"matplotlib": ["src/spikes/__init__.py"]}
+    reuse = ReuseResult(candidates=[
+        Candidate(kind="stdlib", name="statistics", url="u", summary="s", use="import", why="w", fetched="d"),
+        Candidate(kind="stdlib", name="json", url="u", summary="s", use="import", why="w", fetched="d"),
+        Candidate(kind="github", name="a/logspike", url="u", summary="s", use="reference", why="w", fetched="d")])
+    claimed = ["statistics: medians", "json: output", "a/logspike: rolling window idea"]
+    assert unused_reuse(claimed, reuse, out, files) == ["statistics"]
+
+
+def test_checks_with_an_unavailable_import_are_not_ok():
+    from factory.pipeline.critique import json_checks
+    from factory.pipeline.production import Checks
+    c = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True,
+               unavailable_imports={"matplotlib": ["a.py"]})
+    assert not c.ok and "matplotlib in a.py" in json_checks(c)

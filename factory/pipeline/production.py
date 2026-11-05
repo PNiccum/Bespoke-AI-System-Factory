@@ -29,7 +29,7 @@ from pydantic import BaseModel, model_validator
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
-from factory.pipeline.scout import ReuseResult
+from factory.pipeline.scout import ReuseResult, check_imports, unused_reuse
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
 from factory.tools.sandbox import RunTestsIn, run_tests
@@ -103,10 +103,14 @@ class Checks(BaseModel):
     output_tail: str = ""
     reasons: dict[str, str] = {}  # failing test -> why (first error line)
     setup_error: str = ""  # the tests could not even be imported (a package or path problem, not a failing test)
+    # module -> files: imports the sandbox cannot satisfy (neither stdlib, nor sandbox/requirements.txt, nor local).
+    # On the laptop's process sandbox such code may pass its tests and still fail anywhere else, so it blocks.
+    unavailable_imports: dict[str, list[str]] = {}
+    reuse_unused: list[str] = []  # [import] tools the design said it adopts that no file imports (recorded only)
 
     @property
     def ok(self) -> bool:
-        return not self.syntax_errors and self.tests_ok is not False
+        return not self.syntax_errors and self.tests_ok is not False and not self.unavailable_imports
 
 
 DESIGN_PROMPT = """Design the solution a team of agents will build for this project. The result must run again \
@@ -123,8 +127,9 @@ without any model: plain code, using a model only where the task truly needs lan
 
 ## Existing tools found by code
 {reuse}
-Prefer these over writing the same thing again. Import only [import] tools (the sandbox has no network and no other \
-packages); for a [reference] tool follow its approach in your own code and credit it in the README.
+Prefer these over writing the same thing again. Import only [import] tools and the standard library (the sandbox has \
+no network and no other packages; code checks every import); list a third-party [import] package in \
+requirements.txt. For a [reference] tool follow its approach in your own code and credit it in the README.
 
 Reply with JSON only: {{"language": "...", "entry_point": "<file under output/>", "run_command": "<command run inside \
 output/>", "layout": ["<path>: <what it holds>", ...], "task_notes": {{"T1": "<how this task fits>"}}, "template": \
@@ -252,7 +257,7 @@ class Production:
             task += f"\n\n## Problems to fix in this round\n{feedback}"
 
         reuse_path = self.project.root / "reuse.json"
-        reuse = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8")).render()
+        reuse = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8")).render(detail=True)
                  if reuse_path.exists() else "") or "(none looked up)"
         design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki,
                                                        reuse=reuse),
@@ -338,9 +343,10 @@ class Production:
                     compiled.append(rel)
                 except SyntaxError as e:
                     errors[rel] = f"line {e.lineno}: {e.msg}"
+        found = self.reuse_checks()
         has_tests = any(r.startswith("tests/") and r.endswith(".py") for r in self.files())
         if not has_tests:
-            return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None, **found)
         # a src layout imports without an install: pytest gets src/ (and the root) on its path
         paths = ["src", "."] if (self.out / "src").is_dir() else ["."]
         report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300, pythonpath=paths))  # throwaway copy
@@ -354,7 +360,18 @@ class Production:
         return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
                       passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
                       reasons=report.reasons,
-                      setup_error=setup)
+                      setup_error=setup, **found)
+
+    def reuse_checks(self) -> dict:
+        """Plain-code checks of reuse: imports the sandbox lacks, and adopted tools that are never imported."""
+        files = self.files()
+        design = self.board.latest("design")
+        reuse_path = self.project.root / "reuse.json"
+        result = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8"))
+                  if reuse_path.exists() else None)
+        return {"unavailable_imports": check_imports(self.out, files),
+                "reuse_unused": unused_reuse(design.data.get("reuse", []) if design else [], result, self.out,
+                                             files)}
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:

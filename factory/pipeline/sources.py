@@ -330,6 +330,17 @@ class GitHubRepos(CachedAPI):
                                                 "sort": "stars", "order": "desc", "per_page": n})
         return data.get("items", [])[:n]
 
+    def readme(self, full_name: str) -> str:
+        """A repository's README as plain text ("" if it has none)."""
+        return self.get_text(f"{self.base}/repos/{full_name}/readme", accept="application/vnd.github.raw")
+
+    def files(self, full_name: str) -> list[str]:
+        """A repository's top-level files and folders (folders end with /)."""
+        items = self.get(f"repos/{full_name}/contents")
+        if not isinstance(items, list):
+            return []
+        return [i["name"] + ("/" if i.get("type") == "dir" else "") for i in items]
+
     def search(self, query: str, n: int = 5) -> list[Doc]:
         docs = []
         for r in self.repos(query, n):
