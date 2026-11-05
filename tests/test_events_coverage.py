@@ -225,6 +225,14 @@ def test_a_check_that_ran_no_tests_corrects_only_syntax_errors(tmp_path):
     assert [(e.message[:6], e.domain) for e in log.events()] == [("syntax", "code"), ("1 fail", "code")]
     Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=False, tests_ok=None))
     assert {e.message[:6]: e.status for e in log.events()} == {"syntax": "corrected", "1 fail": "open"}
+    # syntax fixed while a test still fails: the syntax event is corrected, the test event stays, and is not doubled
+    log2 = EventLog(tmp_path / "r2" / "events.jsonl", "r2")
+    me2 = SimpleNamespace(llm=SimpleNamespace(events=log2), project=p)
+    Production._record_checks(me2, Checks(compiled=["a.py"], syntax_errors={"a.py": "bad"}, tests_ran=True,
+                                          tests_ok=False, failed=["test_a"]))
+    Production._record_checks(me2, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=False,
+                                          failed=["test_a"]))
+    assert [(e.message[:6], e.status) for e in log2.events()] == [("syntax", "corrected"), ("1 fail", "open")]
     Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True))
     assert not log.open_events()
 

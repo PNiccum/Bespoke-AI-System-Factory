@@ -389,11 +389,12 @@ class Production:
         """The plain-code checks as events: each kind of failure is one open event until a later check passes.
         A check that ran no tests corrects only syntax errors, never an earlier failing-test event."""
         events = log_of(self.llm, self.project)
+        # each kind is corrected on its own: syntax fixed while a test still fails closes the syntax events
+        if not checks.syntax_errors:
+            events.resolve_open("a later plain-code check found no syntax error", source="checks", ref="check:syntax")
+        if checks.tests_ran and checks.tests_ok:
+            events.resolve_open("a later test run passed", source="checks", ref="check:tests")
         if checks.ok:
-            if not checks.syntax_errors:
-                events.resolve_open("a later plain-code check passed", source="checks", ref="check:syntax")
-            if checks.tests_ran:
-                events.resolve_open("a later plain-code check passed", source="checks", ref="check:tests")
             return
         # once=True: the checks run after every repair, and the same failure must not stack up as new events
         if timed_out:
