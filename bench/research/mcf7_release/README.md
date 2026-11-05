@@ -30,6 +30,7 @@ Then run what ASPIRE delivered, on a copy of the list with the decoys appended:
 
 ```powershell
 python $T/add_decoys.py <lab list> list_with_decoys.csv
+# if it warns that no fold-change column was found, name one: --fold-col "<header>" (also --accession-col, --gene-col)
 python <deliverable>/interpret.py list_with_decoys.csv --out runs/mcf7-aspire
 python $T/baseline.py list_with_decoys.csv --out runs/mcf7-baseline
 ```
