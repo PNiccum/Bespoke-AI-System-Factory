@@ -54,10 +54,13 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
             checks = production.run(feedback)
             on_stage(stage := "critic loop")
             reviewed = critic.run(checks)
-            if reviewed.redesign:
-                break
+            # final QA runs even when the critic escalates: its approval is gated in code on the checks passing,
+            # and a stalled critic is no reason to withhold a working result (2026-11-04: log_spikes passed 5/5
+            # acceptance tests but stopped after critic round 3 without QA)
             on_stage(stage := "final QA")
             result = final.run(critic.shown_files())
+            if reviewed.redesign and not result.approved:
+                break
         except (SpendDenied, BudgetExceeded):
             raise  # a person said no to spending, or the cap was reached: stop, do not re-design
         except RuntimeError as e:  # a stage that crashed is a failure re-design should study, not a lost run
