@@ -272,8 +272,8 @@ class Lessons(BaseModel):
 def _summary(data: dict, width: int = 200) -> str:
     for key in ("text", "topic", "title", "summary", "verdict", "reason", "why", "path"):
         if isinstance(data.get(key), str) and data[key].strip():
-            return " ".join(data[key].split())[:width]
-    return json.dumps(data, ensure_ascii=False)[:width]
+            return _plain(data[key], width)  # web titles and model text: plain words only, never markup or quotes
+    return _plain(json.dumps(data, ensure_ascii=False), width)
 
 
 def _entries_text(project: Project) -> str:
@@ -328,8 +328,8 @@ def render_page(domain: str, rows: list[dict]) -> str:
              "entries it rests on (project id, entry id).", ""]
     by_project: dict[str, list[dict]] = {}
     for r in rows:
-        by_project.setdefault(r["project"], []).append(r)
-    for project, items in reversed(by_project.items()):
+        by_project.setdefault((r["project"], r["outcome"]), []).append(r)
+    for (project, _), items in reversed(by_project.items()):
         lines += [f"## {project} ({items[0]['outcome']}, {items[0]['at'][:10]})", ""]
         lines += [f"- **{r['kind']}**: {r['lesson']} ({', '.join(r['evidence'])})" for r in items] + [""]
     return "\n".join(lines)
