@@ -441,8 +441,11 @@ class Production:
         files = self.files()
         design = self.board.latest("design")
         reuse_path = self.project.root / "reuse.json"
-        result = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8"))
-                  if reuse_path.exists() else None)
+        try:  # an unreadable reuse.json loses only the advisory unused-tool list, never the build
+            result = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8"))
+                      if reuse_path.exists() else None)
+        except ValueError:
+            result = None
         return {"unavailable_imports": check_imports(self.out, files),
                 "reuse_unused": unused_reuse(design.data.get("reuse", []) if design else [], result, self.out,
                                              files)}

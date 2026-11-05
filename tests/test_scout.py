@@ -308,3 +308,19 @@ def test_production_checks_carry_the_reuse_checks(cfg, tmp_path, monkeypatch):
     (production.out / "tests" / "test_app.py").write_text("from app import f\n\ndef test_f():\n    assert f() == 1\n")
     checks = production.check()  # the pytest path
     assert checks.tests_ok and checks.unavailable_imports == {} and checks.reuse_unused == [] and checks.ok
+
+
+def test_import_names_and_a_broken_reuse_file(cfg, tmp_path, monkeypatch):
+    from factory.pipeline.production import Production
+    from factory.pipeline.scout import import_name
+    from tests.test_build import project_after_knowledge
+    assert (import_name("python-docx"), import_name("PyYAML"), import_name("httpx"), import_name("pydantic")) == (
+        "docx", "yaml", "httpx", "pydantic")
+    monkeypatch.setenv("ASPIRE_SANDBOX", "process")
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    (project.root / "reuse.json").write_text('{"candidates": [')  # truncated
+    production = Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki)
+    production.out.mkdir(parents=True, exist_ok=True)
+    (production.out / "app.py").write_text("import json\n")
+    checks = production.check()
+    assert checks.ok and checks.reuse_unused == []
