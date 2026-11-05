@@ -1,5 +1,5 @@
-accession,gene,log2fc,why_planted
-P20152,Vim,1.4,mouse vimentin (UniProt P20152 is Mus musculus)
-P06493-2,CDK1,1.9,isoform duplicate of a canonical entry that may already be on the list
-P08670,VIM,1.6,vimentin: MCF7 is luminal epithelial and expresses little or no vimentin
-Q9ZZZ9,FAKE1,2.2,made-up accession and gene symbol
+accession,gene,log2fc,description,why_planted
+P20152,Vim,1.4,Vimentin (mouse),mouse vimentin (UniProt P20152 is Mus musculus)
+P06493-2,CDK1,1.9,Cyclin-dependent kinase 1 isoform 2,isoform duplicate of a canonical entry that may already be on the list
+P08670,VIM,1.6,Vimentin,vimentin: MCF7 is luminal epithelial and expresses little or no vimentin
+Q9ZZZ9,FAKE1,2.2,Putative uncharacterized protein FAKE1,made-up accession and gene symbol

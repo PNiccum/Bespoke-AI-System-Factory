@@ -23,7 +23,8 @@ first.
   separates protein level from activity: a caspase going up is not apoptosis by itself.
 - Considers stress and starvation carry-over (autophagy, unfolded protein response, heat shock) as a reason for
   proteins that do not fit.
-- Says that a list of upregulated proteins alone cannot show what went down, and asks for the down list.
+- Says that a list of upregulated proteins alone cannot show what went down, and asks for the down list and the
+  fold changes, since the list carries neither.
 
 ## Question 3: drug targets and cancer relevance (0 to 8)
 - Separates approved drugs, clinical candidates, preclinical or literature-only targets and untargeted proteins,

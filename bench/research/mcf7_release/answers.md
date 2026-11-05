@@ -1,9 +1,12 @@
 Answers for the Interviewer, given to every round of questions in an unattended run
 (`python -m factory interview --answers-file ... --approve`). They are what Parker and the lab would say.
 
-- Input: one CSV or TSV file with a header. Columns: UniProt accession, gene symbol, and log2 fold change (24 h
-  release versus 48 h starvation) when the lab provides it. Some rows may have only one of accession or gene. Human
-  (Homo sapiens). About 95 rows, but the pipeline must work for any length.
+- Input: one CSV or TSV file with a header and three columns: `Protein ID` (UniProt accession), `Gene name` (gene
+  symbol) and `Description` (the protein's name, free text). There are no fold changes and no p-values: the list is
+  already the selected subset of proteins that went up after release, so every protein counts as "up" and nothing is
+  known about how much. The pipeline must not assume more columns, must read these columns by header name (case and
+  spacing may vary), and must work for any length (about 95 rows here). Human (Homo sapiens). A row may have only an
+  accession or only a gene symbol.
 - Data rule: the list is unpublished lab data. It may be sent to public databases as gene names or accessions
   (UniProt, Reactome, Europe PMC, ChEMBL, Open Targets), but never to Claude or OpenAI. Any model step uses ARC models
   only, with the key from ARC_API_KEY. Tests must run offline with recorded responses and invented sample data.
@@ -14,10 +17,12 @@ Answers for the Interviewer, given to every round of questions in an unattended 
     p-value, computed in code;
   - `report.md`: answers to questions 1 to 5, written from the evidence tables;
   - `claims.json`: one claim per statement about a protein, as a list of objects with id, protein, statement,
-    direction ("up", "down" or "none") and citations (like "PMID:12345678" or "UniProt:P06493").
+    direction ("up" for every protein on the list; "none" for a statement that does not concern its level) and citations (like "PMID:12345678" or "UniProt:P06493").
 - Where a model is needed: only for reading abstracts and writing report.md and claims.json. Lookups, counts,
   enrichment statistics and drug-target tiers are plain code. Every model-written claim must cite a source that the
   pipeline actually retrieved.
+- Because the list carries no quantities, enrichment is over-representation of the list against a stated background
+  (the whole human proteome unless the lab gives the detected proteome), not a fold-change ranking.
 - Success: a person at the lab finds the report useful; claims.json passes a citation check (every cited ID was
   retrieved and names the protein); the enrichment numbers recompute from the counts; planted decoys in the list (a
   mouse accession, an isoform duplicate, a protein MCF7 does not express, a made-up accession) are flagged.
