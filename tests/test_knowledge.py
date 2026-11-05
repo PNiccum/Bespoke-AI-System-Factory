@@ -425,3 +425,17 @@ def test_the_docs_catalog_has_the_api_and_format_pages_the_gap_runs_needed():
     from factory.pipeline.sources import DOCS_CATALOG
     keys = {k for k, *_ in DOCS_CATALOG}
     assert {"opentargets_graphql", "david_functional_annotation", "cellosaurus_description", "europepmc_rest"} <= keys
+
+
+def test_a_page_of_plain_restatements_is_verified_by_code_without_a_model(cfg, tmp_path):
+    body = " ".join(f"Primers should have a Tm of 55-65 C ({i}). {{{{q:europepmc:PMC{i}|Primers should have a Tm of "
+                    f"55-65 C ({i})}}}}" for i in (1, 2))
+    plain = json.dumps({"summary": "Primer Tm.", "body": body})
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Primer Tm"), queries(), review(1, 2), plain,
+                                       topics(enough=True))
+    assert kl.run().ok
+    page = wiki.covers("Primer Tm")
+    assert page and page.verified
+    checks = project.board.entries("wiki_check")
+    assert checks[-1].author == "code" and checks[-1].data["by"] == "restatement check"
+    assert len(arc.requests) == 5  # evaluate, queries, review, write, re-evaluate: no verifier call

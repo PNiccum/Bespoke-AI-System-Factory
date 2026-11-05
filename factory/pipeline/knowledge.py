@@ -547,8 +547,14 @@ class KnowledgeLoop:
                 f"after the quote check the page cites {len(sources)} documents; it needs {MIN_SOURCES} (or one "
                 "reference manual)",
                 *[f"dropped {x}" for x in lost]]
-            if not issues:
-                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(), quotes=cite.quotes(paragraphs),
+            if not issues and not cite.needs_model_check(paragraphs):
+                # every kept sentence restates its own quote, which code already matched word for word: there is
+                # nothing for a model to weigh, so the page is verified by code (recorded as such on the board)
+                self.board.post("wiki_check", "code", {"topic": topic.name, "accurate": True, "issues": [],
+                                                       "by": "restatement check"}, license=license)
+            elif not issues:
+                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(),
+                                                                  quotes=cite.quotes(paragraphs, only_doubtful=True),
                                                                   docs=show_docs([d for d in docs
                                                                                   if d.id in sources])),
                                    Check, f"verify-{topic.name}-{attempt}", docs)

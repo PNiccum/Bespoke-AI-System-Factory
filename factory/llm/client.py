@@ -47,7 +47,12 @@ class DataScopeError(RuntimeError):
 
 
 class TruncatedError(RuntimeError):
-    """The response hit its token limit; it is logged and never parsed."""
+    """The response hit its token limit; it is logged and never parsed. ``partial`` is the text that did arrive, so a
+    caller whose format is made of independent pieces (the builder's FILE blocks) can keep the finished ones."""
+
+    def __init__(self, message: str = "", partial: str = ""):
+        super().__init__(message)
+        self.partial = partial
 
 
 class RefusedError(RuntimeError):
@@ -220,7 +225,8 @@ class LLM:
                   **asdict(raw.usage), **({"tool_calls": [c["name"] for c in raw.tool_calls]} if raw.tool_calls else {}))
 
         if raw.stop_reason == "max_tokens":
-            raise TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens}); retry with smaller input")
+            raise TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens}); retry with smaller input",
+                                 partial=raw.text)
         if raw.stop_reason == "refusal":
             raise RefusedError(f"{tag or role}: model declined the request")
         if self.cache:
@@ -368,7 +374,7 @@ class LLM:
 
 def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls, tag: str,
                        attempts: int = 3, data: DataClass = "private", max_tokens: int | None = None,
-                       escalate: bool = False, parse=None, fmt: str = "JSON", rescue: bool = True):
+                       escalate: bool = False, parse=None, fmt: str = "JSON", rescue: bool = True, salvage=None):
     """Call the model until the output parses and validates, or give up.
 
     ``rescue``: when every free attempt fails and the role has a paid ``quality`` step, one more attempt goes to that
@@ -379,10 +385,17 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
     asks for the corrected JSON. (Repeating the identical request would only return the cached bad reply.)
     ``parse`` turns the completion into the data to validate (default: its first JSON object); ``fmt`` names the
     format in the retry request.
+
+    ``salvage``: an object with ``keep(partial_text) -> str | None`` and ``merge(data) -> data``. When a reply is
+    cut off, ``keep`` takes the finished pieces out of the partial text and returns a sentence naming them (or None
+    when nothing is usable); the retry then asks only for the rest, and ``merge`` joins the pieces kept earlier to
+    the retry's data. Plain code keeps what the model already paid minutes to write instead of throwing it away.
     """
-    errors, cut_off = [], False
+    errors, cut_off, kept_note = [], False, None
     for i in range(attempts):
         p = prompt if i == 0 else (
+            f"{prompt}\n\nYour previous reply was cut off at the output limit. {kept_note} Reply again with only "
+            f"the {fmt} for what is still missing." if cut_off and kept_note else
             f"{prompt}\n\nYour previous reply was cut off at the output limit. Reply again with only the {fmt}, "
             "much shorter: keep only what is asked for, drop comments, docstrings and repetition, and cover fewer "
             "cases if you must." if cut_off else
@@ -393,10 +406,13 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             # replies hit max_tokens (7.3 h of model time), and the same thinking model often overran again
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate,
                              lighter=cut_off)
-            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
+            data_ = parse(c) if parse else c.json()
+            return model_cls.model_validate(salvage.merge(data_) if salvage and kept_note else data_), c, errors
         except TruncatedError as e:
             errors.append(str(e))
             cut_off = True
+            if salvage and (note := salvage.keep(e.partial)):
+                kept_note = note
         except (ValueError, ValidationError) as e:
             errors.append(f"{type(e).__name__}: {str(e)[:200]}")
             cut_off = False
