@@ -249,6 +249,8 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     # value cannot shadow ASPIRE_DATA_PRIVATE=1 in .env.
     if _is_private(os.environ.get("ASPIRE_DATA_PRIVATE")) or _is_private(dotenv.get("ASPIRE_DATA_PRIVATE")):
         data["data_public"] = False
+        if not _is_private(os.environ.get("ASPIRE_DATA_PRIVATE")):  # keep os.environ authoritative for later readers
+            os.environ["ASPIRE_DATA_PRIVATE"] = "1"
     for pair in filter(None, os.environ.get("FACTORY_ROLE_TIERS", "").split(",")):  # "reviewer=quality,coder=quality"
         role, _, t = pair.partition("=")
         data.setdefault("role_tiers", {})[role.strip()] = t.strip()

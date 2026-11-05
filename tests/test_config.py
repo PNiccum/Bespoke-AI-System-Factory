@@ -146,6 +146,7 @@ def test_dotenv_private_flag_beats_an_empty_or_zero_shell_value(monkeypatch, tmp
     monkeypatch.setenv("ASPIRE_DATA_PRIVATE", shell)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\n")
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"  # os.environ agrees with the config
 
 
 @pytest.mark.parametrize("raw", [b"\xef\xbb\xbfASPIRE_DATA_PRIVATE=1\n", b"export\tASPIRE_DATA_PRIVATE=1\n"])
