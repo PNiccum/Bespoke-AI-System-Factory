@@ -483,3 +483,12 @@ def test_a_resumed_build_starts_at_the_critic_on_the_earlier_builds_files(cfg, t
 def test_final_qa_prompt_tells_qa_to_name_a_failing_check():
     from factory.pipeline.final import QA_PROMPT
     assert "ONLY by naming a concrete failing check" in QA_PROMPT and '"failing_check"' in QA_PROMPT
+
+
+def test_qa_is_not_overridden_when_no_test_passed():
+    from factory.pipeline.final import QA, TaskResult, defer_to_code
+    from factory.pipeline.production import Checks
+    empty = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True, passed=[])  # zero collected
+    q = QA(tasks=[TaskResult(id="T1", met=False, evidence="the feature is absent")])
+    defer_to_code(q, empty)
+    assert not q.tasks[0].met

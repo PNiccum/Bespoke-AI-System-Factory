@@ -54,7 +54,8 @@ the order of work (tests written first, or failing in a certain way before the c
 exist and pass now. The plain-code checks are the record of the test run; a test count or run log written in a \
 file that disagrees with them is an issue to list, not an unmet task. \
 When every test passes, mark a task unmet ONLY by naming a concrete failing check in "failing_check": a command or \
-input you ran against the files, with the expected and the actual result. Wording, naming, style, documentation or \
+input that would show the failure, with the expected result and what the files do instead (or that the \
+feature is absent from the files). Wording, naming, style, documentation or \
 counts are never grounds to mark a task unmet. A feature that is missing or untested counts only when you name the \
 command or input that shows it is missing. Code applies this rule: an unmet task with no failing check is set to met.
 
@@ -78,7 +79,7 @@ OBSERVED = re.compile(r"expected|actual|\bgot\b|prints?|returns?|raises?|error|o
 def defer_to_code(qa: QA, checks: Checks) -> None:
     """When the code checks are green (files compile, tests ran and all pass), QA may reject a task only by naming a
     concrete failing check. An unmet task with none, or one that names a test the sandbox saw pass, is set to met."""
-    if not (checks.ok and checks.tests_ran and checks.tests_ok):
+    if not (checks.ok and checks.tests_ran and checks.tests_ok and checks.passed):
         return
     for t in qa.tasks:
         named = t.failing_check.strip()
