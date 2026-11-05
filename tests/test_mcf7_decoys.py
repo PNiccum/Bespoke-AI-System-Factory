@@ -90,3 +90,24 @@ def test_a_replicate_count_xlsx_gets_decoys_with_counts_and_is_written_as_csv(tm
     assert vim["Description"] == "Vimentin"
     said = capsys.readouterr().out
     assert "fold=None" in said and "replicate counts=['Control 1/ Nonproliferative'" in said and "carry none" not in said
+
+
+def test_baseline_summary_gives_the_listed_proteins_and_the_extremes_computed_by_code(tmp_path):
+    spec = importlib.util.spec_from_file_location("baseline", ROOT / "bench/research/mcf7_release/baseline.py")
+    baseline = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(baseline)
+    counts, lst = tmp_path / "counts.csv", tmp_path / "list.csv"
+    counts.write_text(
+        "Protein ID,Gene name,Description ,Control 1/ Nonproliferative,Control 2/ Nonproliferative,"
+        "Treatment1/ Proliferative,Treatment2/ Proliferative\n"
+        "P06493,CDK1,Cyclin-dependent kinase 1,3,3,15,15\n"      # (15+1)/(3+1) = 4 -> +2.00
+        "P12004,PCNA,PCNA,0,0,0,0\n"                              # 0.00, on the list but not up
+        "P11111,UPPY,Up protein,1,1,63,63\n"                      # +5.00, not on the list
+        "P22222,DOWNY,Down protein,31,31,1,1\n", encoding="utf-8")  # -4.00, not on the list
+    lst.write_text("Protein ID,Gene name,Description\nP06493,CDK1,x\nP12004,PCNA,y\n", encoding="utf-8")
+    out = baseline.counts_summary(str(lst), str(counts), extremes=1)
+    assert "4 proteins were detected; 2 control and 2 treatment replicates" in out
+    assert "P06493\tCDK1\t+2.00" in out and "P12004\tPCNA\t+0.00" in out
+    up, down = out.split("most increased")[1], out.split("most decreased")[1]
+    assert "P11111\tUPPY\t+5.00" in up.split("###")[0] and "P22222\tDOWNY\t-4.00" in down
+    assert "P06493" not in down  # listed proteins are not repeated among the extremes
