@@ -42,6 +42,7 @@ KINDS = frozenset({
     "coverage",  # which of those topics the wiki already covers
     "query",  # one search the research orchestrator ran, and what it found
     "source",  # a document the research orchestrator approved
+    "rejected",  # a document the research orchestrator rejected for a topic (feeds the known-bad-sources list)
     "wiki_check",  # the wiki verifier's check of a page
     "wiki_page",  # a page the librarian wrote or updated
     "knowledge",  # the knowledge loop's result

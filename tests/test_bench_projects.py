@@ -84,7 +84,7 @@ def fake_pipeline(monkeypatch, *, problems=(), knowledge_ok=True, status="delive
         def run(self):
             return SimpleNamespace(ok=knowledge_ok, missing=[] if knowledge_ok else ["primer3 settings"])
 
-    def build(llm, registry, project, wiki, searchers, on_stage, redesign, resume=False):
+    def build(llm, registry, project, wiki, searchers, on_stage, redesign, resume=False, learn=True):
         assert redesign is False  # a benchmark run never changes ASPIRE
         on_stage("production, round 1")
         if files_from:

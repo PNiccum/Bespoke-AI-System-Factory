@@ -204,7 +204,7 @@ def replay(cfg: FactoryConfig, archive: FailureArchive, case: Case, agents: list
     registry = Registry(agents, cfg, ScoreBook(run_dir / "scores.json"))
     try:
         result = build(llm, registry, Project.open(root), Wiki(cfg.work_dir / "wiki"),
-                       default_searchers(cfg.work_dir / "research-cache"), redesign=False)
+                       default_searchers(cfg.work_dir / "research-cache"), redesign=False, learn=False)
         solved, why = result.status == "delivered", result.status
     except Exception as e:  # noqa: BLE001 (a crash is a failed replay, not a failed proposal run)
         solved, why = False, f"{type(e).__name__}: {e}"

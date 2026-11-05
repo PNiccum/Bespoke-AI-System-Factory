@@ -53,7 +53,7 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
 
 def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
           on_stage=lambda stage: None, redesign: bool = True, allow_unapproved: bool = False,
-          resume: bool = False) -> BuildResult:
+          resume: bool = False, learn: bool = True) -> BuildResult:
     """``redesign=False`` (a replay of an archived failure, factory/failures.py) stops where re-design would start.
     A project whose knowledge loop did not approve its knowledge is refused, unless ``allow_unapproved`` (to exercise
     the later stages on purpose; such a run is not a fair end-to-end result).
@@ -66,7 +66,7 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
                            f"{', '.join(k.data.get('missing', [])) or 'unknown'}); rerun research first")
     events = log_of(llm, project)
     production = Production(llm, registry, project, wiki)
-    knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
+    knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers, learn=learn)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
     final = FinalEvaluator(llm, registry, project, production)
     feedback, result, stage, repairs = "", None, "", 0
