@@ -172,6 +172,21 @@ def test_batch_uses_cache_prices_at_half_and_returns_errors_in_place(cfg, tmp_pa
     full, _ = price_call(cfg.model_info(cfg.roles["agent"].model), cfg.models, Usage(1000, 500))
     assert abs(out[1].priced_usd - full / 2) < 1e-9  # batch price
     assert not list((cfg.work_dir / "batches").glob("*.json"))  # finished batches are not resumed
+    assert llm.ledger.held_usd == pytest.approx(0.0) and not llm.spend._read_reserved()  # the hold is gone
+    assert llm.spend.spent["claude"] == pytest.approx(
+        out[1].real_usd + price_call(cfg.model_info(cfg.roles["agent"].model), cfg.models, Usage(10, 10), batch=True)[1])  # once each
+
+
+def test_a_batch_that_never_finishes_releases_its_hold(cfg, tmp_path):
+    cfg.providers["claude"].batch = True
+
+    class Stuck(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            return False
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Stuck({})}, approver=approve_all)
+    with pytest.raises(TimeoutError):
+        llm.complete_batch("agent", [{"user": "a"}], data="public", poll_seconds=0, max_wait_s=0)
+    assert llm.ledger.held_usd == 0.0 and not llm.spend._read_reserved()
 
 
 def test_batch_resumes_a_submitted_batch_after_an_interruption(cfg, tmp_path):

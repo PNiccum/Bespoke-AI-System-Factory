@@ -91,12 +91,13 @@ def _file_lock(path: Path):
         if os.name == "nt":
             import msvcrt
             f.seek(0)
-            while True:
+            for attempt in range(30):  # each try blocks ~10 s; a persistent error is raised, not spun on
                 try:
-                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # blocks ~10 s per try
+                    msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
                     break
                 except OSError:
-                    continue
+                    if attempt == 29:
+                        raise
             try:
                 yield
             finally:
@@ -111,7 +112,7 @@ def _file_lock(path: Path):
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-RESERVATION_TTL_S = 30 * 3600  # longer than a batch may wait; a crashed run's hold expires after this
+RESERVATION_TTL_S = 30 * 3600  # default; a batch passes its own wait limit. A crashed run's hold expires after this
 
 
 class SpendLedger:
@@ -134,8 +135,7 @@ class SpendLedger:
     @property
     def spent(self) -> dict[str, float]:
         """Current totals, read fresh from disk (other processes may have added to them)."""
-        with self._locked():
-            return self._read_spent()
+        return self._read_spent()  # lock-free: writes are atomic replaces, so a read never sees a partial file
 
     @contextlib.contextmanager
     def _locked(self):
@@ -147,14 +147,18 @@ class SpendLedger:
             return json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             return {}
+        except ValueError as e:  # fail closed: an unreadable ledger must not look like zero spend
+            raise BudgetExceeded(f"{self.path} is unreadable ({e}); fix or restore it before paid calls") from e
 
     def _read_reserved(self) -> dict[str, dict]:
         try:
             held = json.loads(self.reserved_path.read_text(encoding="utf-8"))
+            now = time.time()
+            return {k: v for k, v in held.items() if now - v["at"] < v.get("ttl", RESERVATION_TTL_S)}
         except FileNotFoundError:
             return {}
-        now = time.time()
-        return {k: v for k, v in held.items() if now - v["at"] < RESERVATION_TTL_S}
+        except (ValueError, KeyError, TypeError, AttributeError) as e:
+            raise BudgetExceeded(f"{self.reserved_path} is unreadable ({e}); delete it if no run is in flight") from e
 
     @staticmethod
     def _write(path: Path, data: dict) -> None:
@@ -184,13 +188,14 @@ class SpendLedger:
         with self._locked():
             self._refuse_if_over(provider, self._read_spent(), self._read_reserved(), estimate)
 
-    def reserve(self, provider: str, estimate: float) -> str:
-        """Check and hold ``estimate`` in one step; returns the reservation id for ``settle`` or ``release``."""
+    def reserve(self, provider: str, estimate: float, ttl_s: float = RESERVATION_TTL_S) -> str:
+        """Check and hold ``estimate`` in one step; returns the reservation id for ``settle`` or ``release``.
+        The hold lapses after ``ttl_s`` (so a crashed run cannot block credit for ever); set it past the call's wait."""
         with self._locked():
             held = self._read_reserved()
             self._refuse_if_over(provider, self._read_spent(), held, estimate)
             rid = uuid.uuid4().hex
-            held[rid] = {"provider": provider, "usd": round(estimate, 6), "at": time.time()}
+            held[rid] = {"provider": provider, "usd": round(estimate, 6), "at": time.time(), "ttl": ttl_s}
             self._write(self.reserved_path, held)
             return rid
 
@@ -200,12 +205,20 @@ class SpendLedger:
             if held.pop(rid, None) is not None:
                 self._write(self.reserved_path, held)
 
-    def settle(self, rid: str | None, provider: str, usd: float) -> None:
-        """Charge the real cost and drop the reservation, in one locked step."""
+    def settle(self, rid: str | None, provider: str, usd: float, part: float | None = None) -> None:
+        """Charge the real cost and drop the reservation (all of it, or just ``part`` dollars of it), in one locked
+        step. Nothing to do, and no lock taken, for a free call."""
+        if (rid is None or part == 0) and usd <= 0:
+            return
         with self._locked():
             if rid is not None:
                 held = self._read_reserved()
-                if held.pop(rid, None) is not None:
+                if rid in held:
+                    left = None if part is None else round(held[rid]["usd"] - part, 6)
+                    if left is None or left <= 0:
+                        del held[rid]
+                    else:
+                        held[rid]["usd"] = left
                     self._write(self.reserved_path, held)
             if usd > 0:
                 spent = self._read_spent()

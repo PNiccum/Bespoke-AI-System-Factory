@@ -134,6 +134,13 @@ def provider_gate(name: str, limit: int) -> threading.BoundedSemaphore:
         return _GATES[name]
 
 
+@dataclass
+class _Hold:
+    """An upper-bound estimate held on the shared credit (``rid``) and the run's cap while a paid call is in flight."""
+    rid: str
+    left: float
+
+
 class LLM:
     def __init__(self, cfg: FactoryConfig, run_dir: Path, use_cache: bool = True, providers: dict | None = None,
                  approver: Approver | None = None):
@@ -230,7 +237,7 @@ class LLM:
             raw, seconds = self._call_with_retries(rc.provider, req, role, tag)
             priced, real = price_call(info, self.cfg.models, raw.usage)
             self.ledger.add(priced, real, raw.usage.total)
-            self.spend.settle(hold[0] if hold else None, rc.provider, real)
+            self.spend.settle(hold.rid if hold else None, rc.provider, real)
         finally:
             self._release(hold)
         self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, prompt_sha256=key,
@@ -302,7 +309,7 @@ class LLM:
         if info.real:  # one approval covers the whole batch, at the batch price
             est = sum(estimate_usd(info, len(json.dumps(r.messages)) + len(r.system or ""), r.max_tokens)
                       for r in reqs.values()) * info.batch_discount
-            hold = self._check_spend(role, rc, est)
+            hold = self._check_spend(role, rc, est, ttl_s=max_wait_s + 3600)
         try:
             return self._run_batch(role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s)
         finally:
@@ -338,7 +345,12 @@ class LLM:
                 continue
             priced, real = price_call(info, self.cfg.models, raw.usage, batch=True)
             self.ledger.add(priced, real, raw.usage.total)
-            self.spend.settle(None, rc.provider, real)  # the batch's hold is dropped once, when it is all done
+            item = min(hold.left, estimate_usd(info, len(json.dumps(req.messages)) + len(req.system or ""),
+                                               req.max_tokens) * info.batch_discount) if hold else 0.0
+            self.spend.settle(hold.rid if hold else None, rc.provider, real, part=item)  # this item's share of the hold
+            if hold:
+                self.ledger.unhold(item)
+                hold.left -= item
             self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, batch=True,
                       stop_reason=raw.stop_reason, priced_usd=round(priced, 6), real_usd=round(real, 6),
                       **asdict(raw.usage))
@@ -355,12 +367,12 @@ class LLM:
         pending.unlink(missing_ok=True)  # finished: a later identical request set is answered from the cache
         return out
 
-    def _check_spend(self, role: str, rc: RoleConfig, estimate: float) -> tuple[str, float]:
+    def _check_spend(self, role: str, rc: RoleConfig, estimate: float, ttl_s: float | None = None) -> _Hold:
         """Remaining credit first (no point asking a person to approve what cannot be paid), then approval, then an
         atomic hold of the estimate on the credit and on the run's cap. Returns the hold for ``_release``."""
         self.spend.check(rc.provider, estimate)
         req = SpendRequest(role=role, provider=rc.provider, model=rc.model, estimate_usd=round(estimate, 4),
-                           run_spent_usd=round(self.ledger.real_usd + self.ledger.held_usd, 4), reason="")
+                           run_spent_usd=round(self.ledger.real_usd, 4), reason="")
         try:
             self.gate.check(req)
         finally:
@@ -369,15 +381,16 @@ class LLM:
                           estimate_usd=req.estimate_usd, run_spent_usd=req.run_spent_usd)
         self.ledger.hold(estimate)
         try:
-            return self.spend.reserve(rc.provider, estimate), estimate
+            return _Hold(self.spend.reserve(rc.provider, estimate, **({"ttl_s": ttl_s} if ttl_s else {})), estimate)
         except BaseException:
             self.ledger.unhold(estimate)
             raise
 
-    def _release(self, hold: tuple[str, float] | None) -> None:
+    def _release(self, hold: _Hold | None) -> None:
         if hold:
-            self.spend.release(hold[0])  # no-op if settled
-            self.ledger.unhold(hold[1])
+            self.spend.release(hold.rid)  # no-op if settled
+            self.ledger.unhold(hold.left)
+            hold.left = 0.0
 
     def _call_with_retries(self, provider: str, req: Request, role: str, tag: str) -> tuple[RawResult, float]:
         retries = self.cfg.providers[provider].stream_retries

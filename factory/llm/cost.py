@@ -74,7 +74,7 @@ class Ledger:
         """Check the caps (spend plus calls already in flight) and, in the same locked step, hold ``estimate`` for a
         paid call about to start. The call's own estimate is held but not counted against the cap, as before."""
         with self._lock:
-            self._check(True, estimate)
+            self._check(True)
             self.held_usd += estimate
 
     def unhold(self, estimate: float) -> None:
@@ -83,9 +83,9 @@ class Ledger:
 
     def check(self, paid: bool = True) -> None:
         with self._lock:
-            self._check(paid, 0.0)
+            self._check(paid)
 
-    def _check(self, paid: bool, estimate: float) -> None:
+    def _check(self, paid: bool) -> None:
         """Raise BudgetExceeded if any cap has been reached. Called before every call. The dollar cap counts real
         spend, so it stops paid calls only: a free (ARC) call costs nothing and is never blocked by it, while with a
         cap of $0 every paid call is refused."""

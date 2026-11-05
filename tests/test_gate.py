@@ -191,3 +191,24 @@ def test_a_failed_paid_call_releases_its_hold(cfg, tmp_path):
         llm.complete("agent", "x", data="public")
     assert llm.ledger.held_usd == 0.0
     assert not llm.spend._read_reserved()
+
+
+def test_run_cap_counts_calls_in_flight(cfg, tmp_path):
+    from factory.llm.cost import Ledger
+    ledger = Ledger(Budget(max_real_usd=1.0))
+    ledger.hold(0.6)
+    ledger.hold(0.6)  # the first hold alone is under the cap, so this passes; the cap is now spoken for
+    with pytest.raises(BudgetExceeded, match="in flight"):
+        ledger.hold(0.1)
+    ledger.unhold(0.6)
+    ledger.unhold(0.6)
+    assert ledger.held_usd == 0.0
+    free = Ledger(Budget(max_real_usd=0.0))
+    free.check(paid=False)  # free calls are never blocked by the dollar cap
+
+
+def test_a_corrupt_ledger_file_fails_closed(tmp_path):
+    path = tmp_path / "spend.json"
+    path.write_text("")
+    with pytest.raises(BudgetExceeded, match="unreadable"):
+        SpendLedger(path, Credits(by_provider={"claude": 5.0}, reserve_usd=0.0)).check("claude")
