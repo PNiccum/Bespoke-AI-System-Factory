@@ -348,3 +348,25 @@ def test_a_cut_off_reply_keeps_its_finished_pieces_and_asks_only_for_the_rest(cf
     assert {f.path: f.content for f in out.files} == {"a.py": "print(1)\n", "b.py": "print(2)\n"}
     assert "already received and kept, do not write them again: a.py" in seen[1]
     assert len(errors) == 1
+
+
+def test_a_refused_resume_leaves_the_earlier_hold_in_place(cfg, tmp_path):
+    from factory.config import Credits
+    from factory.llm.gate import SpendDenied, deny_all
+    cfg.providers["claude"].batch = True
+    cfg.credits = Credits(by_provider={"claude": 5.0}, reserve_usd=0.0)
+
+    class Interrupted(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            raise KeyboardInterrupt
+
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
+    with pytest.raises(KeyboardInterrupt):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    stale = llm.spend.reserve("claude", 1.0)
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    pending.write_text(json.dumps({**json.loads(pending.read_text()), "hold": stale}))
+    llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": FakeBatchProvider({})}, approver=deny_all)
+    with pytest.raises(SpendDenied):
+        llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    assert stale in llm2.spend._read_reserved()

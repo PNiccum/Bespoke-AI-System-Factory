@@ -306,12 +306,11 @@ class LLM:
         info = self.cfg.model_info(rc.model)
         self.ledger.check(paid=info.real)
         hold = None
-        if info.real and (old := self._pending_batch(rc, keys, reqs)[1].get("hold")):
-            self.spend.release(old)  # resuming: the earlier run's hold would count this batch twice
         if info.real:  # one approval covers the whole batch, at the batch price
             est = sum(estimate_usd(info, len(json.dumps(r.messages)) + len(r.system or ""), r.max_tokens)
                       for r in reqs.values()) * info.batch_discount
-            hold = self._check_spend(role, rc, est, ttl_s=max_wait_s + 3600)
+            hold = self._check_spend(role, rc, est, ttl_s=max_wait_s + 3600,
+                                     replaces=self._pending_batch(rc, keys, reqs)[1].get("hold"))
         try:
             return self._run_batch(role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s)
         finally:
@@ -376,10 +375,11 @@ class LLM:
         pending.unlink(missing_ok=True)  # finished: a later identical request set is answered from the cache
         return out
 
-    def _check_spend(self, role: str, rc: RoleConfig, estimate: float, ttl_s: float | None = None) -> _Hold:
+    def _check_spend(self, role: str, rc: RoleConfig, estimate: float, ttl_s: float | None = None,
+                     replaces: str | None = None) -> _Hold:
         """Remaining credit first (no point asking a person to approve what cannot be paid), then approval, then an
         atomic hold of the estimate on the credit and on the run's cap. Returns the hold for ``_release``."""
-        self.spend.check(rc.provider, estimate)
+        self.spend.check(rc.provider, estimate, ignoring=replaces)
         req = SpendRequest(role=role, provider=rc.provider, model=rc.model, estimate_usd=round(estimate, 4),
                            run_spent_usd=round(self.ledger.real_usd, 4), reason="")
         try:
@@ -390,6 +390,8 @@ class LLM:
                           estimate_usd=req.estimate_usd, run_spent_usd=req.run_spent_usd)
         self.ledger.hold(estimate)
         try:
+            if replaces:  # resuming a batch: an earlier run's hold for it would count the batch twice. Dropped only
+                self.spend.release(replaces)  # now that the call is approved, so a refusal leaves it in place
             return _Hold(self.spend.reserve(rc.provider, estimate, **({"ttl_s": ttl_s} if ttl_s else {})), estimate)
         except BaseException:
             self.ledger.unhold(estimate)

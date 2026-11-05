@@ -170,7 +170,9 @@ class SpendLedger:
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         os.replace(tmp, path)
 
-    def _refuse_if_over(self, provider: str, spent: dict[str, float], held: dict[str, dict], estimate: float) -> None:
+    def _refuse_if_over(self, provider: str, spent: dict[str, float], held: dict[str, dict], estimate: float,
+                        ignoring: str | None = None) -> None:
+        held = {k: v for k, v in held.items() if k != ignoring}
         by = {}
         for h in held.values():
             by[h["provider"]] = by.get(h["provider"], 0.0) + h["usd"]
@@ -186,10 +188,10 @@ class SpendLedger:
                 raise BudgetExceeded(f"total paid spend ${total:.2f} spent or held plus ${estimate:.2f} for this "
                                      f"call would pass the credit minus the ${self.credits.reserve_usd:.2f} reserve")
 
-    def check(self, provider: str, estimate: float = 0.0) -> None:
+    def check(self, provider: str, estimate: float = 0.0, ignoring: str | None = None) -> None:
         """Refuse if this call could not be paid for. Does not hold anything; use ``reserve`` before a paid call."""
         with self._locked():
-            self._refuse_if_over(provider, self._read_spent(), self._read_reserved(), estimate)
+            self._refuse_if_over(provider, self._read_spent(), self._read_reserved(), estimate, ignoring)
 
     def reserve(self, provider: str, estimate: float, ttl_s: float = RESERVATION_TTL_S) -> str:
         """Check and hold ``estimate`` in one step; returns the reservation id for ``settle`` or ``release``.
