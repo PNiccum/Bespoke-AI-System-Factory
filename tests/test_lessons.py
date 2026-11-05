@@ -212,3 +212,20 @@ def test_the_same_project_rejecting_twice_counts_once_and_a_stale_lock_is_taken_
     os.utime(lock, (0, 0))  # a crashed run's lock, long ago
     bad.record("bio", "t", "d:2", "no", project="p1")
     assert "d:2" in bad.known("bio", "t") and not lock.exists()
+
+
+def test_a_damaged_or_old_lesson_row_is_skipped_not_fatal(tmp_path):
+    d = tmp_path / "lessons"
+    d.mkdir()
+    good = {"domain": "bio", "project": "p", "outcome": "delivered", "at": "2026-11-05", "lesson": "x", "kind": "watch",
+            "evidence": ["0001-note"]}
+    (d / "lessons.jsonl").write_text(json.dumps({"domain": "bio", "lesson": "no project"}) + "\n" + "{broken\n"
+                                     + json.dumps(good) + "\n", encoding="utf-8")
+    assert read_lessons(d, "bio") == [good]
+
+
+def test_the_page_lists_only_unexpired_bad_sources(tmp_path):
+    bad = BadSources(tmp_path / "bad.json")
+    bad.record("bio", "t", "d:old", "no", now=datetime.now(UTC) - timedelta(days=40))
+    bad.record("bio", "t", "d:new", "no")
+    assert [r["id"] for r in bad.rows()] == ["d:new"]

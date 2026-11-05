@@ -62,6 +62,49 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+
+@contextlib.contextmanager
+def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0):
+    """Threads share ``threads``; separate runs on one machine share the lock file (created exclusively, so it works on
+    Windows too). A lock file older than ``timeout`` belongs to a crashed run and is removed. If a live run still holds
+    it after ``timeout``, the write goes ahead unlocked (these files are by-products) and that run's lock is left alone."""
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    with threads:
+        held = False
+        start = time.monotonic()
+        while not held:
+            try:
+                os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+                held = True
+            except FileExistsError:
+                with contextlib.suppress(OSError):
+                    if time.time() - lock.stat().st_mtime > timeout:
+                        lock.unlink()  # a crashed run's
+                        continue
+                if time.monotonic() - start > timeout:
+                    break
+                time.sleep(0.02)
+        try:
+            yield
+        finally:
+            if held:
+                with contextlib.suppress(OSError):
+                    lock.unlink()
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")  # its own name, so runs never share one
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)  # a run stopped mid-write never leaves half a file
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 # --------------------------------------------------------------------------
 # Known-bad sources
 # --------------------------------------------------------------------------
@@ -78,41 +121,10 @@ class BadSources:
             return {}
 
     def _save(self, data: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=self.path.parent, suffix=".tmp")  # its own name, so runs never share one
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(data, indent=1, ensure_ascii=False))
-        os.replace(tmp, self.path)  # a run stopped mid-write never leaves half a file
+        _write_atomic(self.path, json.dumps(data, indent=1, ensure_ascii=False))
 
-    @contextlib.contextmanager
-    def _locked(self, timeout: float = 5.0):
-        """Threads share ``self._lock``; separate runs on one machine share a lock file (created exclusively, so it
-        works on Windows too). A lock file older than ``timeout`` belongs to a crashed run and is removed. If it is
-        still held by a live run after ``timeout``, the write goes ahead unlocked (this file is a by-product) and the
-        other run's lock file is left alone."""
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        lock = self.path.with_suffix(".lock")
-        with self._lock:
-            held = False
-            start = time.monotonic()
-            while not held:
-                try:
-                    os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-                    held = True
-                except FileExistsError:
-                    with contextlib.suppress(OSError):
-                        if time.time() - lock.stat().st_mtime > timeout:
-                            lock.unlink()  # a crashed run's
-                            continue
-                    if time.monotonic() - start > timeout:
-                        break
-                    time.sleep(0.02)
-            try:
-                yield
-            finally:
-                if held:
-                    with contextlib.suppress(OSError):
-                        lock.unlink()
+    def _locked(self):
+        return _exclusive(self.path.with_suffix(".lock"), self._lock)
 
     def record(self, domain: str, topic: str, doc_id: str, why: str, *, title: str = "", url: str = "",
                project: str = "", now: datetime | None = None) -> None:
@@ -153,10 +165,12 @@ class BadSources:
             self._save(data)
             return True
 
-    def rows(self) -> list[dict]:
-        """Every entry, for the lessons page."""
+    def rows(self, *, now: datetime | None = None) -> list[dict]:
+        """Every unexpired entry, for the lessons page."""
+        cutoff = ((now or _now()) - timedelta(days=TTL_DAYS)).isoformat()
         return [{"domain": d, "topic": t, "id": i, **r}
-                for d, topics in self._load().items() for t, docs in topics.items() for i, r in docs.items()]
+                for d, topics in self._load().items() for t, docs in topics.items() for i, r in docs.items()
+                if r.get("last", "") >= cutoff]
 
 
 def bad_sources_text(known: dict[str, dict]) -> str:
@@ -188,6 +202,9 @@ Write at most {n} lessons. Reply with JSON:
 "evidence": ["0007-source", "0012-fixes"]}}]}}
 `worked` = a choice that paid off, `failed` = what went wrong and why, `watch` = a risk to check next time.
 Every lesson needs at least one blackboard id in `evidence`."""
+
+
+LESSON_KEYS = frozenset({"domain", "project", "outcome", "at", "lesson", "kind", "evidence"})
 
 
 class Lesson(BaseModel):
@@ -246,7 +263,9 @@ def read_lessons(directory: Path, domain: str | None = None) -> list[dict]:
                 row = json.loads(line)
             except ValueError:
                 continue
-            if domain is None or row.get("domain") == domain:
+            if not isinstance(row, dict) or not LESSON_KEYS <= row.keys():
+                continue  # a row from an older version or a damaged line
+            if domain is None or row["domain"] == domain:
                 rows.append(row)
     return rows
 
@@ -264,6 +283,9 @@ def render_page(domain: str, rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+_LESSONS_LOCK = threading.Lock()
+
+
 def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> Path | None:
     """Ask for lessons once, keep the ones that cite real entries, and re-render the domain's page. None when the
     model gave nothing usable or nothing survived the check (a failure here never changes the run's result)."""
@@ -278,18 +300,18 @@ def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> 
     except Exception:  # noqa: BLE001 (no usable answer: no lessons this time)
         return None
     keep = checked(found, project)
-    existing = read_lessons(directory)
-    known = {(r["domain"], r["lesson"].lower()) for r in existing}
     at = _now().isoformat()
-    new = [{"domain": domain, "project": project.id, "outcome": outcome, "at": at, **les.model_dump()}
-           for les in keep if (domain, les.lesson.lower()) not in known]  # the same lesson twice adds nothing
-    if not new:
-        return None
-    directory.mkdir(parents=True, exist_ok=True)
-    with (directory / "lessons.jsonl").open("a", encoding="utf-8") as f:
-        f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in new)
-    page = directory / f"{domain}.md"
-    page.write_text(render_page(domain, read_lessons(directory, domain)), encoding="utf-8")
+    with _exclusive(directory / "lessons.lock", _LESSONS_LOCK):
+        known = {(r["domain"], r["lesson"].lower()) for r in read_lessons(directory)}
+        new = [{"domain": domain, "project": project.id, "outcome": outcome, "at": at, **les.model_dump()}
+               for les in keep if (domain, les.lesson.lower()) not in known]  # the same lesson twice adds nothing
+        if not new:
+            return None
+        directory.mkdir(parents=True, exist_ok=True)
+        with (directory / "lessons.jsonl").open("a", encoding="utf-8") as f:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in new)
+        page = directory / f"{domain}.md"
+        _write_atomic(page, render_page(domain, read_lessons(directory, domain)))
     return page
 
 
