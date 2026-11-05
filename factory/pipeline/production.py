@@ -202,18 +202,34 @@ class FileSalvage:
 
     def __init__(self):
         self.files: dict[str, str] = {}
+        self.rewritten: set[str] = set()  # kept files the retry wrote again anyway: not saved work
+
+    def kept(self) -> list[str]:
+        """Kept files the retry did not replace, as output-relative paths (the way ``_write`` names them)."""
+        return sorted(p for p in self.files if p not in self.rewritten)
 
     def keep(self, partial: str) -> str | None:
+        self.rewritten = set()  # a new cut-off starts a new retry: what an earlier merge saw no longer applies
         for path, body in FILE_BLOCK.findall(partial):
-            self.files[path.strip().strip("`")] = body
+            self.files[_rel(path.strip().strip("`"))] = body  # one key per file, however the model named it
         if not self.files:
             return None
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
 
-    def merge(self, data: dict) -> dict:
-        new = {f["path"]: f["content"] for f in data.get("files", [])}
-        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
-        return {**data, "files": files}
+    def discard(self) -> None:
+        """Forget the kept pieces: a reply that was not told about them (the paid rescue) replaces them all."""
+        self.files, self.rewritten = {}, set()
+
+    def merge(self, data):
+        """The retry's data with the kept files added. A reply in an unexpected shape is returned as it is, so model
+        validation rejects it and the usual retry follows (an exception here would end the run)."""
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, list):
+            return data
+        new = {_rel(f["path"]): f["content"] for f in files
+               if isinstance(f, dict) and isinstance(f.get("path"), str) and "content" in f}
+        self.rewritten = {p for p in self.files if p in new}
+        return {**data, "files": [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]}
 
 
 class Production:
@@ -315,23 +331,34 @@ class Production:
             path = (self.out / rel).resolve()
             if path.is_relative_to(self.out.resolve()) and path.is_file():
                 reads.append(f"### {rel}\n```\n{path.read_text(errors='replace', encoding='utf-8')[:MAX_READ_CHARS]}\n```")
+        salvage = FileSalvage()
         try:
             built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                             order=order.model_dump_json(indent=1), wiki=wiki,
                                                             reads="\n\n".join(reads) or "(none)"), Built,
                                f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
-                               salvage=FileSalvage())
+                               salvage=salvage)
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
+            # files kept from a cut-off reply are not written when the retry fails: "salvage_lost" lists them
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
-                                               "failed": str(e)[:1000], "notes": ""}, refs=[ref])
+                                               "failed": str(e)[:1000], "notes": "",
+                                               "salvage_lost": sorted(salvage.files)},
+                            refs=[ref])
             return
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
-            self._write(built, order, ref)
+            written = self._write(built, order, ref)
+        # kept files that reached disk, recorded so live runs can count the salvage (llm_calls.jsonl has no prompts)
+        sent = {_rel(f.path): f.content for f in built.files}
+        kept = [p for p in salvage.kept() if p in written and sent.get(p) == salvage.files[p]]  # kept text was written
+        if kept:
+            self.board.post("note", "code", {"order": order.id, "salvaged": kept,
+                                             "text": "cut-off builder reply: finished files kept and written"},
+                            refs=[ref])
 
-    def _write(self, built: Built, order: WorkOrder, ref: str) -> None:
+    def _write(self, built: Built, order: WorkOrder, ref: str) -> list[str]:
         written, refused = [], []
         for f in built.files:
-            rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
+            rel = _rel(f.path)
             if len(self.files()) >= MAX_FILES and rel not in self.files():
                 refused.append(f"{rel}: more than {MAX_FILES} files")
             elif len(f.content) > MAX_FILE_CHARS:
@@ -343,6 +370,7 @@ class Production:
                 written.append(rel)
         self.board.post("build", BUILDER, {"order": order.id, "written": written, "refused": refused,
                                            "notes": built.notes}, refs=[ref])
+        return written
 
     def organize(self, design: Design, plan: ProjectPlan) -> None:
         """README.md and run.json from the design, so the result explains and runs itself."""
@@ -457,6 +485,7 @@ def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:
 
 
 def _rel(path: str) -> str:
+    """A path a model gave, relative to output/ (it may or may not be prefixed, or padded with spaces)."""
     return path.strip().removeprefix(f"{OUTPUT}/").lstrip("/")
 
 

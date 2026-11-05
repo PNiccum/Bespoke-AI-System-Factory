@@ -534,7 +534,7 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
     ``parse`` turns the completion into the data to validate (default: its first JSON object); ``fmt`` names the
     format in the retry request.
 
-    ``salvage``: an object with ``keep(partial_text) -> str | None`` and ``merge(data) -> data``. When a reply is
+    ``salvage``: an object with ``keep(partial_text) -> str | None``, ``merge(data) -> data`` and ``discard()``. When a reply is
     cut off, ``keep`` takes the finished pieces out of the partial text and returns a sentence naming them (or None
     when nothing is usable); the retry then asks only for the rest, and ``merge`` joins the pieces kept earlier to
     the retry's data. Plain code keeps what the model already paid minutes to write instead of throwing it away.
@@ -580,6 +580,8 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         try:
             c = llm.complete(role, p, system=system, tag=f"{tag}-paid", data=data, max_tokens=max_tokens,
                              escalate=True)
+            if salvage:  # the rescue prompt asks for everything and never saw the kept pieces: its reply stands alone
+                salvage.discard()
             return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
         except (SpendDenied, BudgetExceeded, DataScopeError) as e:  # not approved or not allowed: no spend
             errors.append(f"paid rescue skipped: {str(e)[:160]}")
