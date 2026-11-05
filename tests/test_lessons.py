@@ -285,3 +285,9 @@ def test_a_damaged_bad_source_file_is_set_aside_not_overwritten(tmp_path):
     bad = BadSources(path)
     bad.record("bio", "t", "d:1", "no", project="p")
     assert "d:1" in bad.known("bio", "t") and list(tmp_path.glob("bad.damaged-*"))
+
+
+def test_topics_in_other_scripts_do_not_collide(tmp_path):
+    bad = BadSources(tmp_path / "bad.json")
+    bad.record("bio", "β-catenin", "d:1", "no", project="p1")
+    assert bad.known("bio", "β-catenin") and not bad.known("bio", "ß-actin") and not bad.known("bio", "细胞")

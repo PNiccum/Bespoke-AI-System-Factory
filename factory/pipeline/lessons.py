@@ -56,7 +56,7 @@ def lessons_dir(workspace_or_wiki_root: Path) -> Path:
 
 
 def _key(topic: str) -> str:
-    return " ".join(re.sub(r"[^a-z0-9]+", " ", topic.lower()).split())
+    return " ".join(re.sub(r"[\W_]+", " ", topic.casefold()).split()) or topic.casefold().strip()
 
 
 def _now() -> datetime:
@@ -145,9 +145,9 @@ class BadSources:
         never wipes it) and reads as empty."""
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError):
+        except OSError:
+            return {}  # missing, or briefly unreadable while another run replaces it (Windows): never rename for that
+        except ValueError:
             data = None
         if isinstance(data, dict):
             return data
