@@ -10,7 +10,8 @@ repository or reaches Claude or OpenAI. `ASPIRE_DATA_PRIVATE=1` enforces that in
 |---|---|
 | `request.md` | The lab's request in plain words (no list data) |
 | `answers.md` | Written answers the Interviewer gets in an unattended run: input format, data rule, deliverable, sources, limits |
-| `decoys.csv` | Four planted rows (mouse vimentin, an isoform duplicate, human vimentin, a made-up accession) to append to a copy of the list |
+| `decoys.csv` | Four planted rows (mouse vimentin, an isoform duplicate, human vimentin, a made-up accession) |
+| `add_decoys.py` | Appends the decoys to a copy of the list in the list's own columns, delimiter and fold-change scale |
 | `checklist.md` | A 40-point scoring sheet built from public knowledge of the experiment, not from the list |
 | `baseline.py` | The comparison: one ARC call that answers the questions directly |
 
@@ -28,6 +29,7 @@ python -m factory build    --project <project folder>
 Then run what ASPIRE delivered, on a copy of the list with the decoys appended:
 
 ```powershell
+python $T/add_decoys.py <lab list> list_with_decoys.csv
 python <deliverable>/interpret.py list_with_decoys.csv --out runs/mcf7-aspire
 python $T/baseline.py list_with_decoys.csv --out runs/mcf7-baseline
 ```
