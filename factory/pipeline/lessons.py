@@ -87,24 +87,32 @@ class BadSources:
     @contextlib.contextmanager
     def _locked(self, timeout: float = 5.0):
         """Threads share ``self._lock``; separate runs on one machine share a lock file (created exclusively, so it
-        works on Windows too). A lock older than ``timeout`` is a crashed run's: it is taken over."""
+        works on Windows too). A lock file older than ``timeout`` belongs to a crashed run and is removed. If it is
+        still held by a live run after ``timeout``, the write goes ahead unlocked (this file is a by-product) and the
+        other run's lock file is left alone."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
         lock = self.path.with_suffix(".lock")
         with self._lock:
+            held = False
             start = time.monotonic()
-            while True:
+            while not held:
                 try:
                     os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-                    break
+                    held = True
                 except FileExistsError:
+                    with contextlib.suppress(OSError):
+                        if time.time() - lock.stat().st_mtime > timeout:
+                            lock.unlink()  # a crashed run's
+                            continue
                     if time.monotonic() - start > timeout:
-                        break  # stale: carry on rather than hold up a run for a by-product file
+                        break
                     time.sleep(0.02)
             try:
                 yield
             finally:
-                with contextlib.suppress(OSError):
-                    lock.unlink()
+                if held:
+                    with contextlib.suppress(OSError):
+                        lock.unlink()
 
     def record(self, domain: str, topic: str, doc_id: str, why: str, *, title: str = "", url: str = "",
                project: str = "", now: datetime | None = None) -> None:
@@ -118,9 +126,12 @@ class BadSources:
             row = rows.setdefault(
                 doc_id, {"title": title[:160], "url": url, "why": why, "count": 0, "projects": [], "first": now.isoformat()})
             row.update(why=" ".join(why.split())[:300] or row["why"], last=now.isoformat())
-            row["count"] += 1
-            if project and project not in row["projects"]:
-                row["projects"].append(project)
+            if project and project in row["projects"]:
+                pass  # the same project rejecting it again (a rerun, two topic names that match) is one rejection
+            else:
+                row["count"] += 1
+                if project:
+                    row["projects"].append(project)
             self._save(data)
 
     def known(self, domain: str, topic: str, *, now: datetime | None = None) -> dict[str, dict]:
@@ -131,6 +142,8 @@ class BadSources:
 
     def clear(self, domain: str, topic: str, doc_id: str) -> bool:
         """A document that was approved after all is no longer a bad source."""
+        if doc_id not in self._load().get(domain, {}).get(_key(topic), {}):
+            return False  # nothing to clear: no lock, no write
         with self._locked():
             data = self._load()
             rows = data.get(domain, {}).get(_key(topic), {})

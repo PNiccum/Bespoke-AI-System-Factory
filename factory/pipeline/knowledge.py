@@ -28,6 +28,7 @@ are covered, by which pages, and what is still missing.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -621,7 +622,8 @@ class KnowledgeLoop:
             if v and v.approve:
                 st.approved[d.id] = d
                 new.append(d.id)
-                self.bad.clear(self.domain, topic.name, d.id)
+                with contextlib.suppress(OSError):  # the list is a by-product; a full disk must not stop research
+                    self.bad.clear(self.domain, topic.name, d.id)
                 self.project.write_file(f"sources/{d.id.replace(':', '_')}.json", d.model_dump_json(indent=1),
                                         ORCHESTRATOR, license=d.license)
                 self.board.post("source", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
@@ -635,8 +637,9 @@ class KnowledgeLoop:
                                                                        "topic": topic.name, "why": why},
                                             license=d.license)
                     if d.license == "public":  # an ARC-only document's title and reason stay out of shared files
-                        self.bad.record(self.domain, topic.name, d.id, why, title=d.title, url=d.url,
-                                        project=self.project.id)
+                        with contextlib.suppress(OSError):
+                            self.bad.record(self.domain, topic.name, d.id, why, title=d.title, url=d.url,
+                                            project=self.project.id)
         return new
 
     def write_page(self, topic: Topic, docs: list[Doc], earlier: list[str] = ()) -> WikiPage:

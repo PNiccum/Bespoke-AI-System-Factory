@@ -196,3 +196,19 @@ def test_one_rejection_warns_and_two_skip(cfg, tmp_path):
     kl2.research(Topic(name="PCR primer design", why="needed"))
     assert "PMC3" not in arc2.requests[1].messages[-1]["content"]
     assert "rejected repeatedly" in arc2.requests[0].messages[-1]["content"]
+
+
+def test_the_same_project_rejecting_twice_counts_once_and_a_stale_lock_is_taken_over(tmp_path):
+    bad = BadSources(tmp_path / "bad.json")
+    bad.record("bio", "t", "d:1", "no", project="p1")
+    bad.record("bio", "t", "d:1", "no again", project="p1")
+    assert bad.known("bio", "t")["d:1"]["count"] == 1
+    bad.record("bio", "t", "d:1", "no", project="p2")
+    assert bad.known("bio", "t")["d:1"]["count"] == 2
+
+    import os
+    lock = tmp_path / "bad.lock"
+    lock.write_text("")
+    os.utime(lock, (0, 0))  # a crashed run's lock, long ago
+    bad.record("bio", "t", "d:2", "no", project="p1")
+    assert "d:2" in bad.known("bio", "t") and not lock.exists()
