@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -26,7 +27,7 @@ except ImportError:
 
 COPY_IGNORE = shutil.ignore_patterns(".git", ".venv*", "venv", "__pycache__", "*.pyc", ".pytest_cache", ".env",
                                      ".env.*")
-SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 SWAPS = {ast.Add: ast.Sub, ast.Sub: ast.Add, ast.Mult: ast.Div, ast.Div: ast.Mult, ast.FloorDiv: ast.Mult,
          ast.Mod: ast.FloorDiv, ast.Eq: ast.NotEq, ast.NotEq: ast.Eq, ast.Lt: ast.GtE, ast.GtE: ast.Lt,
          ast.Gt: ast.LtE, ast.LtE: ast.Gt, ast.In: ast.NotIn, ast.NotIn: ast.In, ast.Is: ast.IsNot,
@@ -137,7 +138,9 @@ def mutants(path: str, source: str, functions: list[str] = (), limit: int = 12) 
 def scrubbed_env() -> dict[str, str]:
     """No credentials, and no bytecode cache: a mutant the same size as the last, written within the same second,
     would otherwise run the stale cached module."""
-    env = {k: v for k, v in os.environ.items() if not any(m in k.upper() for m in SECRET_MARKERS)}
+    env = {k: v for k, v in os.environ.items()
+           if not any(m in k.upper() for m in SECRET_MARKERS) and not k.upper().startswith("GIT_CONFIG_")
+           and not re.search(r"://[^/@\s]*@", v)}  # git's config can hold auth headers; a URL may carry a login
     return env | {"PYTHONDONTWRITEBYTECODE": "1"}
 
 
