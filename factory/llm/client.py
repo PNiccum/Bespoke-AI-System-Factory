@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 import threading
 import time
@@ -39,7 +40,15 @@ from factory.events import FILE as EVENTS_FILE
 from factory.events import EventLog, log_of
 from factory.llm.cache import ResponseCache, request_key
 from factory.llm.cost import BudgetExceeded, Ledger, Usage, price_call
-from factory.llm.gate import Approver, SpendDenied, SpendGate, SpendLedger, SpendRequest, estimate_usd
+from factory.llm.gate import (
+    Approver,
+    SpendDenied,
+    SpendGate,
+    SpendLedger,
+    SpendRequest,
+    _retry_on_permission_error,
+    estimate_usd,
+)
 from factory.llm.providers import TRANSIENT, RawResult, Request, TransientHTTPError, make_provider
 
 DataClass = Literal["public", "private"]
@@ -140,6 +149,15 @@ def provider_gate(name: str, limit: int) -> threading.BoundedSemaphore:
         if name not in _GATES:
             _GATES[name] = threading.BoundedSemaphore(limit)
         return _GATES[name]
+
+
+@dataclass
+class _Hold:
+    """An upper-bound estimate held on the shared credit (``rid``) and the run's cap while a paid call is in flight."""
+    rid: str
+    left: float
+    submitted: bool = False  # a provider batch is running under this hold
+    settled: bool = False  # leave the shared reservation alone: it is gone, or must stay to cover an unrecorded cost
 
 
 class LLM:
@@ -245,13 +263,22 @@ class LLM:
 
         info = self.cfg.model_info(rc.model)
         self.ledger.check(paid=info.real)
+        hold = None
         if info.real:
             prompt_chars = len(json.dumps(messages)) + len(system or "")
-            self._check_spend(role, rc, estimate_usd(info, prompt_chars, req.max_tokens))
-        raw, seconds = self._call_with_retries(rc.provider, req, role, tag)
-        priced, real = price_call(info, self.cfg.models, raw.usage)
-        self.ledger.add(priced, real, raw.usage.total)
-        self.spend.add(rc.provider, real)
+            hold = self._check_spend(role, rc, estimate_usd(info, prompt_chars, req.max_tokens))
+        try:
+            raw, seconds = self._call_with_retries(rc.provider, req, role, tag)
+            if hold:
+                hold.settled = True  # money may now be spent: if anything below fails before the cost is on the
+                # books, the shared hold must stay (a successful settle removes it itself)
+            priced, real = price_call(info, self.cfg.models, raw.usage)
+            self.ledger.add(priced, real, raw.usage.total)
+            self._settle(hold, rc.provider, real, role, tag)
+            if hold:
+                hold.settled = True
+        finally:
+            self._release(hold)
         self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, prompt_sha256=key,
                   stop_reason=raw.stop_reason,
                   seconds=round(seconds, 2), priced_usd=round(priced, 6), real_usd=round(real, 6),
@@ -318,21 +345,59 @@ class LLM:
 
         info = self.cfg.model_info(rc.model)
         self.ledger.check(paid=info.real)
+        hold = None
         if info.real:  # one approval covers the whole batch, at the batch price
             est = sum(estimate_usd(info, len(json.dumps(r.messages)) + len(r.system or ""), r.max_tokens)
                       for r in reqs.values()) * info.batch_discount
-            self._check_spend(role, rc, est)
-        provider = self.providers[rc.provider]
+            hold = self._check_spend(role, rc, est, ttl_s=max_wait_s + 3600,
+                                     replaces=self._pending_batch(rc, keys, reqs)[1].get("hold"))
+        try:
+            return self._run_batch(role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s)
+        except BaseException:
+            if hold:
+                try:
+                    submitted = hold.submitted or bool(self._pending_batch(rc, keys, reqs)[1])
+                except Exception:
+                    submitted = True  # cannot tell: fail closed and keep the hold
+                if submitted:
+                    hold.settled = True  # the submitted batch keeps running and billing: its hold stays, tied to
+            raise  # the pending record, until it lapses or a resume swaps it. The original error propagates.
+        finally:
+            self._release(hold)
+
+    def _pending_batch(self, rc, keys, reqs) -> tuple[Path, dict]:
+        """The file recording a submitted batch for this request set, and its contents ({} if none yet)."""
         pending_dir = self.cfg.work_dir / "batches"
         pending_dir.mkdir(parents=True, exist_ok=True)
         batch_key = request_key({"provider": rc.provider, "keys": [keys[int(c[1:])] for c in sorted(reqs)]})
         pending = pending_dir / f"{batch_key[:24]}.json"
-        if pending.exists():
-            batch_id = json.loads(pending.read_text(encoding="utf-8"))["batch_id"]  # resume the batch an earlier run submitted
+        if not pending.exists():
+            return pending, {}
+        try:
+            return pending, json.loads(pending.read_text(encoding="utf-8"))
+        except ValueError as e:  # resubmitting would pay for the same batch twice, so stop and say what to do
+            raise RuntimeError(f"{pending} is unreadable ({e}). Check the provider's console for the batch it "
+                               f"recorded, then delete this file.") from e
+
+    def _run_batch(self, role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s) -> list:
+        provider = self.providers[rc.provider]
+        pending, record = self._pending_batch(rc, keys, reqs)
+        if record:
+            batch_id = record["batch_id"]  # resume the batch an earlier run submitted
         else:
             batch_id = provider.submit_batch(reqs)
-            pending.write_text(json.dumps({"batch_id": batch_id, "provider": rc.provider, "role": role,
-                                           "n": len(reqs), "submitted": datetime.now(UTC).isoformat()}), encoding="utf-8")
+            if hold:
+                hold.submitted = True  # billing now: if anything fails from here, its hold must stay
+            record = {"batch_id": batch_id, "provider": rc.provider, "role": role, "n": len(reqs),
+                      "submitted": datetime.now(UTC).isoformat()}
+        record["hold"] = hold.rid if hold else None  # so a later resume can drop this run's hold if it dies
+        tmp = pending.with_suffix(".tmp")
+        try:  # a crash never leaves a half-written record; the batch is billing, so the replace is retried
+            tmp.write_text(json.dumps(record), encoding="utf-8")
+            _retry_on_permission_error(lambda: os.replace(tmp, pending))
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
         self._log(event="batch_submitted", role=role, model=rc.model, provider=rc.provider, batch_id=batch_id,
                   n=len(reqs))
         t0 = time.monotonic()
@@ -351,7 +416,12 @@ class LLM:
                 continue
             priced, real = price_call(info, self.cfg.models, raw.usage, batch=True)
             self.ledger.add(priced, real, raw.usage.total)
-            self.spend.add(rc.provider, real)
+            item = min(hold.left, estimate_usd(info, len(json.dumps(req.messages)) + len(req.system or ""),
+                                               req.max_tokens) * info.batch_discount) if hold else 0.0
+            self._settle(hold, rc.provider, real, role, tag, part=item)  # this item's share of the hold
+            if hold:
+                self.ledger.unhold(item)
+                hold.left -= item
             self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, batch=True,
                       stop_reason=raw.stop_reason, priced_usd=round(priced, 6), real_usd=round(real, 6),
                       **asdict(raw.usage))
@@ -370,17 +440,54 @@ class LLM:
         pending.unlink(missing_ok=True)  # finished: a later identical request set is answered from the cache
         return out
 
-    def _check_spend(self, role: str, rc: RoleConfig, estimate: float) -> None:
-        """Remaining credit first (no point asking a person to approve what cannot be paid), then approval."""
-        self.spend.check(rc.provider)
+    def _check_spend(self, role: str, rc: RoleConfig, estimate: float, ttl_s: float | None = None,
+                     replaces: str | None = None) -> _Hold:
+        """Remaining credit first (no point asking a person to approve what cannot be paid), then approval, then an
+        atomic hold of the estimate on the credit and on the run's cap. Returns the hold for ``_release``."""
+        self.spend.check(rc.provider, estimate, ignoring=replaces)
         req = SpendRequest(role=role, provider=rc.provider, model=rc.model, estimate_usd=round(estimate, 4),
-                           run_spent_usd=round(self.ledger.real_usd, 4), reason="")
+                           run_spent_usd=round(self.ledger.real_usd + self.ledger.held_usd, 4), reason="")  # in-flight
+                           # worst-case holds count, so parallel workers cannot each slip under the soft limit
         try:
             self.gate.check(req)
         finally:
             if req.reason:  # a person was asked; record what they saw, whatever they answered
                 self._log(event="spend_gate", role=role, model=rc.model, provider=rc.provider, reason=req.reason,
                           estimate_usd=req.estimate_usd, run_spent_usd=req.run_spent_usd)
+        self.ledger.hold(estimate)
+        try:
+            # resuming a batch: an earlier run's hold for it would count the batch twice, so reserve swaps it out
+            kw = {"ttl_s": ttl_s} if ttl_s else {}
+            return _Hold(self.spend.reserve(rc.provider, estimate, replaces=replaces, **kw), estimate)
+        except BaseException:
+            self.ledger.unhold(estimate)
+            raise
+
+    def _settle(self, hold: _Hold | None, provider: str, real: float, role: str, tag: str,
+                part: float | None = None) -> None:
+        """Write a finished call's real cost to the shared ledger. If that fails the money is already spent, so the
+        amount is logged (log line and event) before the error stops the run: it is never lost silently."""
+        try:
+            self.spend.settle(hold.rid if hold else None, provider, real, part=part)
+        except Exception as e:
+            self._log(event="spend_unrecorded", role=role, provider=provider, real_usd=round(real, 6),
+                      error=f"{type(e).__name__}: {e}"[:300])
+            if hold:
+                hold.settled = True  # fail closed: the cost is on no book, so the shared hold stays until its TTL
+            self.events.record("llm", f"{tag or role}: ${real:.4f} was spent on {provider} but could not be written "
+                               f"to the spend ledger (check spend.json): {type(e).__name__}: {e}"[:400], stage=tag or role)
+            raise
+
+    def _release(self, hold: _Hold | None) -> None:
+        if hold:
+            try:
+                if not hold.settled:
+                    self.spend.release(hold.rid)
+            except Exception as e:  # must not mask the call's own result or error; the hold lapses at its TTL
+                self._log(event="spend_hold_not_released", error=f"{type(e).__name__}: {e}"[:300])
+            finally:
+                self.ledger.unhold(hold.left)
+                hold.left = 0.0
 
     def _call_with_retries(self, provider: str, req: Request, role: str, tag: str) -> tuple[RawResult, float]:
         retries = self.cfg.providers[provider].stream_retries

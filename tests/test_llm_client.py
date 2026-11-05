@@ -172,6 +172,24 @@ def test_batch_uses_cache_prices_at_half_and_returns_errors_in_place(cfg, tmp_pa
     full, _ = price_call(cfg.model_info(cfg.roles["agent"].model), cfg.models, Usage(1000, 500))
     assert abs(out[1].priced_usd - full / 2) < 1e-9  # batch price
     assert not list((cfg.work_dir / "batches").glob("*.json"))  # finished batches are not resumed
+    assert llm.ledger.held_usd == pytest.approx(0.0) and not llm.spend._read_reserved()  # the hold is gone
+    assert llm.spend.spent["claude"] == pytest.approx(
+        out[1].real_usd + price_call(cfg.model_info(cfg.roles["agent"].model), cfg.models, Usage(10, 10), batch=True)[1])  # once each
+
+
+def test_a_batch_that_never_finishes_keeps_its_hold(cfg, tmp_path):
+    cfg.providers["claude"].batch = True
+
+    class Stuck(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            return False
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Stuck({})}, approver=approve_all)
+    with pytest.raises(TimeoutError):
+        llm.complete_batch("agent", [{"user": "a"}], data="public", poll_seconds=0, max_wait_s=0)
+    # the provider's batch is still running and billing: its hold stays, tied to the pending record
+    assert llm.ledger.held_usd == 0.0 and len(llm.spend._read_reserved()) == 1
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    assert json.loads(pending.read_text())["hold"] in llm.spend._read_reserved()
 
 
 def test_batch_resumes_a_submitted_batch_after_an_interruption(cfg, tmp_path):
@@ -189,6 +207,28 @@ def test_batch_resumes_a_submitted_batch_after_an_interruption(cfg, tmp_path):
     llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": second}, approver=approve_all)
     out = llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
     assert out[0].text == "x done" and second.submitted == []  # waited for the first batch, did not resubmit
+
+
+def test_resuming_a_batch_drops_the_dead_runs_hold_instead_of_counting_it_twice(cfg, tmp_path):
+    from factory.config import Credits
+    cfg.providers["claude"].batch = True
+    cfg.credits = Credits(by_provider={"claude": 5.0}, reserve_usd=0.0)
+
+    class Interrupted(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            raise KeyboardInterrupt
+
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
+    with pytest.raises(KeyboardInterrupt):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    # the interrupted run's submitted batch keeps its hold; with credit for one hold but not two, a resume only
+    # succeeds if it swaps the old hold for the new one instead of counting the batch twice
+    (held,) = llm.spend._read_reserved().values()
+    llm.spend.credits.by_provider["claude"] = held["usd"] * 1.5
+    second = FakeBatchProvider({"i0": ok("x done")})
+    llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": second}, approver=approve_all)
+    assert llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)[0].text == "x done"
+    assert not llm2.spend._read_reserved()
 
 
 def test_providers_without_batch_api_fall_back_to_single_calls(cfg, tmp_path):
@@ -310,6 +350,60 @@ def test_a_cut_off_reply_keeps_its_finished_pieces_and_asks_only_for_the_rest(cf
     assert {f.path: f.content for f in out.files} == {"a.py": "print(1)\n", "b.py": "print(2)\n"}
     assert "already received and kept, do not write them again: a.py" in seen[1]
     assert len(errors) == 1
+
+
+def test_a_refused_resume_leaves_the_earlier_hold_in_place(cfg, tmp_path):
+    from factory.config import Credits
+    from factory.llm.gate import SpendDenied, deny_all
+    cfg.providers["claude"].batch = True
+    cfg.credits = Credits(by_provider={"claude": 5.0}, reserve_usd=0.0)
+
+    class Interrupted(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            raise KeyboardInterrupt
+
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
+    with pytest.raises(KeyboardInterrupt):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    stale = llm.spend.reserve("claude", 1.0)
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    pending.write_text(json.dumps({**json.loads(pending.read_text()), "hold": stale}))
+    llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": FakeBatchProvider({})}, approver=deny_all)
+    with pytest.raises(SpendDenied):
+        llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    assert stale in llm2.spend._read_reserved()
+
+
+def test_a_corrupt_pending_batch_file_stops_rather_than_resubmitting(cfg, tmp_path):
+    cfg.providers["claude"].batch = True
+
+    class Interrupted(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            raise KeyboardInterrupt
+
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
+    with pytest.raises(KeyboardInterrupt):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    pending.write_text('{"batch_id": "ba')  # a crash mid-write
+    fresh = FakeBatchProvider({"i0": ok("x")})
+    llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": fresh}, approver=approve_all)
+    with pytest.raises(RuntimeError, match="unreadable"):
+        llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    assert fresh.submitted == []
+
+
+def test_a_failed_record_write_after_submit_keeps_the_batch_hold(cfg, tmp_path, monkeypatch):
+    cfg.providers["claude"].batch = True
+    fake = FakeBatchProvider({"i0": ok("x")})
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": fake}, approver=approve_all)
+
+    def fail(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr("factory.llm.client._retry_on_permission_error", fail)
+    with pytest.raises(OSError):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    assert fake.submitted and len(llm.spend._read_reserved()) == 1  # billing, so the credit stays covered
 
 
 def test_a_stage_stops_at_its_token_ceiling_and_only_that_stage(cfg, tmp_path):
