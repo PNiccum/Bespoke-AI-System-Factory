@@ -245,10 +245,18 @@ def test_guarded_imports_do_not_block(tmp_path, monkeypatch):
         "try:\n    import lxml\nexcept KeyError:\n    pass\n"
         "try:\n    import seaborn\nexcept Exception:\n    raise SystemExit(1)\n"
         "try:\n    import numba\nexcept:\n    pass\n"
+        "try:\n    import tqdm\nexcept ImportError:\n    raise SystemExit('pip install tqdm')\n"
+        "try:\n    import click\nexcept ModuleNotFoundError:\n    sys.exit(1)\n"
+        "try:\n    import attrs\nexcept* ImportError:\n    attrs = None\n"
         "def f():\n    import rich\n")
     blocked = check_imports(out, ["plot.py"])
     # a broad `except Exception` exits rather than falls back, and a bare except is not a named import guard
-    assert set(blocked) == {"lxml", "rich", "seaborn", "numba"}
+    # an ImportError handler that exits or re-raises is not a fallback either
+    assert set(blocked) == {"lxml", "rich", "seaborn", "numba", "tqdm", "click"}
+    (out / "tests").mkdir()
+    (out / "tests" / "helpers.py").write_text("X = 1\n")
+    (out / "tests" / "test_x.py").write_text("import helpers\n")
+    assert check_imports(out, ["tests/test_x.py"]) == {}  # a sibling module pytest can import
     assert {"matplotlib", "polars", "ujson"} <= imports_of((out / "plot.py").read_text())  # all imports still seen
 
 

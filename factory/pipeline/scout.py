@@ -171,15 +171,28 @@ def sandbox_imports() -> set[str]:
 IMPORT_ERRORS = frozenset({"ImportError", "ModuleNotFoundError"})
 
 
+def _gives_up(handler: ast.ExceptHandler) -> bool:
+    """A handler that re-raises or exits instead of falling back (``raise``, ``sys.exit``, ``exit``, ``quit``)."""
+    for n in ast.walk(handler):
+        if isinstance(n, ast.Raise):
+            return True
+        if isinstance(n, ast.Call):
+            f = n.func
+            if (f.id if isinstance(f, ast.Name) else getattr(f, "attr", "")) in ("exit", "quit", "_exit"):
+                return True
+    return False
+
+
 def _children(node: ast.AST) -> list[ast.AST]:
-    """The child nodes whose imports the code needs: the body of a ``try`` that catches ImportError (an optional
-    dependency with a fallback) and an ``if TYPE_CHECKING:`` block are left out."""
-    if isinstance(node, ast.Try):
-        caught = set()
+    """The child nodes whose imports the code needs: the body of a ``try`` that catches ImportError and falls back
+    (an optional dependency) and an ``if TYPE_CHECKING:`` block are left out."""
+    if isinstance(node, (ast.Try, ast.TryStar)):
+        guards = []
         for h in node.handlers:
             types = h.type.elts if isinstance(h.type, ast.Tuple) else [h.type] if h.type else []
-            caught |= {t.id if isinstance(t, ast.Name) else getattr(t, "attr", "") for t in types}
-        if caught & IMPORT_ERRORS:
+            if {t.id if isinstance(t, ast.Name) else getattr(t, "attr", "") for t in types} & IMPORT_ERRORS:
+                guards.append(h)
+        if guards and not any(_gives_up(h) for h in guards):
             return [*node.orelse, *node.finalbody, *(s for h in node.handlers for s in h.body)]
     if isinstance(node, ast.If):
         test = node.test
@@ -207,19 +220,23 @@ def imports_of(source: str, required_only: bool = False) -> set[str]:
 
 
 def check_imports(out: Path, files: list[str]) -> dict[str, list[str]]:
-    """Imports in the built solution that the sandbox cannot satisfy: module -> files importing it. Local modules
-    (top-level files and folders of output/ and output/src/) are fine. No model: ``ast`` reads every file."""
-    local = set()
-    for base in (out, out / "src"):
-        if base.is_dir():
-            local |= {p.stem if p.is_file() else p.name for p in base.iterdir()
-                      if p.suffix == ".py" or (p.is_dir() and not p.name.startswith("."))}
-    allowed = sandbox_imports() | local
+    """Imports in the built solution that the sandbox cannot satisfy: module -> files importing it. Local modules are
+    fine: the top-level files and folders of output/ and output/src/, and a file's siblings in its own folder (pytest
+    puts a test file's folder on the path, so tests/helpers.py imports as ``helpers``). No model: ``ast`` reads every
+    file."""
+
+    def modules(base: Path) -> set[str]:
+        if not base.is_dir():
+            return set()
+        return {p.stem if p.is_file() else p.name for p in base.iterdir()
+                if p.suffix == ".py" or (p.is_dir() and not p.name.startswith("."))}
+
+    allowed = sandbox_imports() | modules(out) | modules(out / "src")
     bad: dict[str, list[str]] = {}
     for rel in files:
         if rel.endswith(".py"):
             source = (out / rel).read_text(encoding="utf-8", errors="replace")
-            for mod in imports_of(source, required_only=True) - allowed:
+            for mod in imports_of(source, required_only=True) - allowed - modules((out / rel).parent):
                 bad.setdefault(mod, []).append(rel)
     return bad
 
