@@ -115,6 +115,8 @@ if iv.board.latest("approval"):
                     st.markdown(page.markdown() if page else f"(page {slug} not found)")
             for topic in knowledge.data["missing"]:
                 st.warning(f"Still missing: {topic}")
+            for topic, why in (knowledge.data.get("gaps") or {}).items():
+                st.info(f"Gap, the build goes ahead without it: {topic} ({why})")
             st.caption(f"{len(iv.board.entries('source'))} sources approved, "
                        f"{len(iv.board.entries('query'))} searches run.")
             final = iv.board.latest("final")
