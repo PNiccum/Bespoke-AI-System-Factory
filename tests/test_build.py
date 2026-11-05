@@ -284,6 +284,8 @@ def test_a_stage_that_crashes_goes_to_redesign_not_out_of_build(cfg, tmp_path, m
     assert result.status == "stopped" and result.rounds == 1
     note = project.board.latest("note").data
     assert note == {"stage": "production, round 1", "error": "design: no valid output after 3 attempts"}
+    (event,) = [e for e in llm.events.events() if e.source == "pipeline"]
+    assert event.stage == "production, round 1" and event.status == "open"  # nothing corrected it
 
 
 def test_a_new_build_moves_stale_output_aside(cfg, tmp_path):
@@ -394,6 +396,8 @@ def test_final_qa_findings_are_repaired_before_anything_is_rejected(cfg, tmp_pat
                                     fixes("QT2", content=CODE + "# salt-corrected\n"), qa(("T1", True), ("T2", True)))
     result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
     assert result.status == "delivered" and result.rounds == 1 and result.repairs == 1
+    qa_events = [e for e in llm.events.events() if e.source == "qa"]  # QA said no, then a repair got it approved
+    assert qa_events and all(e.status == "corrected" and "1 QA repair" in e.how for e in qa_events)
 
 
 def test_a_qa_repair_that_breaks_the_checks_is_put_back(cfg, tmp_path):
