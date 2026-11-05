@@ -62,6 +62,7 @@ review recorded. The model's comments are judgement and are not recomputed. Exit
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -78,7 +79,8 @@ def clean_env():
     """This shell's environment without keys, tokens, secrets or passwords: tests never need a credential."""
     return {k: v for k, v in os.environ.items()
             if not any(m in k.upper() for m in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
-            and not k.upper().startswith("GIT_CONFIG_")}
+            and not k.upper().startswith("GIT_CONFIG_")
+            and not re.search(r"://[^/@\\s]*@", v)}  # a URL with a login in it (a proxy, a database)
 
 
 def broken(repo, patch):

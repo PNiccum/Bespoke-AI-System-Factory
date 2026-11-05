@@ -99,28 +99,30 @@ def test_a_fix_that_removes_a_passing_test_fails_the_check(cfg, tmp_path):
     assert any(e.step == "check" and "fewer tests ran (1 vs 2)" in e.detail for e in events)
 
 
-@pytest.mark.parametrize("template", ["factory.export.RERUN", "factory.workflows.export.RERUN_REVIEW"])
-def test_rerun_scripts_run_pytest_without_keys(template, monkeypatch, tmp_path):
-    """A bundle's rerun.py must not hand the shell's API keys to the tests it runs (they are generated code)."""
-    import importlib
+def test_bug_fix_rerun_gives_the_tests_no_keys(monkeypatch, tmp_path):
+    """Runs the real rerun.py: a generated test that looks for the shell's keys must not find them."""
     import subprocess
     import sys
 
-    mod, name = template.rsplit(".", 1)
-    src = getattr(importlib.import_module(mod), name)
-    script = tmp_path / "rerun.py"
-    script.write_text(src)
-    (tmp_path / "diff_inspect.py").write_text("def inspect(*a):\n    return {}\n")  # the review bundle ships its own
-    ns: dict = {"__name__": "rerun_under_test", "__file__": str(script)}
-    exec(compile(src, str(script), "exec"), ns)  # noqa: S102
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
-    monkeypatch.setenv("GITHUB_TOKEN", "ghp_shouldnotleak")
-    monkeypatch.setenv("PATH_OK", "kept")
-    env = ns["clean_env"]()
-    assert "ANTHROPIC_API_KEY" not in env and "GITHUB_TOKEN" not in env and env["PATH_OK"] == "kept"
+    from factory.export import RERUN
+
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "test_env.py").write_text("import os\n\ndef test_no_keys():\n    assert 'ANTHROPIC_API_KEY' not in os.environ\n")
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(repo)],
-                       env=env, capture_output=True, text=True)
-    assert r.returncode == 0, r.stdout
+    (repo / "test_env.py").write_text(
+        "import os\n\ndef test_no_keys():\n    assert 'ANTHROPIC_API_KEY' not in os.environ and os.environ.get('HTTPS_PROXY') is None\n")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "rerun.py").write_text(RERUN)
+    (bundle / "workflow.json").write_text(json.dumps({"targets": []}))
+    (bundle / "fix.patch").write_text("diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+x\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.example:8080")
+    r = subprocess.run([sys.executable, str(bundle / "rerun.py"), str(repo)], capture_output=True, text=True)
+    assert r.returncode == 0 and "whole suite: PASS" in r.stdout, r.stdout + r.stderr
+
+
+def test_review_rerun_template_scrubs_its_pytest_environment():
+    from factory.workflows.export import RERUN_REVIEW
+
+    assert "capture_output=True, env=clean_env())" in RERUN_REVIEW

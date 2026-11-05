@@ -201,7 +201,6 @@ def test_cache_breakpoint_marks_only_the_newest_block():
     assert with_cache_breakpoint([{"role": "user", "content": "hi"}])[0]["content"][0]["text"] == "hi"
 
 
-
 def test_run_agent_treats_data_as_private_unless_the_caller_says_public(cfg, tmp_path):
     """Fail closed: a caller that forgets ``data=`` must not be able to send lab data to a public-only provider."""
     from factory.llm.client import DataScopeError
