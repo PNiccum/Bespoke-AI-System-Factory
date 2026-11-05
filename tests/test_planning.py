@@ -197,3 +197,14 @@ def test_a_long_noted_list_is_cut_in_the_summary_but_kept_whole(cfg, tmp_path):
     note = project.board.latest("note")
     assert len(out.noted) == 8 and note.data["noted"] == out.noted
     assert "and 3 more" in note.data["text"] and "W6 noted" not in note.data["text"]
+
+
+def test_noted_weaknesses_survive_a_repair_round_and_add_what_the_repair_left_noted(cfg, tmp_path):
+    two = json.dumps({"weaknesses": ["no subtasks", "extra step"], "plan_b": PLAN_B})
+    a = json.dumps({"open": [{"id": "W1", "why": "x", "blocks": True}, {"id": "W2", "why": "y", "blocks": False}]})
+    repaired = json.dumps({"open": [{"id": "W1", "why": "z", "blocks": False}]})
+    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), a, recheck("W1"), vote("A"), vote("A"),
+                    json.dumps({**PLAN, "title": "repaired"}), repaired)
+    out = pl.run()
+    assert out.winner == "A" and out.problems == []
+    assert sorted(n.split(" noted")[0] for n in out.noted) == ["W1", "W2"]

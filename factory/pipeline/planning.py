@@ -227,9 +227,9 @@ class PlanningLoop:
             found = Recheck(open=[Open(id=k, why="the re-check gave no valid reply") for k in weaknesses])
         left = _open(found, weaknesses)
         noted = _noted(found, weaknesses)
-        # a repair re-checks only some weaknesses: replace those, keep the other noted ones
-        self.noted[label] = [n for n in self.noted.get(label, []) if not any(n.startswith(f"{k} ") for k in weaknesses)
-                             ] + noted if tag == "plan-recheck-repair" else noted
+        if tag == "plan-recheck-repair":  # a repair re-checks only the blocking ones: add what they became to the rest
+            noted = self.noted.get(label, []) + noted
+        self.noted[label] = noted
         self.board.post("recheck", CRITIC, {"plan": label, "open": [o.model_dump() for o in found.open],
                                             "problems": left, "noted": noted}, refs=[ref])
         return left
