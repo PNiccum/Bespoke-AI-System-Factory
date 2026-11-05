@@ -75,6 +75,7 @@ class ProjectOutcome(BaseModel):
     solved: bool = False  # delivered and every acceptance test passes
     acceptance: Acceptance | None = None
     why: str = ""
+    resumed: list[str] = []  # stages taken from an earlier run of the same project (--resume)
     model_calls: int = 0
     tokens: int = 0
     real_usd: float = 0.0
@@ -123,9 +124,22 @@ def accept(output: Path, name: str, projects_dir: Path = PROJECTS) -> Acceptance
     return Acceptance(accepted=ok, passed=len(report.passed), expected=expected, failing=bad, why=why)
 
 
+def latest_project(cfg: FactoryConfig, task: ProjectTask) -> Path:
+    """The newest project folder an earlier run of ``task`` left under the work dir."""
+    slug = re.sub(r"[^a-z0-9]+", "-", f"bench {task.name}".lower()).strip("-")
+    found = sorted(p for p in (cfg.work_dir / "projects").glob(f"*-{slug}*") if (p / "blackboard.jsonl").exists())
+    if not found:
+        raise FileNotFoundError(f"{task.name}: no earlier project folder under {cfg.work_dir / 'projects'}")
+    return found[-1]
+
+
 def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[SpendRequest], bool] = deny_all,
                 providers: dict | None = None, redesign: bool = False, trial: int = 1,
-                projects_dir: Path = PROJECTS, registry_dir: Path | None = None) -> ProjectOutcome:
+                projects_dir: Path = PROJECTS, registry_dir: Path | None = None,
+                resume: Path | None = None) -> ProjectOutcome:
+    """``resume``: an earlier run's project folder. Its finished stages are kept (a plan with no problems, approved
+    knowledge, a built output/ with its checks) and the run goes on from the first stage that did not finish; the
+    model calls of a kept stage are not made again."""
     from factory.pipeline.knowledge import KnowledgeLoop, default_scout, default_searchers
     from factory.pipeline.planning import PlanningLoop
     from factory.pipeline.run import build
@@ -134,25 +148,44 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
     run_dir = new_run_dir(cfg, f"projects-{task.name}")
     llm = LLM(cfg, run_dir, approver=approver, **({"providers": providers} if providers else {}))
     registry = Registry.load(cfg, registry_dir)
-    project = Project.create(cfg.work_dir / "projects", f"bench {task.name}")
-    seed(project, task)
+    if resume is None:
+        project = Project.create(cfg.work_dir / "projects", f"bench {task.name}")
+        seed(project, task)
+    else:
+        project = Project(Path(resume))
+        if project.board.latest("approval") is None:
+            raise ValueError(f"{resume} has no approved plan to resume from")
     wiki = Wiki(cfg.work_dir / "wiki")
     searchers = default_searchers(cfg.work_dir / "research-cache")
     out = ProjectOutcome(project=task.name, trial=trial, reached="planning", project_dir=str(project.root))
+    decision, knowledge_entry = project.board.latest("decision"), project.board.latest("knowledge")
+    plan_done = resume is not None and decision is not None and not decision.data.get("problems")
+    knowledge_done = plan_done and knowledge_entry is not None and bool(knowledge_entry.data.get("ok"))
     t0 = time.monotonic()
     try:
-        planned = PlanningLoop(llm, registry, project).run()
-        if planned.problems:
-            out.why = f"plan problems: {'; '.join(planned.problems)}"
+        if plan_done:
+            out.resumed.append("planning")
+            problems = []
+        else:
+            problems = PlanningLoop(llm, registry, project).run().problems
+        if problems:
+            out.why = f"plan problems: {'; '.join(problems)}"
         else:
             out.reached = "research"
-            knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers,
-                                      scout=default_scout(llm, registry, cfg.work_dir / "research-cache")).run()
-            if not knowledge.ok:
-                out.why = f"knowledge not approved; missing: {', '.join(knowledge.missing) or 'unknown'}"
+            if knowledge_done:
+                out.resumed.append("research")
+                ok, missing = True, []
+            else:
+                knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers,
+                                          scout=default_scout(llm, registry, cfg.work_dir / "research-cache")).run()
+                ok, missing = knowledge.ok, knowledge.missing
+            if not ok:
+                out.why = f"knowledge not approved; missing: {', '.join(missing) or 'unknown'}"
             else:
                 out.reached = "build"
-                result = build(llm, registry, project, wiki, searchers, redesign=redesign,
+                if resume is not None and project.board.latest("checks") is not None:
+                    out.resumed.append("production")
+                result = build(llm, registry, project, wiki, searchers, redesign=redesign, resume=resume is not None,
                                on_stage=lambda s: setattr(out, "reached", "qa" if s == "final QA" else out.reached))
                 out.delivered = result.status == "delivered"
                 out.qa_repairs = getattr(result, "repairs", 0)
@@ -176,6 +209,8 @@ def summarize(outcomes: list[ProjectOutcome]) -> str:
     for o in outcomes:
         acc = f"{o.acceptance.passed}/{o.acceptance.expected}" if o.acceptance else "-"
         why = o.why.replace("|", "/").replace("\n", " ")[:160]
+        if o.resumed:
+            why = f"(resumed after {', '.join(o.resumed)}) {why}"
         lines.append(f"| {o.project} | {o.trial} | {o.reached} | {'yes' if o.delivered else 'no'} | {acc} | "
                      f"{'yes' if o.solved else 'no'} | {why} | {o.model_calls} | {o.tokens:,} | {o.real_usd:.4f} | "
                      f"{o.seconds / 60:.1f} |")
@@ -200,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repeat", type=int, default=1, help="trials per project")
     ap.add_argument("--parallel", type=int, default=1,
                     help="projects run at once (default 1); ARC calls stay under the provider's max_concurrency")
+    ap.add_argument("--resume", metavar="latest|DIR",
+                    help="go on from an earlier run's project folder, keeping its finished stages: 'latest' takes "
+                         "each project's newest folder under the work dir; DIR names one (with a single --only)")
     args = ap.parse_args(argv)
     safe_stdout()
 
@@ -213,6 +251,13 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True)
     outcomes: list[ProjectOutcome] = []
     jobs = [(trial, task) for trial in range(1, args.repeat + 1) for task in tasks]
+    resume_of: dict[str, Path] = {}
+    if args.resume == "latest":
+        resume_of = {t.name: latest_project(cfg, t) for t in tasks}
+    elif args.resume:
+        if len(jobs) != 1:
+            ap.error("--resume DIR takes exactly one project (--only NAME) and one trial")
+        resume_of = {tasks[0].name: Path(args.resume)}
 
     def record(o: ProjectOutcome) -> None:
         outcomes.append(o)  # saved before anything is printed, so a console error cannot lose a result
@@ -226,11 +271,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.parallel <= 1:
         for trial, task in jobs:
-            record(run_project(cfg, task, approver=approver, redesign=args.redesign, trial=trial))
+            record(run_project(cfg, task, approver=approver, redesign=args.redesign, trial=trial,
+                               resume=resume_of.get(task.name)))
     else:  # projects are independent; they share the wiki (locked) and the provider's concurrency gate
         with ThreadPoolExecutor(max_workers=args.parallel, thread_name_prefix="project") as pool:
-            futures = [pool.submit(run_project, cfg, task, approver=approver, redesign=args.redesign, trial=trial)
-                       for trial, task in jobs]
+            futures = [pool.submit(run_project, cfg, task, approver=approver, redesign=args.redesign, trial=trial,
+                                   resume=resume_of.get(task.name)) for trial, task in jobs]
             for f in as_completed(futures):
                 record(f.result())
     print(f"\n{summarize(outcomes)}\nResults: {out}")
