@@ -813,6 +813,239 @@ def activity_svg() -> str:
     return svg(1620, height, title, lanes + parts)
 
 
+def designed_svg() -> str:
+    """The pipeline exactly as Parker's original plan lays it out (models numbered as in the plan)."""
+    import textwrap
+    parts: list[str] = []
+    lanes: list[str] = []
+    box: dict[str, tuple] = {}
+
+    def anchor(n, side):
+        cx, cy, w, h = box[n]
+        return {"t": (cx, cy - h / 2), "b": (cx, cy + h / 2), "l": (cx - w / 2, cy), "r": (cx + w / 2, cy)}[side]
+
+    def node(name, kind, actor, cx, y, w, s):
+        if kind == "decision":
+            w, h, ls = 270, 90, textwrap.wrap(s, 24)
+        elif kind in ("start", "end", "conn"):
+            w = h = 26
+            ls = []
+        else:
+            ls = textwrap.wrap(s, max(8, int((w - 18) / CHAR)))
+            h = len(ls) * LINE + 16
+        cy = y + h / 2
+        box[name] = (cx, cy, w, h)
+        fill, stroke = ACTOR.get(actor, ("#ffffff", INK))
+        if kind == "decision":
+            pts = f"{cx},{cy-h/2} {cx+w/2},{cy} {cx},{cy+h/2} {cx-w/2},{cy}"
+            parts.append(f'<polygon points="{pts}" fill="#fffdf2" stroke="#a68a00" stroke-width="1.5"/>')
+        elif kind == "start":
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="11" fill="{INK}"/>')
+        elif kind == "end":
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="12" fill="{PAPER}" stroke="{INK}" stroke-width="1.6"/>'
+                         f'<circle cx="{cx}" cy="{cy}" r="7" fill="{INK}"/>')
+        elif kind == "conn":
+            parts.append(f'<circle cx="{cx}" cy="{cy}" r="12" fill="{PAPER}" stroke="{INK}" stroke-width="1.4"/>')
+            parts.append(text(cx, cy + 4, s, size=12, weight="bold", anchor="middle"))
+        else:
+            parts.append(f'<rect x="{cx-w/2}" y="{y}" width="{w}" height="{h}" rx="9" fill="{fill}" '
+                         f'stroke="{stroke}" stroke-width="1.5"/>')
+        ty = cy - (len(ls) - 1) * LINE / 2 + 4
+        for i, line in enumerate(ls):
+            parts.append(text(cx, ty + i * LINE, line, anchor="middle"))
+        return y + h
+
+    def edge(pts, label="", dashed=False, lx=None, ly=None):
+        d = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+        dash = ' stroke-dasharray="6 4"' if dashed else ""
+        parts.append(f'<polyline points="{d}" fill="none" stroke="{INK}" stroke-width="1.4"{dash} '
+                     f'marker-end="url(#solid)"/>')
+        if label:
+            (x0, y0), (x1, y1) = pts[0], pts[1]
+            if lx is None:
+                if abs(y1 - y0) < 1:
+                    sgn = 1 if x1 > x0 else -1
+                    lx, ly, an = x0 + sgn * 8, y0 - 6, ("start" if sgn > 0 else "end")
+                else:
+                    lx, ly, an = x0 + 8, y0 + 17, "start"
+            else:
+                an = "start"
+            w = len(label) * 6.3 + 6
+            parts.append(label_bg((lx if an == "start" else lx - w) - 2, ly - 11, w))
+            parts.append(text(lx, ly, label, size=11, color=MUTED, anchor=an))
+
+    def down(a, b, label=""):
+        edge([anchor(a, "b"), anchor(b, "t")], label)
+
+    def chain(*names):
+        for a, b in zip(names, names[1:], strict=False):
+            down(a, b)
+
+    def lane(x0, x1, y0, y1, title, dashed=False):
+        lanes.append(f'<rect x="{x0}" y="{y0}" width="{x1-x0}" height="{y1-y0}" rx="12" fill="#fafbfc" '
+                     f'stroke="#b8c0c8" stroke-width="1.4"/>')
+        lanes.append(text(x0 + 14, y0 + 20, title, size=13, weight="bold"))
+
+    G, L, R, W = 36, 380, 1250, 400
+    # ================= left column =================
+    y = node("start", "start", "", L, 62, 0, "")
+    y = node("task", "action", "person", L, y + 30, W, "User submits a task request")
+    top1 = y + 20
+    y = node("ask", "action", "model", L, top1 + 46, W,
+             "Interviewer chatbot (model 1) asks questions, clarifies the request and generates tasks")
+    y = node("prelim", "action", "model", L, y + G, W, "Interviewer lays out Plan A and asks for preliminary approval")
+    y = node("d_sat", "decision", "", L, y + G, 0, "User satisfied?")
+    y = node("folder", "action", "code", L, y + G, W,
+             "A project folder is created, with a txt file defining the requested task; the shared blackboard starts")
+    end1 = y + 14
+    edge([anchor("start", "b"), anchor("task", "t")])
+    down("task", "ask")
+    chain("ask", "prelim", "d_sat")
+    down("d_sat", "folder", "yes")
+    edge([anchor("d_sat", "r"), (640, box["d_sat"][1]), (640, box["ask"][1]), anchor("ask", "r")], "no: chatbot loops")
+    top2 = end1 + 24
+    y = node("p1", "action", "model", L, top2 + 40, W,
+             "Project planner 1 (model 2) critiques the plan and tasks, edits the plan and creates an alternative, Plan B")
+    y = node("p2", "action", "model", L, y + G, W, "Project planner 2 (model 3) views both plans and writes pros and cons for each")
+    y = node("judge", "action", "model", L, y + G, W, "Editor / judge (model 1 or 4) edits each plan using the pros and cons")
+    y = node("vote", "action", "model", L, y + G, W, "All three agents vote on which plan moves forward")
+    y = node("refined", "action", "mixed", L, y + G, W, "Refined plan with tasks and subtasks")
+    end2 = y + 14
+    edge([anchor("folder", "b"), anchor("p1", "t")])
+    chain("p1", "p2", "judge", "vote", "refined")
+    top3 = end2 + 24
+    y = node("keval", "action", "model", L, top3 + 40, W,
+             "Knowledge evaluator decides which topics and knowledge areas the task needs")
+    y = node("lib", "action", "model", L, y + G, W, "Librarian manages the system's wikis and determines which topics are covered")
+    y = node("d_cov", "decision", "", L, y + G, 0, "All topics covered?")
+    y = node("ro", "action", "model", L, y + G, W, "Research orchestrator delegates a subtask per topic or subtopic to research agents")
+    y = node("ra", "action", "mixed", L, y + G, W,
+             "Research agents use APIs and web search: scholarly articles (Elsevier ...), NCBI, PMC, parts catalogs")
+    y = node("appr", "action", "model", L, y + G, W, "Research orchestrator approves each document or data set")
+    y = node("d_enough", "decision", "", L, y + G, 0, "Enough information for a wiki?")
+    y = node("sort", "action", "model", L, y + G, W,
+             "Librarian sorts the documents into categories and starts the wiki addition / creation loop")
+    y = node("ver", "action", "model", L, y + G, W, "Verifier agent checks that the additions are accurate")
+    y = node("d_acc", "decision", "", L, y + G, 0, "Additions accurate?")
+    y = node("reeval", "action", "model", L, y + G, W,
+             "Knowledge evaluator re-checks that the requested information is present, then reviews the new data and the "
+             "task for more needs")
+    end3 = y + 14
+    edge([anchor("refined", "b"), anchor("keval", "t")])
+    chain("keval", "lib", "d_cov")
+    down("d_cov", "ro", "no")
+    chain("ro", "ra", "appr", "d_enough")
+    down("d_enough", "sort", "yes")
+    chain("sort", "ver", "d_acc")
+    down("d_acc", "reeval", "yes")
+    edge([anchor("d_enough", "r"), (640, box["d_enough"][1]), (640, box["ra"][1]), anchor("ra", "r")],
+         "no: another round")
+    edge([anchor("d_acc", "r"), (700, box["d_acc"][1]), (700, box["sort"][1]), anchor("sort", "r")], "no: fix additions")
+    edge([anchor("reeval", "l"), (110, box["reeval"][1]), (110, box["d_cov"][1]), anchor("d_cov", "l")],
+         "re-evaluate", dashed=True)
+    yc = end3 + 24
+    node("A_out", "conn", "", L, yc, 0, "A")
+    edge([anchor("d_cov", "r"), (780, box["d_cov"][1]), (780, box["A_out"][1]), anchor("A_out", "r")],
+         "yes: production starts", lx=520, ly=box["d_cov"][1] - 8)
+    # ================= right column =================
+    y = node("A_in", "conn", "", R, 62, 0, "A")
+    r1 = y + 22
+    y = node("head", "action", "model", R, r1 + 40, W,
+             "Head orchestrator reviews the knowledge base for project templates (gathered by the knowledge loop)")
+    y = node("sub", "action", "model", R, y + G, W, "Head orchestrator delegates tasks to sub-orchestrators, which delegate subtasks")
+    y = node("org", "action", "model", R, y + G, W, "Subtask outputs go back up to the orchestrators and are organized together")
+    e4 = y + 14
+    edge([anchor("A_in", "b"), anchor("head", "t")])
+    chain("head", "sub", "org")
+    r2 = e4 + 24
+    y = node("critic", "action", "model", R, r2 + 40, W,
+             "Project critic looks for holes, failures and inefficiencies, ease of use and effectiveness")
+    y = node("solve", "action", "model", R, y + G, W,
+             "Problem solver 1 (a different model) suggests solutions and returns them to the critic")
+    y = node("d_dec", "decision", "", R, y + G, 0, "Critic accepts the solutions?")
+    y = node("d_two", "decision", "", R, y + G, 0, "Knowledge loop already reactivated once?")
+    y = node("wiki", "action", "model", R, y + G, W,
+             "Problem solver checks the wiki for topics that may fix it; if none, the knowledge / research loop runs again")
+    e5 = y + 14
+    edge([anchor("org", "b"), anchor("critic", "t")])
+    chain("critic", "solve", "d_dec")
+    down("d_dec", "d_two", "no")
+    down("d_two", "wiki", "no")
+    edge([anchor("wiki", "l"), (1010, box["wiki"][1]), (1010, box["solve"][1]), anchor("solve", "l")],
+         "try again", dashed=False, lx=1018, ly=box["wiki"][1] - 52)
+    r3 = e5 + 24
+    y = node("qa", "action", "mixed", R, r3 + 40, W,
+             "Final evaluator does QA: checks all files and does test runs")
+    y = node("d_appr", "decision", "", R, y + G, 0, "Approved?")
+    y = node("deliver", "action", "code", R, y + G, W,
+             "A folder with the files is produced, potentially delivered through email")
+    y = node("end1", "end", "", R, y + G, 0, "")
+    e6 = y + 14
+    edge([anchor("d_dec", "r"), (1520, box["d_dec"][1]), (1520, box["qa"][1] - 50), (R + 120, box["qa"][1] - 50),
+          (R + 120, anchor("qa", "t")[1])], "yes", lx=R + 150, ly=box["d_dec"][1] - 8)
+    down("qa", "d_appr")
+    down("d_appr", "deliver", "yes")
+    down("deliver", "end1")
+    edge([anchor("d_appr", "r"), (1575, box["d_appr"][1]), (1575, box["head"][1]), anchor("head", "r")],
+         "no: back with the issues", lx=R + 150, ly=box["d_appr"][1] - 8)
+    r4 = e6 + 24
+    y = node("aud1", "action", "model", R, r4 + 40, W,
+             "Auditor 1 evaluates the successes, failures and shortcomings, and what kept the system from a good solution")
+    y = node("aud2", "action", "model", R, y + G, W,
+             "Auditor 2 (a different model) evaluates the solutions and returns suggestions to auditor 1")
+    y = node("aud1b", "action", "model", R, y + G, W, "Auditor 1 returns an evaluation of those suggestions")
+    y = node("d_agree", "decision", "", R, y + G, 0, "Auditors agree on problems and fixes?")
+    y = node("sum", "action", "model", R, y + G, W,
+             "An LLM call summarizes the project progress and transcript, and what the auditors suggested")
+    y = node("deb", "action", "mixed", R, y + G, W,
+             "Claude and ChatGPT APIs are queried for ways to improve the overall system, and debate each other")
+    y = node("d_fix", "decision", "", R, y + G, 0, "Fix decided, or credit cost limit reached?")
+    y = node("rep", "action", "person", R, y + G, W, "Report of the fix is created and sent to Parker for approval")
+    y = node("end2", "end", "", R, y + G, 0, "")
+    e7 = y + 14
+    edge([anchor("d_two", "r"), (1545, box["d_two"][1]), (1545, box["aud1"][1]), anchor("aud1", "r")],
+         "yes: re-design", lx=R + 150, ly=box["d_two"][1] - 8)
+    chain("aud1", "aud2", "aud1b", "d_agree")
+    down("d_agree", "sum", "yes")
+    chain("sum", "deb", "d_fix")
+    down("d_fix", "rep", "yes")
+    down("rep", "end2")
+    edge([anchor("d_agree", "r"), (1500, box["d_agree"][1]), (1500, box["aud2"][1]), anchor("aud2", "r")],
+         "no: another exchange", lx=R + 150, ly=box["d_agree"][1] - 8)
+    edge([anchor("d_fix", "r"), (1500, box["d_fix"][1]), (1500, box["deb"][1]), anchor("deb", "r")],
+         "no: keep debating", lx=R + 150, ly=box["d_fix"][1] - 8)
+    # notes and legend
+    gy = end3 + 150
+    notes = ["Notes on the plan",
+             "- Every agent runs on an ARC model except the Claude and ChatGPT calls",
+             "  in the re-design debate, which spend credits against a cost limit.",
+             "- Agents share one blackboard from the moment the folder is created.",
+             "- Models are numbered as in the plan; a different model checks each",
+             "  stage's work (planner 2, problem solver 1, auditor 2, the verifier).",
+             "- As built, the editor does not vote and email delivery is left out."]
+    parts.append(f'<rect x="30" y="{gy-20}" width="540" height="{len(notes)*18+20}" rx="10" fill="#fffbe6" '
+                 f'stroke="#a68a00" stroke-width="1.4"/>')
+    for i, line in enumerate(notes):
+        parts.append(text(40, gy + i * 18, line, size=11, weight="bold" if i == 0 else "normal"))
+    ly0 = gy + len(notes) * 18 + 28
+    for i, (k, lab) in enumerate((("person", "person"), ("model", "model step"), ("code", "plain step"),
+                                  ("mixed", "model and tools"))):
+        f, st = ACTOR[k]
+        parts.append(f'<rect x="{30+i*150}" y="{ly0}" width="22" height="14" rx="4" fill="{f}" stroke="{st}" '
+                     f'stroke-width="1.5"/>')
+        parts.append(text(58 + i * 150, ly0 + 12, lab, size=11))
+    height = max(e7, ly0) + 60
+    lane(30, 930, top1 - 4 + 0, end1, "Intake: Interviewer loop")
+    lane(30, 930, top2, end2, "Planning loop")
+    lane(30, 930, top3, end3, "Knowledge evaluation and research loop")
+    lane(960, 1590, r1, e4, "Production")
+    lane(960, 1590, r2, e5, "Critic loop")
+    lane(960, 1590, r3, e6, "Final evaluation")
+    lane(960, 1590, r4, e7, "Re-design loop")
+    title = "ASPIRE: activity diagram of the original plan (as designed)"
+    return svg(1620, height, title, lanes + parts)
+
+
 def label_bg(x, y, w):
     return f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="15" fill="{PAPER}" opacity="0.92"/>'
 
@@ -850,4 +1083,5 @@ if __name__ == "__main__":
     for name, args in diagrams.items():
         (HERE / f"{name}.svg").write_text(sequence_svg(*args), encoding="utf-8")
     (HERE / "activity-workflow.svg").write_text(activity_svg(), encoding="utf-8")
+    (HERE / "activity-designed.svg").write_text(designed_svg(), encoding="utf-8")
     print("wrote", HERE / "class-diagram.svg", *(HERE / f"{n}.svg" for n in diagrams))
