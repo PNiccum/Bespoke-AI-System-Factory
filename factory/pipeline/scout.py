@@ -36,6 +36,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from factory.llm import complete_validated
+from factory.net.http import BudgetExhausted
 from factory.pipeline.sources import GitHubRepos, PyPI
 
 MAX_AGE_DAYS = 3 * 365  # a release or push older than this is stale
@@ -287,6 +288,8 @@ def unused_reuse(claimed: list[str], result: ReuseResult | None, out: Path, file
     importable = {norm(c.name): c for c in result.candidates if c.use == "import"}
     missing = []
     for line in claimed:
+        if not isinstance(line, str):  # the design came from a model: skip a malformed entry, never crash the check
+            continue
         c = importable.get(norm(line.split(":", 1)[0]))
         if c is None:
             continue  # a [reference] tool is followed, not imported, so there is nothing to check in code
@@ -368,6 +371,9 @@ class Scout:
         for name in prop.packages[:MAX_PACKAGES]:
             try:
                 data = self.pypi.lookup(name)
+            except BudgetExhausted as e:  # the call allowance is spent: stop asking, never retry past it
+                result.errors.append(f"pypi: {e}")
+                break
             except Exception as e:  # noqa: BLE001
                 result.errors.append(f"pypi {name}: {type(e).__name__}: {str(e)[:120]}")
                 continue
@@ -380,6 +386,9 @@ class Scout:
             result.queries.append(q)
             try:
                 repos = self.github.repos(q, MAX_REPOS_PER_QUERY)
+            except BudgetExhausted as e:
+                result.errors.append(f"github: {e}")
+                break
             except Exception as e:  # noqa: BLE001
                 result.errors.append(f"github {q!r}: {type(e).__name__}: {str(e)[:120]}")
                 continue
@@ -418,6 +427,9 @@ class Scout:
             try:
                 c.readme = self.github.readme(c.name)[:README_CHARS * 2]
                 c.files = [safe_name(f) for f in self.github.files(c.name)][:MAX_FILES]
+            except BudgetExhausted as e:
+                result.errors.append(f"github details: {e}")
+                break
             except Exception as e:  # noqa: BLE001
                 result.errors.append(f"github {c.name} details: {type(e).__name__}: {str(e)[:120]}")
         return result

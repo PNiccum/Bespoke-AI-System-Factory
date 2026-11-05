@@ -182,7 +182,7 @@ def test_imports_the_sandbox_lacks_block_and_unused_reuse_is_recorded(tmp_path, 
         Candidate(kind="stdlib", name="statistics", url="u", summary="s", use="import", why="w", fetched="d"),
         Candidate(kind="stdlib", name="json", url="u", summary="s", use="import", why="w", fetched="d"),
         Candidate(kind="github", name="a/logspike", url="u", summary="s", use="reference", why="w", fetched="d")])
-    claimed = ["Statistics: medians", "json: output", "a/logspike: rolling window idea"]
+    claimed = ["Statistics: medians", "json: output", "a/logspike: rolling window idea", {"bad": 1}, None]
     assert unused_reuse(claimed, reuse, out, files) == ["statistics"]
 
 
@@ -324,3 +324,30 @@ def test_import_names_and_a_broken_reuse_file(cfg, tmp_path, monkeypatch):
     (production.out / "app.py").write_text("import json\n")
     checks = production.check()
     assert checks.ok and checks.reuse_unused == []
+
+
+def test_a_spent_call_budget_stops_the_scout(cfg, tmp_path, monkeypatch):
+    monkeypatch.delenv("ASPIRE_SANDBOX_PACKAGES", raising=False)
+    llm, project = planned(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(json.dumps({"queries": ["q1", "q2", "q3"], "packages": ["a", "b", "c"],
+                                                "stdlib": ["re"]}))
+    agent = Registry.load(cfg, ROOT / "registry").agents["research_orchestrator"]
+    http, calls = mock(handler)
+    budget = CallBudget("t", 1)  # one call, then spent
+    s = Scout(llm, agent, PyPI(tmp_path / "pypi", budget, http=http), GitHubRepos(tmp_path / "gh", budget, http=http),
+              now=lambda: NOW)
+    found = s.run("Find spikes", "{}")
+    assert len(calls) == 1  # no request after the allowance is spent
+    assert sum("calls this round" in e for e in found.errors) == 2  # one stop for PyPI, one for GitHub
+    assert any(c.name == "re" for c in found.candidates)  # the stdlib check needs no calls
+
+
+def test_final_names_failing_tests_and_lacking_imports_together():
+    from factory.pipeline.final import check_failure
+    from factory.pipeline.production import Checks
+    c = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=False, failed=["t1"],
+               unavailable_imports={"matplotlib": ["a.py"]})
+    assert check_failure(c) == "the plain-code checks fail: t1; imports the sandbox lacks: matplotlib"
+    only = c.model_copy(update={"failed": [], "tests_ok": True})
+    assert check_failure(only) == "the plain-code checks fail: imports the sandbox lacks: matplotlib"
+    assert check_failure(c.model_copy(update={"unavailable_imports": {}})) == "the plain-code checks fail: t1"
