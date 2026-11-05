@@ -97,3 +97,66 @@ def test_a_fix_that_removes_a_passing_test_fails_the_check(cfg, tmp_path):
     result = Orchestrator(llm, registry, on_event=events.append).run(task)
     assert result.status == "fixed" and result.attempts == 2
     assert any(e.step == "check" and "fewer tests ran (1 vs 2)" in e.detail for e in events)
+
+
+def test_bug_fix_rerun_gives_the_tests_no_keys(monkeypatch, tmp_path):
+    """Runs the real rerun.py: a generated test that looks for the shell's keys must not find them."""
+    import subprocess
+    import sys
+
+    from factory.export import RERUN
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test_env.py").write_text(
+        "import os\n\ndef test_no_keys():\n    assert not {'ANTHROPIC_API_KEY', 'HTTPS_PROXY', 'https_proxy', 'GIT_CONFIG_COUNT'} & set(os.environ)\n")
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "rerun.py").write_text(RERUN)
+    (bundle / "workflow.json").write_text(json.dumps({"targets": []}))
+    (bundle / "fix.patch").write_text("diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+x\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.example:8080")
+    monkeypatch.setenv("https_proxy", "http://user:pw@proxy.example:8080")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")  # a complete, valid git config so the script's own git calls work
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.name")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "x")
+    r = subprocess.run([sys.executable, str(bundle / "rerun.py"), str(repo)], capture_output=True, text=True)
+    assert r.returncode == 0 and "whole suite: PASS" in r.stdout, r.stdout + r.stderr
+
+
+def test_review_rerun_gives_its_pytest_no_keys(monkeypatch, tmp_path):
+    """Runs the review template's own broken(): a test that looks for the shell's key must not find it."""
+    import sys
+
+    from factory.workflows.export import RERUN_REVIEW
+
+    (tmp_path / "diff_inspect.py").write_text("def inspect(*a):\n    return {}\n")  # the bundle ships its own
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.delitem(sys.modules, "diff_inspect", raising=False)  # undone after the test
+    ns: dict = {"__name__": "rerun_under_test", "__file__": str(tmp_path / "rerun.py")}
+    exec(compile(RERUN_REVIEW, "rerun.py", "exec"), ns)  # noqa: S102
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    marker = tmp_path / "ran"
+    (repo / "test_env.py").write_text(
+        f"import os, pathlib\n\ndef test_no_key():\n    pathlib.Path({str(marker)!r}).write_text('x')\n"
+        "    assert 'ANTHROPIC_API_KEY' not in os.environ\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
+    assert ns["broken"](repo, None) == set() and marker.exists()  # the test ran, and did not see the key
+    marker.unlink()
+    ns["clean_env"] = lambda: dict(ns["os"].environ)  # a regression: no scrubbing
+    assert ns["broken"](repo, None) and marker.exists()  # the same test now fails, so this one would notice
+
+
+def test_mutation_runs_get_the_same_scrubbed_environment(monkeypatch):
+    from factory.tools.mutate import scrubbed_env
+
+    monkeypatch.setenv("MY_CREDENTIAL", "abc")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.example:8080")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-x")
+    env = scrubbed_env()
+    assert not {"MY_CREDENTIAL", "GIT_CONFIG_COUNT", "HTTPS_PROXY", "ANTHROPIC_API_KEY"} & set(env)
+    assert "PATH" in env and env["PYTHONDONTWRITEBYTECODE"] == "1"

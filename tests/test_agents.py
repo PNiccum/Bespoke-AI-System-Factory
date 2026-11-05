@@ -95,7 +95,7 @@ def test_multi_step_tool_use_reaches_an_answer_and_logs_each_decision(cfg, tmp_p
                  "ref": "n1", "quote": "Retry with backoff cut failed uploads by 40%"})]),
              turn("Done: one eligible statement.")]
     llm, p = make(cfg, tmp_path, turns)
-    r = run_agent(llm, "agent", "You are a test agent.", "Find one fact.", note_tools(NOTES))
+    r = run_agent(llm, "agent", "You are a test agent.", "Find one fact.", note_tools(NOTES), data="public")
     assert r.status == "done" and r.steps == 4 and r.tool_calls == 3
     assert "Done" in r.final_text
     # each turn sends the whole history, with tool results paired to their calls
@@ -113,7 +113,7 @@ def test_errors_go_back_to_the_agent_not_up_the_stack(cfg, tmp_path):
     turns = [turn("", [("read", {"ref": "nope"}), ("search", {"k": "lots"}), ("delete_tests", {})]),
              turn("Giving up.")]
     llm, p = make(cfg, tmp_path, turns)
-    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES))
+    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), data="public")
     results = p.requests[1].messages[-1]["content"]
     assert all(x.get("is_error") for x in results)
     assert "no note" in results[0]["content"]
@@ -125,11 +125,11 @@ def test_errors_go_back_to_the_agent_not_up_the_stack(cfg, tmp_path):
 def test_caps_stop_the_run_with_a_report(cfg, tmp_path):
     loop_forever = [turn("again", [("search", {"query": "x"})]) for _ in range(10)]
     llm, _ = make(cfg, tmp_path, loop_forever)
-    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(max_steps=3))
+    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(max_steps=3), data="public")
     assert r.status == "cap:steps" and r.steps == 3 and "stopped at a cap (steps)" in r.report()
 
     llm, _ = make(cfg, tmp_path / "b", loop_forever) if (tmp_path / "b").mkdir() is None else None
-    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(max_tokens=250))
+    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(max_tokens=250), data="public")
     assert r.status == "cap:tokens" and r.steps == 2  # 150 tokens per turn
 
 
@@ -159,7 +159,7 @@ def test_tool_schema_comes_from_the_input_model():
 def test_replay_reproduces_tool_steps_without_the_model(cfg, tmp_path):
     turns = [turn("", [("search", {"query": "cache model"}), ("read", {"ref": "n2"})]), turn("ok")]
     llm, _ = make(cfg, tmp_path, turns)
-    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES))
+    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), data="public")
     assert replay(r.log_path, note_tools(NOTES)) == [("search", True, True), ("read", True, True)]
     changed = {**NOTES, "n2": "The cache layer was removed."}
     assert replay(r.log_path, note_tools(changed))[1] == ("read", True, False)  # drift is visible
@@ -178,7 +178,7 @@ def test_openai_translation_of_tool_history():
 def test_compaction_stubs_old_results_and_keeps_references(cfg, tmp_path):
     turns = [turn("", [("search", {"query": "failed uploads retry"})]) for i in range(6)] + [turn("done")]
     llm, p = make(cfg, tmp_path, turns)
-    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(compact_every=3, keep_recent=2))
+    r = run_agent(llm, "agent", "s", "t", note_tools(NOTES), AgentCaps(compact_every=3, keep_recent=2), data="public")
     assert r.status == "done"
     contents = [b["content"] for m in r.messages if m["role"] == "user" and isinstance(m["content"], list)
                 for b in m["content"]]
@@ -199,3 +199,13 @@ def test_cache_breakpoint_marks_only_the_newest_block():
     assert out[-1]["content"][-1]["cache_control"] == {"type": "ephemeral"}
     assert "cache_control" not in msgs[-1]["content"][-1]  # the caller's history is not modified
     assert with_cache_breakpoint([{"role": "user", "content": "hi"}])[0]["content"][0]["text"] == "hi"
+
+
+def test_run_agent_treats_data_as_private_unless_the_caller_says_public(cfg, tmp_path):
+    """Fail closed: a caller that forgets ``data=`` must not be able to send lab data to a public-only provider."""
+    from factory.llm.client import DataScopeError
+
+    llm, p = make(cfg, tmp_path, [turn("Done.")])
+    with pytest.raises(DataScopeError):
+        run_agent(llm, "agent", "s", "t", note_tools(NOTES))
+    assert run_agent(llm, "agent", "s", "t", note_tools(NOTES), data="public").status == "done"
