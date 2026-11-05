@@ -166,7 +166,9 @@ def sandbox_imports() -> set[str]:
     return set(sys.stdlib_module_names) | {import_name(p) for p in sandbox_packages()}
 
 
-IMPORT_ERRORS = frozenset({"ImportError", "ModuleNotFoundError", "Exception", "BaseException"})
+# only a handler that names the import error marks an optional import: a broad `except Exception: sys.exit(1)` is a
+# failure path, not a fallback, so its import still counts
+IMPORT_ERRORS = frozenset({"ImportError", "ModuleNotFoundError"})
 
 
 def _children(node: ast.AST) -> list[ast.AST]:
@@ -176,7 +178,7 @@ def _children(node: ast.AST) -> list[ast.AST]:
         caught = set()
         for h in node.handlers:
             types = h.type.elts if isinstance(h.type, ast.Tuple) else [h.type] if h.type else []
-            caught |= {t.id if isinstance(t, ast.Name) else getattr(t, "attr", "") for t in types} or {"Exception"}
+            caught |= {t.id if isinstance(t, ast.Name) else getattr(t, "attr", "") for t in types}
         if caught & IMPORT_ERRORS:
             return [*node.orelse, *node.finalbody, *(s for h in node.handlers for s in h.body)]
     if isinstance(node, ast.If):

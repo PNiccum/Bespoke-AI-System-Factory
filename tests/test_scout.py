@@ -243,8 +243,12 @@ def test_guarded_imports_do_not_block(tmp_path, monkeypatch):
         "try:\n    import ujson as json\nexcept (ModuleNotFoundError, ValueError):\n    import json\n"
         "if TYPE_CHECKING:\n    import polars\n"
         "try:\n    import lxml\nexcept KeyError:\n    pass\n"
+        "try:\n    import seaborn\nexcept Exception:\n    raise SystemExit(1)\n"
+        "try:\n    import numba\nexcept:\n    pass\n"
         "def f():\n    import rich\n")
-    assert check_imports(out, ["plot.py"]) == {"lxml": ["plot.py"], "rich": ["plot.py"]}
+    blocked = check_imports(out, ["plot.py"])
+    # a broad `except Exception` exits rather than falls back, and a bare except is not a named import guard
+    assert set(blocked) == {"lxml", "rich", "seaborn", "numba"}
     assert {"matplotlib", "polars", "ujson"} <= imports_of((out / "plot.py").read_text())  # all imports still seen
 
 
