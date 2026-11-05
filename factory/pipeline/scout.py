@@ -54,6 +54,7 @@ its has have been your you our one two new get set per via""".split())
 
 
 class Proposal(BaseModel):
+    kind: str = ""  # the task kind in 2 to 5 words ("apache log parsing"): the key of the remembered reuse page
     queries: list[str] = []  # GitHub repository searches, a few plain words each
     packages: list[str] = []  # PyPI names the model believes already do part of the job
     stdlib: list[str] = []  # standard-library modules that do part of the job
@@ -78,6 +79,8 @@ class ReuseResult(BaseModel):
     candidates: list[Candidate] = []
     queries: list[str] = []
     errors: list[str] = []  # lookups that failed; a failure is recorded, never fatal
+    kind: str = ""  # the task kind the candidates are filed under
+    recalled: bool = False  # True when the candidates came from the remembered page, with no GitHub or PyPI search
 
     def usable(self) -> list[Candidate]:
         return [c for c in self.candidates if c.use != "skip"]
@@ -107,7 +110,7 @@ that do not.
 ## Plan
 {plan}
 
-Reply with JSON only: {{"queries": ["<2 to 5 plain words>"], "packages": ["<PyPI name>"], "stdlib": ["<module>"]}}, \
+Reply with JSON only: {{"kind": "<the kind of task in 2 to 5 plain words, e.g. apache log parsing>", "queries": ["<2 to 5 plain words>"], "packages": ["<PyPI name>"], "stdlib": ["<module>"]}}, \
 at most {max_queries} queries and {max_packages} packages."""
 
 
@@ -234,8 +237,12 @@ def is_recent(date: str, now: datetime) -> bool:
 
 
 class Scout:
-    def __init__(self, llm, agent, pypi: PyPI, github: GitHubRepos, now=lambda: datetime.now(UTC)):
+    def __init__(self, llm, agent, pypi: PyPI, github: GitHubRepos, now=lambda: datetime.now(UTC), memory=None,
+                 project: str = ""):
+        """``memory``: a ReuseMemory (reuse_memory.py). With one, a task kind seen before is answered from its page
+        and a new search is saved to it; without one the scout always searches."""
         self.llm, self.agent, self.pypi, self.github, self.now = llm, agent, pypi, github, now
+        self.memory, self.project = memory, project
 
     def propose(self, task: str, plan: str) -> Proposal:
         try:
@@ -247,6 +254,7 @@ class Scout:
             out = Proposal()
         if not out.queries:
             out.queries = [keywords(task)] if keywords(task) else []
+        out.kind = " ".join(out.kind.split())[:60]  # empty when the model gave none: then nothing is recalled or saved
         return out
 
     def run(self, task: str, plan: str) -> ReuseResult:
@@ -263,6 +271,20 @@ class Scout:
                     summary=f"Python standard library module {mod}.", license="PSF", use="import",
                     why="in the standard library, so the sandbox has it", fetched=fetched))
         have = sandbox_packages()
+        result.kind = prop.kind
+        if self.memory and (page := self._safe(self.memory.recall, prop.kind, result)):
+            for c in page.candidates:  # what an earlier run found: the lookups below are skipped
+                if f"{c.kind}:{c.name.lower()}" in seen:
+                    continue
+                seen.add(f"{c.kind}:{c.name.lower()}")
+                if c.kind == "pypi":  # the sandbox's package list may have changed since the page was saved
+                    c = c.model_copy(update={"use": "import" if norm(c.name) in have
+                                             else "reference"})
+                result.candidates.append(c.model_copy(update={"why": f"remembered for '{page.kind}': {c.why}"}))
+            result.recalled = True
+            result.queries = prop.queries[:MAX_QUERIES]  # what this run would have searched, for the record
+            self._safe(self.memory.touch, page, result, self.project)
+            return self._order(result)
         for name in prop.packages[:MAX_PACKAGES]:
             try:
                 data = self.pypi.lookup(name)
@@ -286,8 +308,28 @@ class Scout:
                     continue
                 seen.add(f"github:{r['full_name'].lower()}")
                 result.candidates.append(self._repo_candidate(r, stamp, fetched))
+        result = self._details(self._order(result))
+        if self.memory:
+            self._safe(self.memory.remember, prop.kind, result, result.candidates, self.project)
+        return result
+
+    @staticmethod
+    def _safe(call, arg, result: ReuseResult, *more):
+        """Memory is an extra: a failure there is recorded and the scout searches as if it had no memory."""
+        try:
+            return call(arg, *more)
+        except Exception as e:  # noqa: BLE001
+            result.errors.append(f"reuse memory: {type(e).__name__}: {str(e)[:120]}")
+            return None
+
+    @staticmethod
+    def _order(result: ReuseResult) -> ReuseResult:
         order = {"import": 0, "reference": 1, "skip": 2}
         result.candidates = sorted(result.candidates, key=lambda c: (order[c.use], -(c.stars or 0)))[:MAX_CANDIDATES]
+        return result
+
+    def _details(self, result: ReuseResult) -> ReuseResult:
+        """README and top-level files of the best few reference repositories (a remembered candidate keeps its own)."""
         for c in [c for c in result.candidates if c.kind == "github" and c.use == "reference"][:MAX_DETAILED]:
             try:
                 c.readme = self.github.readme(c.name)[:README_CHARS * 2]

@@ -190,3 +190,43 @@ def test_checks_with_an_unavailable_import_are_not_ok():
     c = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True,
                unavailable_imports={"matplotlib": ["a.py"]})
     assert not c.ok and "matplotlib in a.py" in json_checks(c)
+
+
+def test_good_candidates_are_remembered_by_task_kind_and_reused_without_searching(cfg, tmp_path, monkeypatch):
+    from datetime import timedelta
+
+    from factory.pipeline.reuse_memory import ReuseMemory
+    monkeypatch.delenv("ASPIRE_SANDBOX_PACKAGES", raising=False)
+    llm, _ = planned(cfg, tmp_path)
+    agent = Registry.load(cfg, ROOT / "registry").agents["research_orchestrator"]
+    proposal = json.loads(PROPOSAL) | {"kind": "Apache log parsing"}
+    llm.providers["arc"] = Scripted(json.dumps(proposal), json.dumps(proposal | {"kind": "apache log parsing"}))
+    mem = ReuseMemory(tmp_path / "wiki", now=lambda: NOW)
+    s, calls = scout(tmp_path, llm, agent)
+    s.memory, s.project = mem, "p1"
+    first = s.run("Find spikes in Apache logs", "{}")
+    assert not first.recalled and calls
+    page = mem.recall("apache log parsing")
+    assert {c.name for c in page.candidates} >= {"apache-log-parser", "a/logspike", "statistics"}
+    assert not {c.name for c in page.candidates} & {"oldthing", "gplthing", "b/nolicence"}  # skipped ones are not kept
+    assert "https://github.com/a/logspike" in (tmp_path / "wiki/reuse/apache-log-parsing.md").read_text()
+    assert page.projects == ["p1"] and page.candidates[0].fetched == "2026-11-05"
+    calls.clear()
+    s.project = "p2"
+    again = s.run("Another Apache log task", "{}")
+    assert again.recalled and not calls  # no PyPI or GitHub request
+    assert {c.name for c in again.usable()} == {c.name for c in first.usable()}
+    assert any("remembered for" in c.why for c in again.candidates)
+    assert mem.find("apache log parsing").projects == ["p1", "p2"]
+    mem.now = lambda: NOW + timedelta(days=200)
+    assert mem.recall("apache log parsing") is None  # stale: search again
+    # a loosely similar kind gets its own page and does not recall (or change) this one
+    assert mem.recall("nginx log parsing") is None and mem.recall("") is None
+    (tmp_path / "wiki/reuse/broken.json").write_text("{not json")
+    assert mem.find("apache log parsing")  # a corrupt page is skipped, not fatal
+    mem.remember("nginx log parsing", first.candidates[:1])
+    assert len(mem.find("apache log parsing").candidates) == len(page.candidates)
+    # a fresh search replaces old candidates
+    mem.remember("apache log parsing", first.candidates[:1])
+    assert len(mem.find("apache log parsing").candidates) == 1
+    assert not mem.remember("empty kind", [c for c in first.candidates if c.use == "skip"])

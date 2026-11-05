@@ -2,8 +2,11 @@
 # one-line change: two bugs in one class, a cause two modules away from the symptom, a small feature built to tests
 # that already exist, or a parser or algorithm rewritten to a written spec. Judged exactly like the main benchmark
 # (the patch applies, leaves tests alone, the whole suite passes, then the hidden tests in bench/hidden/<name>/).
-# Kept in its own file so the main benchmark's numbers and self-extension's held-out gate are unchanged:
+# Kept in its own file so the main benchmark's numbers are unchanged:
 #     python -m factory.bench --tasks bench/tasks_hard.yaml --repeat 3
+# Self-extension (factory/extend.py) learns from the first four and is judged on the four marked heldout, which no
+# proposer ever sees. This tier is where ASPIRE and a single model call differ most (18/24 against 11/24 on
+# 2026-11-02), so it is the gate that tells a better prompt from a worse one.
 tasks:
   - name: lru_cache
     repo: bench/repos/lru_cache
@@ -20,12 +23,16 @@ tasks:
   - name: toposort_cycle
     repo: bench/repos/toposort_cycle
     issue: 'build_order({"a": ["b"], "b": ["a"], "c": []}) returns ["c"] and silently drops a and b; it should raise CycleError naming the loop. Ties are also wrong: build_order({"b": ["a"], "c": ["a"], "a": [], "d": []}) gives a, d, b, c instead of a, b, c, d.'
+    heldout: true
   - name: ini_parser
     repo: bench/repos/ini_parser
     issue: 'conf.ini.parse() treats ''; comment'' lines as settings and drops indented continuation lines: in "[db]\nhosts = a\n  b" the hosts value should be "a\nb". The docstring lists the rules it should follow.'
+    heldout: true
   - name: retry_decorator
     repo: bench/repos/retry_decorator
     issue: '@retry(on=(TimeoutError,)) also retries a KeyError, and when every attempt fails the call returns None instead of raising the last error. The docstring describes the intended behavior, including the backoff.'
+    heldout: true
   - name: bill_split
     repo: bench/repos/bill_split
     issue: 'split(100, 3) returns [3333, 3333, 3333], a cent short of the $100 bill, and split(0.29, 1) returns [28]. Shares must always add up to the bill.'
+    heldout: true

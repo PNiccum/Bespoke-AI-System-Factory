@@ -366,10 +366,43 @@ def render(blocks: list[Block], pages: dict[str, str] | None = None) -> str:
     return body + ("\n\n" + "\n".join(defs) if defs else "")
 
 
-def quotes(blocks: list[Block]) -> str:
-    """Each kept statement with its quote, for the verifier."""
+NEGATIONS = {"not", "no", "never", "cannot", "without", "neither", "nor", "none", "unless", "except", "only", "must",
+             "should", "may", "might", "can", "all", "any", "every", "always", "most", "some", "few", "than"}
+_WORD = re.compile(r"[a-z0-9][a-z0-9'_.-]*")
+
+
+def _words(text: str) -> list[str]:
+    return [w.strip(".-'_") for w in _WORD.findall(normalise(text))]
+
+
+def restates(s: Sentence, threshold: float = 0.9) -> bool:
+    """Whether a kept statement is a near-verbatim restatement of its own quote, so a model adds nothing by checking
+    that the quote supports it: nearly every word of the sentence is in the quote, the sentence has no number or symbol
+    the quote lacks, and no word that flips or scopes a claim (not, only, must, most, than...) appears in one and not
+    the other. Anything less stays with the verifier. The librarian's habit is to quote and then paraphrase lightly, so
+    this clears the plain restatements and leaves the paraphrases and the numbers to the model."""
+    if s.kind != "statement" or s.reason is not None or not s.quote:
+        return False
+    mine, theirs = _words(s.plain), set(_words(s.quote.replace("...", " ").replace("…", " ")))
+    mine = [w for w in mine if w]
+    if len(mine) < 3 or sum(w in theirs for w in mine) / len(mine) < threshold:
+        return False
+    if specifics(s.plain) - specifics(s.quote):
+        return False
+    return (set(mine) & NEGATIONS) == (theirs & NEGATIONS)
+
+
+def needs_model_check(blocks: list[Block]) -> bool:
+    """Whether the verifier has anything to decide: an inference to weigh, or a statement that is more than a
+    restatement of its quote."""
+    return any(s.reason is None and (s.kind == "inference" or (s.kind == "statement" and not restates(s)))
+               for s in sentences(blocks))
+
+
+def quotes(blocks: list[Block], only_doubtful: bool = False) -> str:
+    """Each kept statement with its quote, for the verifier. ``only_doubtful`` leaves out the plain restatements."""
     return "\n".join(f'- "{s.plain}" rests on {s.doc_id}: "{s.quote}"' for s in sentences(blocks)
-                     if s.kind == "statement" and s.reason is None)
+                     if s.kind == "statement" and s.reason is None and not (only_doubtful and restates(s)))
 
 
 def dropped(blocks: list[Block]) -> list[str]:
