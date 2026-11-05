@@ -23,6 +23,7 @@ from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.knowledge import KnowledgeLoop, Topic
@@ -190,6 +191,8 @@ class CriticLoop:
                                                                    files=self.shown_files(), max_issues=MAX_ISSUES),
                                       Critique, f"critique-{rnd}", pages)
             except RuntimeError as e:  # no usable review: the checks speak for it (below), and final QA still runs
+                log_of(self.llm).record("pipeline", f"critic gave no usable review: {str(e)[:300]}",
+                                        stage="critic loop", severity="warning", refs=[f"round {rnd}"])
                 self.board.post("note", "code", {"round": rnd, "text": f"critic gave no usable review: {str(e)[:300]}"})
                 critique = Critique(acceptable=False, issues=[])
             issues = [i for i in critique.issues if i.severity != "minor"][:MAX_ISSUES]
@@ -253,6 +256,8 @@ class CriticLoop:
                                                               knowledge=knowledge), Fixes, tag, pages,
                                   parse=parse_fixes, fmt="FIX blocks")
             except RuntimeError as e:
+                log_of(self.llm).record("pipeline", f"solver gave no usable fixes: {str(e)[:300]}",
+                                        stage="critic loop", severity="warning", refs=[f"round {rnd}"])
                 self.board.post("note", "code", {"round": rnd, "text": f"solver gave no usable fixes: {str(e)[:300]}"},
                                 refs=[ref])
                 if len(issues) == 1:
@@ -289,6 +294,8 @@ class CriticLoop:
                 (self.production.out / rel).unlink()
             for rel, text in snapshot.items():
                 self.project.write_file(f"{OUTPUT}/{rel}", text, "code", refs=[note.id])
+            log_of(self.llm).record("qa", "a QA repair broke the plain-code checks and was put back",
+                                    stage="final QA repair", severity="warning", refs=[note.id])
             self.board.post("note", "code", {"round": rnd, "text": "the QA repair broke the checks: put back"},
                             refs=[note.id])
             return False
