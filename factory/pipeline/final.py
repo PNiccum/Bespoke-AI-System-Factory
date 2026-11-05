@@ -78,8 +78,8 @@ def defer_to_code(qa: QA, checks: Checks) -> None:
         contradicted = any(p and p in named for p in checks.passed)
         if not named or contradicted:
             t.met, t.overridden = True, True
-            t.evidence = (f"[code: tests pass and QA named no failing check] " if not named else
-                          f"[code: the check QA named passes in the sandbox] ") + t.evidence
+            t.evidence = ("[code: tests pass and QA named no failing check] " if not named else
+                          "[code: the check QA named passes in the sandbox] ") + t.evidence
 
 
 class FinalEvaluator:
