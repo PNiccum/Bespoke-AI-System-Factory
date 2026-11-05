@@ -27,6 +27,8 @@ suite with pytest. Exits 0 when everything passes.
 """
 
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +36,14 @@ import tempfile
 from pathlib import Path
 
 HERE = Path(__file__).parent
+
+
+def clean_env():
+    """This shell's environment without keys, tokens, secrets or passwords: tests never need a credential."""
+    return {k: v for k, v in os.environ.items()
+            if not any(m in k.upper() for m in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+            and not k.upper().startswith("GIT_CONFIG_")
+            and not re.search(r"://[^/@\\s]*@", v)}  # a URL with a login in it (a proxy, a database)
 
 
 def main(repo):
@@ -47,7 +57,7 @@ def main(repo):
         for label, args in (("target tests", targets), ("whole suite", [])):
             if label == "target tests" and not targets:
                 continue
-            code = subprocess.run([sys.executable, "-m", "pytest", "-q", *args], cwd=work).returncode
+            code = subprocess.run([sys.executable, "-m", "pytest", "-q", *args], cwd=work, env=clean_env()).returncode
             print(f"{label}: {'PASS' if code == 0 else 'FAIL'}")
             if code != 0:
                 return code

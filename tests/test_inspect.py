@@ -108,7 +108,7 @@ def app(tmp_path, monkeypatch):
 
 
 def test_every_page_renders_with_an_empty_workspace(app):
-    for page in ("2_Wiki.py", "3_Projects.py", "4_Runs_and_spend.py"):
+    for page in ("2_Wiki.py", "3_Projects.py", "4_Runs_and_spend.py", "5_Lessons.py"):
         at = app(page).run()
         assert not at.exception and at.info, page
 

@@ -44,7 +44,7 @@ class AgentResult:
 
 
 def run_agent(llm: LLM, role: str, system: str, task: str, toolbox: Toolbox, caps: AgentCaps | None = None, *,
-              tag: str = "agent", data: str = "public") -> AgentResult:
+              tag: str = "agent", data: str = "private") -> AgentResult:
     caps = caps or llm.cfg.agent_caps
     log_path = llm.run_dir / "agent_log.jsonl"
     messages: list[dict] = [{"role": "user", "content": task}]

@@ -11,6 +11,7 @@ import streamlit as st
 
 from factory.config import load_config
 from factory.demo import recorded_task
+from factory.llm.cost import BudgetExceeded
 from factory.llm.gate import SpendLedger
 from factory.orchestrator import Task, plan_for
 from factory.ui.session import RunSession
@@ -76,8 +77,12 @@ with st.sidebar:
     cfg = config()
     st.header("Budget")
     st.write(f"Soft limit per run: {usd(cfg.budget.approve_above_usd)}, hard stop {usd(cfg.budget.max_real_usd)}")
-    spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
-    for provider, credit in cfg.credits.by_provider.items():
+    try:
+        spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
+    except BudgetExceeded as e:
+        spent = None  # unknown: show the error, not bars that read as "all credit available"
+        st.error(str(e))
+    for provider, credit in (cfg.credits.by_provider.items() if spent is not None else ()):
         st.progress(min(spent.get(provider, 0.0) / credit, 1.0),
                     text=f"{provider}: {usd(spent.get(provider, 0.0))} of {usd(credit)}")
     st.caption(f"{usd(cfg.credits.reserve_usd)} is held back for the demo.")

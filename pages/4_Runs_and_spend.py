@@ -8,8 +8,11 @@ from pathlib import Path
 import streamlit as st
 
 from factory import events as ev
+from factory import historian
 from factory.config import load_config
-from factory.llm.gate import SpendLedger
+from factory.llm import LLM
+from factory.llm.cost import BudgetExceeded
+from factory.llm.gate import SpendLedger, deny_all
 from factory.ui import inspect
 
 ROOT = Path(__file__).parent.parent
@@ -32,9 +35,13 @@ st.caption("Free ARC models do the work; a paid call needs your approval. Every 
            "folder's llm_calls.jsonl, and paid spend is tracked across runs in the workspace's spend ledger.")
 
 st.subheader("Paid credit")
-spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
+try:
+    spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
+except BudgetExceeded as e:
+    spent = None  # unknown: show the error, not figures that read as "all credit available"
+    st.error(str(e))
 cols = st.columns(max(1, len(cfg.credits.by_provider)))
-for col, (provider, credit) in zip(cols, cfg.credits.by_provider.items(), strict=False):
+for col, (provider, credit) in zip(cols, cfg.credits.by_provider.items() if spent is not None else (), strict=False):
     used = spent.get(provider, 0.0)
     col.metric(f"{provider} left", usd(credit - used))
     col.progress(min(used / credit, 1.0) if credit else 0.0, text=f"{usd(used)} spent of {usd(credit)}")
@@ -108,6 +115,30 @@ else:
     if (run / "history.md").exists():
         with st.expander("Historian's account (history.md)", expanded=True):
             st.markdown((run / "history.md").read_text(encoding="utf-8"))
+
+st.subheader("Ask the historian")
+st.caption("A free ARC model answers from the event log only and names the events it used; their status and fix are "
+           "read from the log, not from the model.")
+scope_all = st.radio("Look at", ["This run", "All runs"], horizontal=True) == "All runs"
+with st.form("ask-historian"):
+    question = st.text_input("Question", placeholder="Why did the build stage fail? Did the same error happen before?")
+    asked = st.form_submit_button("Ask")
+if asked and question.strip():
+    pool = ev.run_events(base) if scope_all else elog
+    if "historian_llm" not in st.session_state:
+        ask_dir = cfg.work_dir / "historian_ask"  # not under runs/, so it never shows up as a run
+        ask_dir.mkdir(parents=True, exist_ok=True)
+        st.session_state.historian_llm = LLM(cfg, ask_dir, approver=deny_all)
+    with st.spinner("The historian is reading the log..."):
+        reply, cited = historian.ask(st.session_state.historian_llm, question.strip(), pool,
+                                     scope="All runs" if scope_all else f"Run {name}")
+    st.session_state.historian_answer = (question.strip(), reply, cited)
+if "historian_answer" in st.session_state:
+    q, reply, cited = st.session_state.historian_answer
+    st.markdown(f"**{q}**\n\n{reply}")
+    if cited:
+        st.dataframe([{"id": e.id, "run": e.run, "status": e.status, "stage": e.stage, "message": e.message[:160],
+                       "corrected by": e.how} for e in cited], hide_index=True, use_container_width=True)
 
 st.subheader("Events across all runs (meta analysis)")
 every = ev.run_events(base)

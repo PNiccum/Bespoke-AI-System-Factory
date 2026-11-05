@@ -31,7 +31,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -39,7 +38,7 @@ from pydantic import BaseModel
 
 from factory.bench import safe_stdout
 from factory.config import FactoryConfig, load_config
-from factory.llm import LLM, new_run_dir
+from factory.llm import LLM, new_run_dir, unique_dir
 from factory.llm.gate import SpendRequest, deny_all
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan, check_plan, render_task
@@ -178,7 +177,7 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
             else:
                 knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers,
                                           scout=default_scout(llm, registry, cfg.work_dir / "research-cache", wiki,
-                                                              project.root.name)).run()
+                                                              project.root.name), learn=False).run()
                 ok, missing = knowledge.ok, knowledge.missing
             if not ok:
                 out.why = f"knowledge not approved; missing: {', '.join(missing) or 'unknown'}"
@@ -186,7 +185,7 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
                 out.reached = "build"
                 if resume is not None and project.board.latest("checks") is not None:
                     out.resumed.append("production")
-                result = build(llm, registry, project, wiki, searchers, redesign=redesign, resume=resume is not None,
+                result = build(llm, registry, project, wiki, searchers, redesign=redesign, resume=resume is not None, learn=False,
                                on_stage=lambda s: setattr(out, "reached", "qa" if s == "final QA" else out.reached))
                 out.delivered = result.status == "delivered"
                 out.qa_repairs = getattr(result, "repairs", 0)
@@ -248,8 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ask:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
-    out = Path(args.out) / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-projects"
-    out.mkdir(parents=True)
+    out = unique_dir(Path(args.out), "projects")
     outcomes: list[ProjectOutcome] = []
     jobs = [(trial, task) for trial in range(1, args.repeat + 1) for task in tasks]
     resume_of: dict[str, Path] = {}

@@ -24,7 +24,7 @@ from typing import Literal
 from pydantic import BaseModel, model_validator
 
 from factory.events import log_of
-from factory.llm import LLM, complete_validated
+from factory.llm import LLM, StageCapReached, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.knowledge import KnowledgeLoop, Topic
 from factory.pipeline.production import OUTPUT, Checks, NewFile, Production, parse_files
@@ -34,6 +34,7 @@ from factory.repairs import diff_of, library_of
 
 CRITIC, SOLVER = "project_critic", "problem_solver"
 MAX_ROUNDS, MAX_ISSUES, MAX_SHOWN_CHARS = 4, 6, 40_000
+RESEARCH_MAX_SHARE = 0.75  # the research step does not start once this share of the stage's token ceiling is used
 STEPS = ("plain", "wiki", "research")
 
 
@@ -83,6 +84,7 @@ class CriticResult(BaseModel):
     rounds: int
     open_issues: list[Issue] = []
     step: str = "plain"
+    capped: bool = False  # the stage's token ceiling ended the loop early: final QA judges what there is
 
 
 CRITIC_PROMPT = """Review this solution as a demanding user and engineer. Look for holes, failures, inefficiencies, \
@@ -186,19 +188,41 @@ class CriticLoop:
         return "\n\n".join(out) or "(no files)"
 
     def run(self, checks: Checks) -> CriticResult:
+        """The loop (``_loop``). When the stage's token ceiling is reached, or the research step would start with
+        most of it spent, the loop ends where it stands and returns ``capped``: the build goes on to final QA with the
+        files as they are, instead of spending more on a loop that is not converging. (Run 3, 2026-11-05: 1.9M tokens
+        for 0/4.)"""
+        state = SimpleNamespace(issues=[], rnd=0, step=0)
+        try:
+            return self._loop(checks, state)
+        except StageCapReached as e:
+            why = str(e)
+        events = log_of(self.llm)
+        events.record("pipeline", f"critic loop stopped early: {why}; going to final QA", stage="critic loop",
+                      severity="warning", refs=[f"round {state.rnd}"])
+        self.board.post("note", "code", {"round": state.rnd, "text": f"critic loop stopped early: {why}; final QA "
+                                         "judges the files as they are"})
+        return CriticResult(accepted=False, redesign=False, rounds=state.rnd, open_issues=state.issues,
+                            step=STEPS[state.step], capped=True)
+
+    def _loop(self, checks: Checks, state) -> CriticResult:
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         step, pages, issues = 0, [], []
         for rnd in range(1, MAX_ROUNDS + 1):
+            state.rnd = rnd
             try:
                 critique = self._call(CRITIC, CRITIC_PROMPT.format(task=task, checks=checks.model_dump_json(indent=1),
                                                                    files=self.shown_files(), max_issues=MAX_ISSUES),
                                       Critique, f"critique-{rnd}", pages)
+            except StageCapReached:
+                raise
             except RuntimeError as e:  # no usable review: the checks speak for it (below), and final QA still runs
                 log_of(self.llm).record("pipeline", f"critic gave no usable review: {str(e)[:300]}",
                                         stage="critic loop", severity="warning", refs=[f"round {rnd}"])
                 self.board.post("note", "code", {"round": rnd, "text": f"critic gave no usable review: {str(e)[:300]}"})
                 critique = Critique(acceptable=False, issues=[])
             issues = [i for i in critique.issues if i.severity != "minor"][:MAX_ISSUES]
+            state.issues = issues
             c = self.board.post("critic_review", CRITIC, {"round": rnd, "acceptable": critique.acceptable,
                                                           "issues": [i.model_dump() for i in critique.issues]})
             if (critique.acceptable or not issues) and checks.ok:
@@ -238,11 +262,17 @@ class CriticLoop:
             if step == len(STEPS) - 1:  # declined after research: re-design
                 return CriticResult(accepted=False, redesign=True, rounds=rnd, open_issues=issues, step=STEPS[step])
             step += 1
+            state.step = step
             if STEPS[step] == "wiki":
                 pages = self.closest_pages([i.problem for i in issues])
                 if not pages:  # nothing relevant in the wiki: go straight to research
                     step += 1
+            state.step = step
             if STEPS[step] == "research":
+                led = self.llm.ledger
+                limit = self.llm.cfg.budget.stage_max_tokens.get(led.stage)
+                if limit and led.stage_tokens >= limit * RESEARCH_MAX_SHARE:  # research is the costliest step
+                    raise StageCapReached(led.stage, led.stage_tokens, limit)
                 wanted = [v.missing_knowledge or v.why for v in declined][:3]
                 found = self.knowledge.research_many([Topic(name=w[:80], why="the critic declined a fix for lack "
                                                                   "of it") for w in wanted])
@@ -258,6 +288,8 @@ class CriticLoop:
                 return self._call(SOLVER, SOLVE_PROMPT.format(task=task, issues=_show(these), files=self.shown_files(),
                                                               knowledge=knowledge), Fixes, tag, pages,
                                   parse=parse_fixes, fmt="FIX blocks")
+            except StageCapReached:
+                raise
             except RuntimeError as e:
                 log_of(self.llm).record("pipeline", f"solver gave no usable fixes: {str(e)[:300]}",
                                         stage="critic loop", severity="warning", refs=[f"round {rnd}"])

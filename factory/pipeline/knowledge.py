@@ -28,6 +28,7 @@ are covered, by which pages, and what is still missing.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -43,6 +44,7 @@ from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
+from factory.pipeline.lessons import SKIP_AFTER, BadSources, bad_sources_text, domain_of, lessons_dir
 from factory.pipeline.scout import Scout
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher, skipped_pages
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
@@ -297,15 +299,24 @@ class _TopicState:
 
 class KnowledgeLoop:
     def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
-                 scout: Scout | None = None):
-        """``scout``: look for existing tools before research (default_scout). None skips it, as in the tests."""
+                 scout: Scout | None = None, learn: bool = True):
+        """``scout``: look for existing tools before research (default_scout). None skips it, as in the tests.
+        ``learn=False``: benchmarks and failure replays neither read nor add to the known-bad-sources list."""
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
         self.scout = scout
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
+        # sources that failed before in this domain: skipped in code, and named to the orchestrator
+        self.bad = BadSources(lessons_dir(wiki.root.parent) / "bad_sources.json", enabled=learn)
+        self._domain = ""
         self.events = log_of(llm, project)  # every topic that stalls is an event, corrected by a verified page
         self._topics: dict[str, _TopicState] = {}
         self._lock = threading.Lock()
+
+    @property
+    def domain(self) -> str:
+        self._domain = self._domain or domain_of(self.project)
+        return self._domain
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str, docs: list[Doc] = ()):
         """A model call; any ARC-only document in the prompt keeps the call on ARC."""
@@ -316,7 +327,12 @@ class KnowledgeLoop:
         return out
 
     def run(self, again: bool = False) -> KnowledgeResult:
-        """``again`` reruns a project whose knowledge is already approved; the new result is the one build reads."""
+        """``again`` reruns a project whose knowledge is already approved; the new result is the one build reads.
+        The rounds share the research stage's token ceiling (budget.stage_max_tokens)."""
+        with self.llm.stage("research"):
+            return self._run(again)
+
+    def _run(self, again: bool) -> KnowledgeResult:
         if self.board.latest("decision") is None:
             raise RuntimeError("the knowledge loop starts from the planning loop's plan; run that first")
         if (k := self.board.latest("knowledge")) and k.data.get("ok") and not again:
@@ -554,6 +570,15 @@ class KnowledgeLoop:
                 notes.append("Earlier searches found too few usable documents"
                              + (f" (rejected: {'; '.join(st.rejected[-6:])})" if st.rejected else "")
                              + ". Try different terms or engines.")
+        known = self.bad.known(self.domain, topic.name)
+        out = {i: r for i, r in known.items() if r.get("count", 0) >= SKIP_AFTER}
+        warned = {i: r for i, r in known.items() if i not in out}
+        if out:
+            notes.append("Sources rejected repeatedly for this topic in earlier projects (they are skipped; look "
+                         "elsewhere): " + bad_sources_text(out) + ".")
+        if warned:
+            notes.append("Sources rejected once for this topic in earlier projects (they will be reviewed again, but "
+                         "prefer others): " + bad_sources_text(warned) + ".")
         if st.issues:
             notes.append(GAP_PROMPT.format(n=len(st.approved), issues="; ".join(st.issues[:6])).strip())
         previous = ("\n" + "\n".join(notes) + "\n") if notes else ""
@@ -584,6 +609,12 @@ class KnowledgeLoop:
             st.queries.add(key)
             self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "found": [d.id for d in docs]})
             found |= {d.id: d for d in docs if d.text.strip() and d.id not in st.approved and d.id not in st.seen}
+        skipped = [i for i in found if known.get(i, {}).get("count", 0) >= SKIP_AFTER]  # rejected often: no model reads them again
+        if skipped:
+            st.seen.update(skipped)  # later rounds do not meet them again
+            st.rejected += [f"{found[i].title[:60]}: rejected repeatedly in earlier projects" for i in skipped]
+            found = {i: d for i, d in found.items() if i not in skipped}
+            self.board.post("note", "code", {"topic": topic.name, "skipped_known_bad_sources": skipped})
         if not found:
             return []
         docs = list(found.values())
@@ -597,13 +628,24 @@ class KnowledgeLoop:
             if v and v.approve:
                 st.approved[d.id] = d
                 new.append(d.id)
+                with contextlib.suppress(Exception):  # the list is a by-product; a full disk must not stop research
+                    self.bad.clear(self.domain, topic.name, d.id)
                 self.project.write_file(f"sources/{d.id.replace(':', '_')}.json", d.model_dump_json(indent=1),
                                         ORCHESTRATOR, license=d.license)
                 self.board.post("source", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
                                                          "topic": topic.name, "why": v.why}, license=d.license)
             else:
                 st.seen.add(d.id)
-                st.rejected.append(f"{d.title[:60]}: {v.why if v else 'no verdict'}")
+                why = v.why if v else "no verdict"
+                st.rejected.append(f"{d.title[:60]}: {why}")
+                if v:  # a missing verdict says nothing about the document, so it is not held against it
+                    self.board.post("rejected", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
+                                                                       "topic": topic.name, "why": why},
+                                            license=d.license)
+                    if d.license == "public" and self.llm.cfg.data_public:  # an ARC-only document's title and reason stay out of shared files
+                        with contextlib.suppress(Exception):  # a by-product: whatever is wrong with the file
+                            self.bad.record(self.domain, topic.name, d.id, why, title=d.title, url=d.url,
+                                            project=self.project.id)
         return new
 
     def write_page(self, topic: Topic, docs: list[Doc], earlier: list[str] = ()) -> WikiPage:

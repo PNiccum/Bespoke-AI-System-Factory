@@ -146,9 +146,13 @@ def run_build(args) -> int:
     if result.status == "delivered":
         print(f"Delivered: {result.final.deliverable}")
     else:
-        print(f"Not delivered after {result.rounds} round(s). Re-design report: {result.redesign.report}")
+        print(f"Not delivered after {result.rounds} round(s). Re-design report: "
+              f"{result.redesign.report if result.redesign else 'none (its token ceiling was reached)'}")
     print(f"Cost: {llm.ledger.summary()}")
     from factory.historian import write_run_history
+    from factory.pipeline.lessons import lessons_after_build
+    if page := lessons_after_build(llm, project, result.status, cfg.work_dir):  # free ARC call; cites board entries
+        print(f"Lessons: {page}")
     if history := write_run_history(llm, llm.run_dir):  # the run met errors: a plain-words account (free ARC role)
         print(f"History: {history}")
     return 0 if result.status == "delivered" else 1
