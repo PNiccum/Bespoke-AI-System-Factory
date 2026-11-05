@@ -53,8 +53,9 @@ def verdicts(**accept):
                                      "missing_knowledge": "" if a else "salt-corrected Tm"} for i, a in accept.items()]})
 
 
-def qa(*met):
-    return json.dumps({"tasks": [{"id": t, "met": m, "evidence": "test_tm"} for t, m in met], "issues": []})
+def qa(*met, check="python primer.py ACGT prints nothing; expected a melting temperature"):
+    return json.dumps({"tasks": [{"id": t, "met": m, "evidence": "test_tm", **({} if m else {"failing_check": check})}
+                                 for t, m in met], "issues": []})
 
 
 PRODUCE = [design(), orders("T1", "primer.py"), built(("primer.py", CODE)),
@@ -421,3 +422,26 @@ def test_failing_checks_tell_the_solver_why_each_test_fails(cfg, tmp_path):
     assert not checks.ok and "assert 12 == 99" in " ".join(checks.reasons.values())
     text = json_checks(checks)
     assert "why each fails" in text and "the test or the code is wrong" in text
+
+
+def test_qa_cannot_reject_green_tests_without_naming_a_failing_check(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", False), check=""))
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.status == "delivered" and result.repairs == 0 and result.final.approved
+    t2 = next(t for t in result.final.tasks if t.id == "T2")
+    assert t2.met and t2.overridden and "QA named no failing check" in t2.evidence
+
+
+def test_qa_naming_a_test_that_passed_is_overridden_but_a_concrete_failure_stands():
+    from factory.pipeline.final import QA, TaskResult, defer_to_code
+    from factory.pipeline.production import Checks
+    green = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True, passed=["tests/t.py::test_a"])
+    qa_ = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="tests/t.py::test_a fails"),
+                    TaskResult(id="T2", met=False, evidence="x", failing_check="run `a.py 3`: expected 9, got 6")])
+    defer_to_code(qa_, green)
+    assert qa_.tasks[0].met and not qa_.tasks[1].met
+    red = green.model_copy(update={"tests_ok": False})
+    qb = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
+    defer_to_code(qb, red)
+    assert not qb.tasks[0].met  # failing checks: QA's word is not second-guessed

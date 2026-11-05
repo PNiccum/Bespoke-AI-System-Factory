@@ -29,6 +29,8 @@ class TaskResult(BaseModel):
     id: str
     met: bool
     evidence: str
+    failing_check: str = ""  # for an unmet task: the concrete check that fails (a command or input, expected vs actual)
+    overridden: bool = False  # set by code: QA said unmet, but the tests pass and it named no failing check
 
 
 class QA(BaseModel):
@@ -59,8 +61,25 @@ file that disagrees with them is an issue to list, not an unmet task.
 ## Files
 {files}
 
-Reply with JSON only: {{"tasks": [{{"id": "T1", "met": true or false, "evidence": "<one sentence>"}}], \
+Reply with JSON only: {{"tasks": [{{"id": "T1", "met": true or false, "evidence": "<one sentence>", \
+"failing_check": "<only if met is false: the concrete failing check, else empty>"}}], \
 "issues": ["<anything the person would trip over>"]}}"""
+
+
+def defer_to_code(qa: QA, checks: Checks) -> None:
+    """When the code checks are green (files compile, tests ran and all pass), QA may reject a task only by naming a
+    concrete failing check. An unmet task with none, or one that names a test the sandbox saw pass, is set to met."""
+    if not (checks.ok and checks.tests_ran and checks.tests_ok):
+        return
+    for t in qa.tasks:
+        named = t.failing_check.strip()
+        if t.met:
+            continue
+        contradicted = any(p and p in named for p in checks.passed)
+        if not named or contradicted:
+            t.met, t.overridden = True, True
+            t.evidence = (f"[code: tests pass and QA named no failing check] " if not named else
+                          f"[code: the check QA named passes in the sandbox] ") + t.evidence
 
 
 class FinalEvaluator:
@@ -77,6 +96,7 @@ class FinalEvaluator:
             tasks=tasks, checks=checks.model_dump_json(indent=1), files=shown_files), self.agent.system, QA,
             tag="final-qa", data=data)
         wanted = {t["id"] for t in plan["tasks"]}
+        defer_to_code(qa, checks)
         met = {t.id for t in qa.tasks if t.met}
         issues = list(qa.issues)
         if not checks.ok:
