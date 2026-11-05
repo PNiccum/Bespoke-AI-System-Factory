@@ -21,6 +21,7 @@ its free default.
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -139,6 +140,7 @@ class _Hold:
     """An upper-bound estimate held on the shared credit (``rid``) and the run's cap while a paid call is in flight."""
     rid: str
     left: float
+    settled: bool = False  # the shared reservation is already gone
 
 
 class LLM:
@@ -238,6 +240,8 @@ class LLM:
             priced, real = price_call(info, self.cfg.models, raw.usage)
             self.ledger.add(priced, real, raw.usage.total)
             self._settle(hold, rc.provider, real, role, tag)
+            if hold:
+                hold.settled = True
         finally:
             self._release(hold)
         self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, prompt_sha256=key,
@@ -322,7 +326,13 @@ class LLM:
         pending_dir.mkdir(parents=True, exist_ok=True)
         batch_key = request_key({"provider": rc.provider, "keys": [keys[int(c[1:])] for c in sorted(reqs)]})
         pending = pending_dir / f"{batch_key[:24]}.json"
-        return pending, (json.loads(pending.read_text(encoding="utf-8")) if pending.exists() else {})
+        if not pending.exists():
+            return pending, {}
+        try:
+            return pending, json.loads(pending.read_text(encoding="utf-8"))
+        except ValueError as e:  # resubmitting would pay for the same batch twice, so stop and say what to do
+            raise RuntimeError(f"{pending} is unreadable ({e}). Check the provider's console for the batch it "
+                               f"recorded, then delete this file.") from e
 
     def _run_batch(self, role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s) -> list:
         provider = self.providers[rc.provider]
@@ -334,7 +344,9 @@ class LLM:
             record = {"batch_id": batch_id, "provider": rc.provider, "role": role, "n": len(reqs),
                       "submitted": datetime.now(UTC).isoformat()}
         record["hold"] = hold.rid if hold else None  # so a later resume can drop this run's hold if it dies
-        pending.write_text(json.dumps(record), encoding="utf-8")
+        tmp = pending.with_suffix(".tmp")
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        os.replace(tmp, pending)  # a crash never leaves a half-written record
         self._log(event="batch_submitted", role=role, model=rc.model, provider=rc.provider, batch_id=batch_id,
                   n=len(reqs))
         t0 = time.monotonic()
@@ -413,8 +425,11 @@ class LLM:
     def _release(self, hold: _Hold | None) -> None:
         if hold:
             try:
-                self.spend.release(hold.rid)  # no-op if settled
-            finally:  # the in-memory hold is dropped even if the shared file cannot be written
+                if not hold.settled:
+                    self.spend.release(hold.rid)
+            except Exception as e:  # must not mask the call's own result or error; the hold lapses at its TTL
+                self._log(event="spend_hold_not_released", error=f"{type(e).__name__}: {e}"[:300])
+            finally:
                 self.ledger.unhold(hold.left)
                 hold.left = 0.0
 

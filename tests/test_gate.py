@@ -271,8 +271,7 @@ def test_a_failed_release_still_drops_the_runs_in_memory_hold(cfg, tmp_path):
     llm.spend.release = broken
     llm.ledger.hold(0.5)
     from factory.llm.client import _Hold
-    with pytest.raises(OSError):
-        llm._release(_Hold("rid", 0.5))
+    llm._release(_Hold("rid", 0.5))  # logged, not raised: it must not mask the call's own result
     assert llm.ledger.held_usd == 0.0
 
 

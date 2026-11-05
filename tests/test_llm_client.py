@@ -370,3 +370,22 @@ def test_a_refused_resume_leaves_the_earlier_hold_in_place(cfg, tmp_path):
     with pytest.raises(SpendDenied):
         llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
     assert stale in llm2.spend._read_reserved()
+
+
+def test_a_corrupt_pending_batch_file_stops_rather_than_resubmitting(cfg, tmp_path):
+    cfg.providers["claude"].batch = True
+
+    class Interrupted(FakeBatchProvider):
+        def batch_done(self, batch_id):
+            raise KeyboardInterrupt
+
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": Interrupted({})}, approver=approve_all)
+    with pytest.raises(KeyboardInterrupt):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    (pending,) = (cfg.work_dir / "batches").glob("*.json")
+    pending.write_text('{"batch_id": "ba')  # a crash mid-write
+    fresh = FakeBatchProvider({"i0": ok("x")})
+    llm2 = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": fresh}, approver=approve_all)
+    with pytest.raises(RuntimeError, match="unreadable"):
+        llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    assert fresh.submitted == []

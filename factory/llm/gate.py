@@ -90,9 +90,9 @@ def _file_lock(path: Path):
     with open(path, "a+b") as f:
         if os.name == "nt":
             import msvcrt
-            f.seek(0)
             for attempt in range(30):  # each try blocks ~10 s; a persistent error is raised, not spun on
                 try:
+                    f.seek(0)  # msvcrt locks from the current position: lock and unlock the same byte
                     msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
                     break
                 except OSError:
@@ -112,7 +112,7 @@ def _file_lock(path: Path):
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-RESERVATION_TTL_S = 30 * 3600  # default; a batch passes its own wait limit. A crashed run's hold expires after this
+RESERVATION_TTL_S = 2 * 3600  # one call's default; a batch passes its own wait limit. A crashed run's hold expires after this
 
 
 class SpendLedger:
