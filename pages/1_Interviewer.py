@@ -104,9 +104,11 @@ if iv.board.latest("approval"):
             with st.spinner("Finding what the plan needs, searching OpenAlex, Europe PMC and NCBI, writing the "
                             "wiki..."):
                 registry = Registry.load(cfg)
-                KnowledgeLoop(iv.llm, registry, iv.project, Wiki(cfg.work_dir / "wiki"),
+                wiki = Wiki(cfg.work_dir / "wiki")
+                KnowledgeLoop(iv.llm, registry, iv.project, wiki,
                               default_searchers(cfg.work_dir / "research-cache"),
-                              scout=default_scout(iv.llm, registry, cfg.work_dir / "research-cache")).run()
+                              scout=default_scout(iv.llm, registry, cfg.work_dir / "research-cache", wiki,
+                                                  iv.project.root.name)).run()
             st.rerun()
         if knowledge is not None:
             st.subheader("Knowledge loop: " + ("approved" if knowledge.data["ok"] else "incomplete"))

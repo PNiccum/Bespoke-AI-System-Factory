@@ -96,7 +96,7 @@ def fake_pipeline(monkeypatch, *, problems=(), knowledge_ok=True, status="delive
     monkeypatch.setattr(planning_mod, "PlanningLoop", Planning)
     monkeypatch.setattr(knowledge_mod, "KnowledgeLoop", Knowledge)
     monkeypatch.setattr(knowledge_mod, "default_searchers", lambda cache: {})
-    monkeypatch.setattr(knowledge_mod, "default_scout", lambda llm, registry, cache: None)
+    monkeypatch.setattr(knowledge_mod, "default_scout", lambda *a, **k: None)
     monkeypatch.setattr(run_mod, "build", build)
 
 
