@@ -283,6 +283,16 @@ python -m factory.demo record runs/<a finished run> demos/parse_date.json   # it
 python -m factory.demo replay demos/parse_date.json                         # offline: no network, no model
 ```
 
+Tests can also replay a run **by stage** instead of by exact request (`factory/replay.py`), so a gate or loop bug
+found in a live run can be reproduced offline even after the prompts change. On the machine that made the run
+(the replies live in its `work/cache.sqlite`):
+
+    python -m factory.replay record runs/<run> tests/fixtures/replays/<name>.json --public-data
+
+`--public-data` is required (recordings are committed); keys are refused, and `--deny-list FILE` refuses any reply
+containing a line of the file (use it for lab lists; they must never be recorded). `replay_providers(cfg, recording)`
+returns providers to pass to `LLM(...)`; see `tests/test_replay.py`.
+
 A replay runs the real agents, tests, review and bundle export again; only the model replies come from the
 recording, and a reply it lacks fails rather than being fetched. The web app lists `demos/*.json` under
 **Recorded runs** and says, while one plays, when it was recorded and what the original run cost. Test output is
@@ -338,6 +348,7 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` 
 | `factory/repairs.py` | The repair library: final-QA repairs that stuck (issue + diff), shown to the solver as the closest past repairs |
 | `factory/tally.py` | Per-stage model tally from `llm_calls.jsonl`: calls, finish rate, fallback and cut-off hand-offs (`python -m factory.tally`) |
 | `factory/demo.py`, `demos/` | Recorded runs: save a run's model replies, replay it offline |
+| `factory/replay.py` | Stage-tagged replay: record a run's replies by stage, replay them offline in tests (survives prompt changes) |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |
