@@ -106,6 +106,13 @@ plan (acceptance checks present, ids unique, no task depending on a later one) a
 creates `workspace/<name>/projects/<id>/` with `task.txt`, `plan_a.json` and `blackboard.jsonl`, the shared log
 every later stage of the pipeline reads and writes (`factory/pipeline/`).
 
+Before the first question, plain code looks for an earlier delivered project with a similar request
+(`factory/pipeline/precedent.py`, no model call): the request becomes a fingerprint (its content keywords and a hash
+of them), every project whose final QA approved is scored against it, and the best few (a `precedent` entry on the
+blackboard, even when empty) are shown to the Interviewer, the plan critic and the head orchestrator as a starting
+template: what was asked, how it was designed and laid out, and where its deliverable is. They may follow it, adapt it
+or ignore it. `python -m factory similar "<request>"` lists the matches.
+
 Then the planning loop puts three model families on Plan A:
 
 ```bash
@@ -130,6 +137,11 @@ release or push in the last three years, and whether the sandbox can import it (
 `ASPIRE_SANDBOX_PACKAGES`; everything else is a reference to follow, not import). The result, with URLs and fetch
 dates, is `reuse.json`; the evaluator sees it and the head orchestrator records what it adopts (`ASPIRE_SCOUT=0` turns
 it off). The research connectors also include `pypi` (a package's README) and `github` (repository descriptions).
+
+Before the evaluator runs, plain code (`self_contained` in `factory/pipeline/knowledge.py`) looks for a signal in the task
+and plan that research could help: an API, a named data source, a file format, or a field with its own methods. With none,
+the knowledge loop is skipped (`knowledge.json` has `skipped` set and no pages), saving the evaluator and per-topic calls;
+the scout still runs first. One hit keeps the full loop. `ASPIRE_SKIP_RESEARCH=0` turns the skip off; `--again` always researches.
 
 The knowledge evaluator (gpt-oss) lists the topics the work depends on. The librarian checks the shared wiki
 (`workspace/<name>/wiki/`) in plain code: a topic is covered by a verified page with at least two sources. For each
@@ -307,6 +319,8 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` 
 | `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
 | `factory/extend.py` | Self-extension: several candidates, scope gate, held-out benchmark, review panel, failure replay, then adopt (with rollback) or stop for a person |
 | `factory/failures.py` | The failure archive: snapshots of failed projects, replays, regression cases, fixes that worked |
+| `factory/repairs.py` | The repair library: final-QA repairs that stuck (issue + diff), shown to the solver as the closest past repairs |
+| `factory/tally.py` | Per-stage model tally from `llm_calls.jsonl`: calls, finish rate, fallback and cut-off hand-offs (`python -m factory.tally`) |
 | `factory/demo.py`, `demos/` | Recorded runs: save a run's model replies, replay it offline |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |

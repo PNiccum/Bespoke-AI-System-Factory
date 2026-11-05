@@ -29,6 +29,8 @@ are covered, by which pages, and what is still missing.
 from __future__ import annotations
 
 import json
+import os
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -123,6 +125,31 @@ class KnowledgeResult(BaseModel):
     # no verified page. The build goes ahead with the gap recorded (the builders are told, the final report shows
     # it) and the critic loop can research it again if the work turns out to need it.
     gaps: dict[str, str] = {}
+    skipped: str = ""  # why research did not run at all (a self-contained plan, factory/pipeline/knowledge.py)
+
+
+# Words that point outside the project: a network service, a named data source, a file format only a specification
+# settles, or a field with its own methods. The check is plain code, so it errs toward research: one hit keeps the loop.
+OUTSIDE_SIGNALS = re.compile(r"""
+    https?://|www\.|\bapis?\b|\bendpoints?\b|\brest(?:ful)?\b|\bgraphql\b|\bhttp\b|\bwebhooks?\b|\bsdk\b|
+    \bdatabases?\b|\bsql\b|\bdownload|\bscrap(?:e|ing)|\bcrawl|\bfetch|\bweb\s?(?:site|page|service)s?\b|
+    \bonline\b|\bpubmed|\bncbi\b|\buniprot|\bensembl|\bopenalex|\bchembl|\bgenbank|\brefseq|\bwikipedia|
+    \bgithub\b|\bpypi\b|\bnpm\b|\bcrossref|\bdoi\b|\bpubchem|\bkegg\b|\bpdb\b|\bgo\s+(?:term|ontology)|
+    \bfasta|\bfastq|\bvcf\b|\bbam\b|\bsam\b|\bgff|\bbed\s+file|\bparquet|\bxlsx|\bpdf\b|\bhdf5|\bnetcdf|
+    \bgenom|\bgene\b|\bgenes\b|\bprotein|\bpeptide|\bproteom|\bprimer|\bpcr\b|\bsequenc|\brna\b|\bdna\b|
+    \bmass\s+spec|\bclinical|\bpatient|\bdrug|\bmolecul|\bchemi|\bphysic|\bastronom|\bgeospatial|\bgis\b|
+    \btax(?:es|ation)?\b|\bregulat|\bcompliance|\bhipaa|\bgdpr|\bfinanc|\bstock|\bforex|\bcurrency|
+    \bexchange\s+rate|\bweather|\bmachine\s+learning|\bneural|\bembedding|\btransformer|\bllm\b|
+    \bcryptograph|\boauth|\bencrypt|\bprotocol\b|\bstandard\s+(?:iso|rfc)|\brfc\s?\d|\biso\s?\d
+""", re.I | re.X)
+
+
+def self_contained(task: str, plan: str) -> str:
+    """Plain code, no model call: "" when the task or plan names an outside source or a domain method (research may
+    be needed), else why research can be skipped. The 2026-11-05 project runs spent 50-70 calls a project asking an
+    evaluator for topics on tools such as word counters and log parsers, where every topic came back "project"."""
+    hit = OUTSIDE_SIGNALS.search(f"{task}\n{plan}")
+    return "" if hit else "no external API, data source, file format or domain method in the task or plan"
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
@@ -299,6 +326,8 @@ class KnowledgeLoop:
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
         plan = (self.project.root / "plan.json").read_text(encoding="utf-8")
         reuse = self.find_prior_art(task, plan)
+        if not again and (why := self_contained(task, plan)) and os.environ.get("ASPIRE_SKIP_RESEARCH", "1") != "0":
+            return self._skipped(why)
         covered: dict[str, str] = {}
         missing: list[str] = []
         asked: list[str] = []  # every topic name asked for so far, so a reworded topic keeps its first name
@@ -398,6 +427,15 @@ class KnowledgeLoop:
         result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
                                  dropped=dropped, decided=decided, gaps=gaps)
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
+        self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
+        return result
+
+    def _skipped(self, why: str) -> KnowledgeResult:
+        """Research skipped by the plain-code check: the build goes ahead with no pages. The prior-art scout has
+        already run, because stdlib modules it finds are what a self-contained build most needs."""
+        self.board.post("note", "code", {"text": f"research skipped: {why}"})
+        result = KnowledgeResult(ok=True, covered={}, missing=[], rounds=0, skipped=why)
+        k = self.board.post("knowledge", "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
 
@@ -596,8 +634,14 @@ class KnowledgeLoop:
                 f"after the quote check the page cites {len(sources)} documents; it needs {MIN_SOURCES} (or one "
                 "reference manual)",
                 *[f"dropped {x}" for x in lost]]
-            if not issues:
-                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(), quotes=cite.quotes(paragraphs),
+            if not issues and not cite.needs_model_check(paragraphs):
+                # every kept sentence restates its own quote, which code already matched word for word: there is
+                # nothing for a model to weigh, so the page is verified by code (recorded as such on the board)
+                self.board.post("wiki_check", "code", {"topic": topic.name, "accurate": True, "issues": [],
+                                                       "by": "restatement check"}, license=license)
+            elif not issues:
+                check = self._call(VERIFIER, VERIFY_PROMPT.format(page=page.markdown(),
+                                                                  quotes=cite.quotes(paragraphs, only_doubtful=True),
                                                                   docs=show_docs([d for d in docs
                                                                                   if d.id in sources])),
                                    Check, f"verify-{topic.name}-{attempt}", docs)

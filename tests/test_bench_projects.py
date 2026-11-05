@@ -84,7 +84,7 @@ def fake_pipeline(monkeypatch, *, problems=(), knowledge_ok=True, status="delive
         def run(self):
             return SimpleNamespace(ok=knowledge_ok, missing=[] if knowledge_ok else ["primer3 settings"])
 
-    def build(llm, registry, project, wiki, searchers, on_stage, redesign):
+    def build(llm, registry, project, wiki, searchers, on_stage, redesign, resume=False):
         assert redesign is False  # a benchmark run never changes ASPIRE
         on_stage("production, round 1")
         if files_from:
@@ -160,3 +160,23 @@ def test_results_are_saved_before_a_console_that_cannot_print_them(cfg, monkeypa
     assert "wordstats" in (run / "summary.md").read_text(encoding="utf-8")
     console.flush()
     assert b"non?breaking" in console.buffer.getvalue()
+
+
+def test_resume_keeps_the_finished_stages_and_goes_on_from_the_first_unfinished_one(cfg, monkeypatch):
+    from factory.bench_projects import latest_project
+    fake_pipeline(monkeypatch, files_from=PROJECTS / "wordstats" / "reference")
+    monkeypatch.setattr(planning_mod.PlanningLoop, "run", lambda self: pytest.fail("planning ran again"))
+    monkeypatch.setattr(knowledge_mod.KnowledgeLoop, "run", lambda self: pytest.fail("research ran again"))
+    earlier = Project.create(cfg.work_dir / "projects", "bench wordstats")  # what a run that died at build left
+    seed(earlier, TASKS[0])
+    earlier.board.post("decision", "code", {"winner": "A", "votes": {}, "problems": []})
+    earlier.board.post("knowledge", "code", {"ok": True, "missing": []})
+    assert latest_project(cfg, TASKS[0]) == earlier.root
+    providers = {"arc": Scripted(), "openai": Scripted(), "claude": Scripted()}
+    o = run_project(cfg, TASKS[0], providers=providers, registry_dir=ROOT / "registry", resume=earlier.root)
+    assert o.resumed == ["planning", "research"] and o.project_dir == str(earlier.root)
+    assert o.solved and o.reached == "qa"
+    assert "(resumed after planning, research)" in summarize([o])
+    with pytest.raises(ValueError, match="no approved plan"):
+        run_project(cfg, TASKS[0], providers=providers, registry_dir=ROOT / "registry",
+                    resume=Project.create(cfg.work_dir / "projects", "bench wordstats").root)

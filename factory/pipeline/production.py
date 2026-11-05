@@ -30,6 +30,7 @@ from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
+from factory.pipeline.precedent import offer
 from factory.pipeline.scout import ReuseResult
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
@@ -194,6 +195,27 @@ def parse_files(completion) -> dict:
             "notes": notes.group(1).strip() if notes else ""}
 
 
+class FileSalvage:
+    """Keeps the FILE blocks that finished before a builder reply hit max_tokens. In the Nov 2-4 live runs 12 cut-off
+    build replies cost 180 minutes, and the retry re-wrote every file. The finished blocks are plain text that code can
+    parse, so the retry is asked only for the files not yet received, and ``merge`` joins the two replies."""
+
+    def __init__(self):
+        self.files: dict[str, str] = {}
+
+    def keep(self, partial: str) -> str | None:
+        for path, body in FILE_BLOCK.findall(partial):
+            self.files[path.strip().strip("`")] = body
+        if not self.files:
+            return None
+        return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
+
+    def merge(self, data: dict) -> dict:
+        new = {f["path"]: f["content"] for f in data.get("files", [])}
+        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
+        return {**data, "files": files}
+
+
 class Production:
     def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki):
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
@@ -243,6 +265,8 @@ class Production:
         plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text(encoding="utf-8"))
         pages = self.pages()
         wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
+        if earlier := offer(self.project, task):  # a delivered project with a similar request, as a starting template
+            wiki += "\n\n" + earlier
         gaps = (self.board.latest("knowledge").data.get("gaps") or {})
         if gaps:
             wiki += ("\n\n## Known gaps (research found no verified source)\n"
@@ -295,7 +319,8 @@ class Production:
             built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                             order=order.model_dump_json(indent=1), wiki=wiki,
                                                             reads="\n\n".join(reads) or "(none)"), Built,
-                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks")
+                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
+                               salvage=FileSalvage())
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": ""}, refs=[ref])

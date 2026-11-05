@@ -22,6 +22,7 @@ from pydantic import BaseModel
 
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Entry, Project
+from factory.pipeline.precedent import offer
 from factory.registry import Registry
 
 MAX_QUESTIONS = 6
@@ -124,6 +125,7 @@ class Interview:
             raise RuntimeError("this project already has a conversation")
         from factory.pipeline.domain import classify
         self.board.post("request", "person", {"text": request, "domain": classify(request)})
+        offer(self.project, request)  # plain code looks for earlier delivered projects; the Interviewer sees them
         return self._next()
 
     def reply(self, text: str) -> Entry:
@@ -202,7 +204,9 @@ class Interview:
 
     def _next(self) -> Entry:
         left = MAX_QUESTIONS - self.questions_asked
-        prompt = PROMPT.format(transcript=self.transcript(), move=self._move())
+        earlier = offer(self.project, self.request)
+        prompt = PROMPT.format(transcript=self.transcript() + (f"\n\n{earlier}" if earlier else ""),
+                               move=self._move())
         turn = self._ask_model(prompt, "interview")
         if turn.action == "ask" and (left <= 0 or not turn.questions or self._last_turn_is_plan()):
             turn = self._ask_model(f"{prompt}\n\nYou must propose a plan now; reply with action \"propose\".",
