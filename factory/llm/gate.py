@@ -166,7 +166,7 @@ class SpendLedger:
 
     def _read_reserved(self) -> dict[str, dict]:
         try:
-            held = json.loads(self.reserved_path.read_text(encoding="utf-8"))
+            held = json.loads(_retry_on_permission_error(lambda: self.reserved_path.read_text(encoding="utf-8")))
             now = time.time()
             for v in held.values():
                 v["provider"], v["usd"], v["at"]  # a malformed entry raises KeyError here, below, as unreadable

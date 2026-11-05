@@ -318,9 +318,14 @@ class LLM:
         try:
             return self._run_batch(role, rc, info, items, reqs, keys, out, hold, poll_seconds, max_wait_s)
         except BaseException:
-            if hold and self._pending_batch(rc, keys, reqs)[1]:
-                hold.settled = True  # the submitted batch keeps running and billing: its hold stays, tied to the
-            raise  # pending record, until it lapses or a resume swaps it
+            if hold:
+                try:
+                    submitted = bool(self._pending_batch(rc, keys, reqs)[1])
+                except Exception:
+                    submitted = True  # cannot tell: fail closed and keep the hold
+                if submitted:
+                    hold.settled = True  # the submitted batch keeps running and billing: its hold stays, tied to
+            raise  # the pending record, until it lapses or a resume swaps it. The original error propagates.
         finally:
             self._release(hold)
 
