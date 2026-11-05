@@ -226,3 +226,11 @@ def test_a_check_that_ran_no_tests_corrects_only_syntax_errors(tmp_path):
     assert {e.message[:6]: e.status for e in log.events()} == {"syntax": "corrected", "1 fail": "open"}
     Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True))
     assert not log.open_events()
+
+
+def test_parallel_records_get_distinct_ids(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    log = EventLog(tmp_path / "r" / "events.jsonl", "r")
+    with ThreadPoolExecutor(8) as pool:
+        ids = list(pool.map(lambda i: log.record("x", f"problem {i}"), range(40)))
+    assert len(set(ids)) == 40 and len(log.events()) == 40

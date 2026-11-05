@@ -77,10 +77,10 @@ class EventLog:
         fp = fingerprint(source, stage, str(message))
         try:
             with self._lock:  # the id counts lines, so the count and the write happen under one hold of the lock
-                if once and any(e.fingerprint == fp for e in self.events() if e.status == "open"):
+                rows = list(self._rows())  # one read serves both the id and the once= check
+                if once and any(e.fingerprint == fp and e.status == "open" for e in self._events_of(rows)):
                     return ""
-                n = sum(1 for _ in self._rows()) + 1  # ids count lines, so they stay unique with resolutions in
-                ev = Event(id=f"E{n:04d}", run=self.run, domain=self.domain, source=source, stage=stage,
+                ev = Event(id=f"E{len(rows) + 1:04d}", run=self.run, domain=self.domain, source=source, stage=stage,
                            severity=severity, message=" ".join(str(message).split())[:600], fingerprint=fp,
                            refs=list(refs))
                 self._write({"type": "event", **ev.model_dump(exclude={"status", "how", "evidence", "corrected_at"})})
@@ -92,10 +92,11 @@ class EventLog:
         """Mark events corrected. Called by code that saw the fix happen, never by a model. Returns how many were
         open and are now corrected."""
         want = {ids} if isinstance(ids, str) else set(ids)
-        todo = [e for e in self.events() if e.id in want and e.status == "open"]
-        for e in todo:
-            self._append({"type": "resolution", "event": e.id, "how": how, "evidence": list(evidence),
-                          "at": datetime.now(UTC).isoformat()})
+        with self._lock:  # read and write under one hold, so a parallel record or resolve cannot slip between
+            todo = [e for e in self.events() if e.id in want and e.status == "open"]
+            for e in todo:
+                self._write({"type": "resolution", "event": e.id, "how": how, "evidence": list(evidence),
+                             "at": datetime.now(UTC).isoformat()})
         return len(todo)
 
     def resolve_open(self, how: str, evidence: list[str] | tuple[str, ...] = (), *, source: str | None = None,
@@ -116,9 +117,10 @@ class EventLog:
             except ValueError:
                 continue  # a line cut short by a run that was stopped mid-write
 
-    def events(self) -> list[Event]:
+    @staticmethod
+    def _events_of(rows: list[dict]) -> list[Event]:
         out: dict[str, Event] = {}
-        for row in self._rows():
+        for row in rows:
             if row.get("type") == "event":
                 out[row["id"]] = Event(**{k: v for k, v in row.items() if k != "type"})
             elif row.get("type") == "resolution" and row.get("event") in out:
@@ -126,6 +128,9 @@ class EventLog:
                 e.status, e.how, e.evidence, e.corrected_at = "corrected", row.get("how", ""), row.get("evidence", []), \
                     row.get("at", "")
         return list(out.values())
+
+    def events(self) -> list[Event]:
+        return self._events_of(list(self._rows()))
 
     def open_events(self) -> list[Event]:
         return [e for e in self.events() if e.status == "open"]
