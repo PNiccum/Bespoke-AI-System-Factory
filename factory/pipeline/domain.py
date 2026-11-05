@@ -14,25 +14,30 @@ from factory.pipeline.blackboard import Project
 
 DOMAINS = ("bio", "data", "text", "code", "other")
 
-# Longest, most specific hints first within each domain; a word may belong to one domain only.
+# A hint matches a whole word (``gene`` never matches "general"); a hint ending in ``*`` matches a word that starts
+# with it (``proteom*`` matches proteomics and proteome). A word belongs to one domain only.
 HINTS: dict[str, tuple[str, ...]] = {
-    "bio": ("protein", "proteom", "gene", "genom", "primer", "pcr", "rna", "dna", "sequence", "uniprot", "ncbi",
-            "pubmed", "europe pmc", "pmc", "cell line", "mcf7", "assay", "enzyme", "antibod", "clinical",
-            "drug", "chembl", "open targets", "pathway", "ontology", "proteins", "biolog", "peptide", "serum"),
-    "data": ("csv", "dataframe", "spreadsheet", "table", "column", "dataset", "statistic", "profile", "aggregate",
-             "pivot", "dedup", "log file", "logs", "metric", "anomal", "time series", "json record", "parquet"),
-    "text": ("summar", "article", "document", "report", "citation", "literature", "openalex", "abstract", "essay",
-             "transcript", "translate", "classif", "sentiment", "extract claims", "claims", "wiki"),
-    "code": ("bug", "patch", "pull request", "diff", "refactor", "unit test", "pytest", "repository", "repo",
-             "function", "module", "library", "api client", "cli", "fix the", "failing test"),
+    "bio": ("protein*", "proteom*", "gene", "genes", "genom*", "primer*", "pcr", "rna", "mrna", "dna", "sequence*",
+            "uniprot", "ncbi", "pubmed", "pmc", "cell line*", "mcf7", "assay*", "enzyme*", "antibod*", "clinical",
+            "drug*", "chembl", "open targets", "pathway*", "ontology", "biolog*", "peptide*", "serum", "refseq"),
+    "data": ("csv", "dataframe*", "spreadsheet*", "table", "tables", "column", "columns", "dataset*", "statistic*",
+             "profile", "aggregate*", "pivot", "dedup*", "log file*", "logs", "metric*", "anomal*", "time series",
+             "parquet", "null*"),
+    "text": ("summar*", "article*", "document*", "report*", "citation*", "literature", "openalex", "abstract*",
+             "essay*", "transcript*", "translat*", "classif*", "sentiment", "claims", "wiki"),
+    "code": ("bug", "bugs", "patch", "pull request*", "diff", "refactor*", "unit test*", "pytest", "repositor*",
+             "repo", "function*", "module*", "library", "api client", "cli", "failing test*", "stack trace",
+             "exception*"),
 }
+_PATTERNS = {d: re.compile("|".join(rf"\b{re.escape(h[:-1])}\w*" if h.endswith("*") else rf"\b{re.escape(h)}\b"
+                                    for h in hints)) for d, hints in HINTS.items()}
 
 
 def classify(text: str) -> str:
     """The domain whose hints the text mentions most, by count; ``other`` when none matches. Bio wins a tie with
     data (a protein table is a bio task), code loses a tie (every task mentions a function somewhere)."""
     low = re.sub(r"\s+", " ", text.lower())
-    scores = {d: sum(low.count(h) for h in hints) for d, hints in HINTS.items()}
+    scores = {d: len(p.findall(low)) for d, p in _PATTERNS.items()}
     best = max(scores.values())
     if best == 0:
         return "other"

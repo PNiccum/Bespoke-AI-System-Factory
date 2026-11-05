@@ -45,7 +45,7 @@ from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
 from factory.pipeline.domain import project_domain
 from factory.pipeline.scout import Scout
-from factory.pipeline.sources import CONNECTORS, Doc, Searcher
+from factory.pipeline.sources import CONNECTORS, Doc, Searcher, skipped_pages
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
 from factory.pipeline.wiki import words as wiki_words
 from factory.registry import Registry
@@ -577,7 +577,7 @@ class KnowledgeLoop:
                 self.events.record("sources", f"{q.connector} search failed: {type(e).__name__}: {str(e)[:200]}",
                                    stage="search", severity="warning", refs=[f"topic:{topic.name}"])
                 continue
-            for why in getattr(getattr(search, "__self__", None), "skipped", []):  # pages a connector passed over
+            for why in skipped_pages(search):  # pages the connector passed over (a 406, a captcha, a stub)
                 self.events.record("sources", f"{q.connector} page skipped: {why}", stage="search", severity="warning",
                                    refs=[f"topic:{topic.name}"])
             st.queries.add(key)

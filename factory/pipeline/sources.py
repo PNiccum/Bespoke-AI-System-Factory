@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
@@ -277,12 +278,22 @@ JSON_HELP = ("https://rest.uniprot.org/help/", "https://www.ebi.ac.uk/europepmc/
 class ReferenceDocs(CachedAPI):
     """Manuals and API references from DOCS_CATALOG, read from their public pages."""
 
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self._skips = threading.local()  # topics are researched in parallel threads, each calling search()
+
+    @property
+    def skipped(self) -> list[str]:
+        """The pages the last ``search`` on this thread passed over, and why (a 406, a captcha, a stub). Per thread,
+        so concurrent searches for different topics never see each other's skips. See ``skipped_pages``."""
+        return getattr(self._skips, "items", [])
+
     def search(self, query: str, n: int = 3) -> list[Doc]:
         want = words(query)
         scored = sorted(((len(want & words(f"{title} {about}")), key, title, url)
                          for key, title, url, about in DOCS_CATALOG), reverse=True)
         docs = []
-        self.skipped = []  # pages passed over in this search and why, for the caller's event log
+        self._skips.items = []
         for score, key, title, url in scored[:n]:
             if score == 0:
                 break
@@ -290,10 +301,10 @@ class ReferenceDocs(CachedAPI):
             try:  # one page that errors skips itself: on 2026-11-04 a 406 from one entry emptied 25 of 32 searches
                 text = readable(self.get_text(url, accept=accept))
             except httpx.HTTPError as e:
-                self.skipped.append(f"{key}: {type(e).__name__}: {str(e)[:120]}")
+                self._skips.items.append(f"{key}: {type(e).__name__}: {str(e)[:120]}")
                 continue
             if looks_blocked(text):
-                self.skipped.append(f"{key}: blocked or stub page ({len(text)} chars)")
+                self._skips.items.append(f"{key}: blocked or stub page ({len(text)} chars)")
             else:
                 docs.append(Doc(id=f"docs:{key}", connector="docs", title=title, url=url,
                                 text=best_window(text, query, MAX_TEXT), citation=f"{title}. {url}"))
@@ -348,6 +359,13 @@ class GitHubRepos(CachedAPI):
 
 
 Searcher = Callable[[str, int], list[Doc]]
+
+
+def skipped_pages(searcher: Searcher) -> list[str]:
+    """What a searcher passed over in its last call on this thread: a connector's bound ``search`` method exposes
+    ``skipped`` on its instance; a plain function (a test engine) has none. The Searcher signature stays a callable
+    returning documents, so every engine keeps working unchanged."""
+    return list(getattr(getattr(searcher, "__self__", None), "skipped", []))
 CONNECTORS = ("openalex", "europepmc", "ncbi_gene", "docs", "pypi", "github")
 
 

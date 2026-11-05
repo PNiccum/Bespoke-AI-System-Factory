@@ -4,7 +4,7 @@ cross-run tallies. Models are scripted."""
 import httpx
 
 import factory.pipeline.knowledge as knowledge_module
-from factory.events import by_domain
+from factory.events import EventLog, by_domain
 from factory.pipeline.blackboard import Project
 from factory.pipeline.domain import classify, project_domain
 from factory.pipeline.sources import ReferenceDocs
@@ -62,12 +62,48 @@ def test_a_docs_connector_reports_the_pages_it_skipped(tmp_path):
     assert found == [] and docs.skipped and any("HTTPStatusError" in s or "blocked" in s for s in docs.skipped)
 
 
+def test_a_skipped_catalog_page_is_an_event_with_the_topic_ref(cfg, tmp_path):
+    def handler(request):
+        return httpx.Response(406)
+    from factory.net.http import CallBudget
+    docs = ReferenceDocs(tmp_path / "docs", CallBudget("docs", 100),
+                         http=httpx.Client(transport=httpx.MockTransport(handler)))
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics("UniProt REST API"), queries("docs"), queries("docs"),
+                            queries("docs"), topics(enough=True), engines={"docs": docs.search})
+    kl.run()
+    skips = [e for e in events_of(kl) if "page skipped" in e.message]
+    assert skips and all("topic:UniProt REST API" in e.refs and "HTTPStatusError" in e.message for e in skips)
+
+
+def test_skipped_pages_are_per_thread(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from factory.net.http import CallBudget
+    from factory.pipeline.sources import skipped_pages
+
+    def handler(request):
+        return httpx.Response(406)
+    docs = ReferenceDocs(tmp_path, CallBudget("docs", 100), http=httpx.Client(transport=httpx.MockTransport(handler)))
+
+    def one(q):
+        docs.search(q, 2)
+        return skipped_pages(docs.search)
+    with ThreadPoolExecutor(2) as pool:
+        a, b = pool.map(one, ["uniprot rest api json", "europe pmc rest search"])
+    assert a and b and a != b  # each thread kept its own list
+    assert any("uniprot" in x for x in a) and not any("uniprot" in x for x in b)
+    assert skipped_pages(lambda q, n: []) == []  # a plain function reports nothing
+
+
 def test_classify_is_deterministic_and_bio_wins_a_tie():
     assert classify("Make me a primer design tool for NCBI genes") == "bio"
     assert classify("Profile a CSV: columns, nulls, summary statistics") == "data"
     assert classify("Fix the failing test in this repository") == "code"
     assert classify("Hello") == "other"
     assert classify("protein csv") == "bio"  # one hint each: bio wins the tie
+    assert classify("a general internal client with a different report") == "text"  # gene/rna/cli/diff: no match
+    assert classify("a general internal client, suitable and different") == "other"
+    assert classify("proteomics of the proteome") == "bio"  # stem hints match word starts
 
 
 def test_a_project_without_a_tag_is_classified_from_its_task_text(tmp_path):
@@ -79,12 +115,27 @@ def test_a_project_without_a_tag_is_classified_from_its_task_text(tmp_path):
     assert project_domain(p2) == "code"
 
 
-def test_by_domain_and_stage_tallies(cfg, tmp_path):
+def test_by_domain_groups_events_and_names_the_untagged(tmp_path):
+    rows = []
+    for run, domain, msgs in (("r1", "bio", ["timeout", "timeout"]), ("r2", "bio", ["timeout"]), ("r3", "", ["boom"])):
+        log = EventLog(tmp_path / run / "events.jsonl", run)
+        log.domain = domain
+        ids = [log.record("llm", m, stage="s") for m in msgs]
+        if run == "r1":
+            log.resolve(ids[0], "retry 1 succeeded")
+        rows += log.events()
+    out = by_domain(rows)
+    assert [r["domain"] for r in out] == ["(untagged)", "bio"]
+    bio = out[1]
+    assert (bio["runs"], bio["events"], bio["corrected"], bio["open"]) == (2, 3, 1, 2)
+    assert bio["most frequent"] == "s: timeout (3x)"
+    assert out[0]["most frequent"] == "s: boom (1x)"
+
+
+def test_stage_tallies_count_from_the_blackboards(cfg, tmp_path):
     kl, _, project, _ = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2), draft(1, 2),
                                   check(True), topics(enough=True))
     assert kl.run().ok
-    rows = by_domain(events_of(kl)) if events_of(kl) else []
-    assert rows == [] or rows[0]["domain"] == "bio"
     tallies = {(r["stage"], r["measure"]): r["value"] for r in inspect.stage_tallies([project])}
     assert tallies[("wiki", "pages verified per check")] == "1/1 (100%)"
     assert tallies[("interview", "plans approved per plan proposed")].startswith("1/")
