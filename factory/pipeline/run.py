@@ -1,7 +1,8 @@
 """The pipeline after the knowledge loop: production, the critic loop, final QA, and re-design when all else fails.
 
     production -> critic loop -> final evaluator -> deliverable
-                     |                  | not approved: back to the head orchestrator with the issues, once
+                     |                  | not approved: the solver repairs QA's findings (2 tries a round), QA looks again;
+     |                  | still not approved: back to the head orchestrator with the issues, once
                      | declined after research, or QA fails twice
                      v
                   re-design (report to the person)
@@ -23,6 +24,7 @@ from factory.pipeline.sources import Searcher
 from factory.pipeline.wiki import Wiki
 from factory.registry import Registry
 
+REPAIRS = 2  # repair attempts on final QA's findings, before a whole rebuild
 BUILD_ROUNDS = 2  # the first build, plus one rebuild with the final evaluator's issues
 
 
@@ -31,6 +33,7 @@ class BuildResult(BaseModel):
     final: FinalResult | None = None
     redesign: RedesignResult | None = None
     rounds: int
+    repairs: int = 0  # repairs made on final QA's findings (a delivered run with repairs was first rejected)
 
 
 def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher],
@@ -46,7 +49,7 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
     knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
     final = FinalEvaluator(llm, registry, project, production)
-    feedback, result, stage = "", None, ""
+    feedback, result, stage, repairs = "", None, "", 0
     production.start_clean()  # a new build never inherits an earlier build's files
     for rnd in range(1, BUILD_ROUNDS + 1):
         try:
@@ -59,6 +62,14 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
             # acceptance tests but stopped after critic round 3 without QA)
             on_stage(stage := "final QA")
             result = final.run(critic.shown_files())
+            # QA rejects only after it has tried to repair: its findings go to the solver, then QA looks again
+            while not result.approved and repairs < REPAIRS * rnd:
+                on_stage(stage := "final QA repair")
+                if not critic.repair(result, rnd):
+                    break
+                repairs += 1
+                on_stage(stage := "final QA")
+                result = final.run(critic.shown_files())
             if reviewed.redesign and not result.approved:
                 break
         except (SpendDenied, BudgetExceeded):
@@ -67,10 +78,10 @@ def build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers:
             project.board.post("note", "code", {"stage": stage, "error": str(e)[:2000]})
             break
         if result.approved:
-            return BuildResult(status="delivered", final=result, rounds=rnd)
+            return BuildResult(status="delivered", final=result, rounds=rnd, repairs=repairs)
         feedback = "\n".join(f"- {i}" for i in result.issues)
     if not redesign:
-        return BuildResult(status="stopped", final=result, rounds=rnd)
+        return BuildResult(status="stopped", final=result, rounds=rnd, repairs=repairs)
     on_stage("re-design")
-    return BuildResult(status="redesign", final=result, rounds=rnd,
+    return BuildResult(status="redesign", final=result, rounds=rnd, repairs=repairs,
                        redesign=Redesign(llm, registry, project, research=knowledge.research).run())

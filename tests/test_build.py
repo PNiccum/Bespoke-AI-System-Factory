@@ -384,3 +384,22 @@ def test_final_qa_judges_the_delivered_result_not_the_process():
     from factory.pipeline.final import QA_PROMPT
     assert "Judge the delivered result, not how it was made" in QA_PROMPT
     assert "an issue to list, not an unmet task" in QA_PROMPT
+
+
+def test_final_qa_findings_are_repaired_before_anything_is_rejected(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", False)),
+                                    fixes("QT2", content=CODE + "# salt-corrected\n"), qa(("T1", True), ("T2", True)))
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.status == "delivered" and result.rounds == 1 and result.repairs == 1
+
+
+def test_a_qa_repair_that_breaks_the_checks_is_put_back(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    bad = json.dumps({"fixes": [{"issue": "QT2", "explanation": "x", "files": [
+        {"path": "tests/test_primer.py", "content": WRONG}]}]})
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", False)), bad,
+                                    *PRODUCE, review(True), qa(("T1", True), ("T2", True)))
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.repairs == 0 and result.rounds == 2  # the broken repair was put back; a full rebuild followed
+    assert (project.root / "output" / "tests" / "test_primer.py").read_text() == TEST

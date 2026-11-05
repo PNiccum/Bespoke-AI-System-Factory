@@ -259,10 +259,59 @@ class CriticLoop:
                     break
         return Fixes(fixes=[])
 
+    def repair(self, result, rnd: int) -> bool:
+        """Repair what final QA found instead of rejecting on it: the solver gets QA's unmet tasks and issues as
+        issues, and its files are applied only if the plain-code checks do not get worse (otherwise they are put back).
+        Returns whether any file changed. (2026-11-05: csv_profile and log_spikes passed 5/5 acceptance tests and were
+        still stopped by QA findings that one small edit would have cleared.)"""
+        issues = qa_issues(result, self.production.check())
+        if not issues:
+            return False
+        task = (self.project.root / "task.txt").read_text(encoding="utf-8")
+        note = self.board.post("note", "code", {"round": rnd, "text": "final QA found problems: repairing "
+                                                f"{', '.join(i.id for i in issues)}"})
+        before_checks = self.production.check()
+        snapshot = {rel: (self.production.out / rel).read_text(errors="replace", encoding="utf-8")
+                    for rel in self.production.files()}
+        fixes = self._solve(task, issues, "", rnd, [], note.id)
+        for fix in fixes.fixes:
+            for f in fix.files:
+                rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
+                if self.production.inside(rel):
+                    self.project.write_file(f"{OUTPUT}/{rel}", f.content, SOLVER, refs=[note.id])
+        after = {rel: (self.production.out / rel).read_text(errors="replace", encoding="utf-8")
+                 for rel in self.production.files()}
+        if after == snapshot:
+            return False
+        checks = self.production.check()
+        if before_checks.ok and not checks.ok:  # the repair broke a working solution: put it back
+            for rel in set(after) - set(snapshot):
+                (self.production.out / rel).unlink()
+            for rel, text in snapshot.items():
+                self.project.write_file(f"{OUTPUT}/{rel}", text, "code", refs=[note.id])
+            self.board.post("note", "code", {"round": rnd, "text": "the QA repair broke the checks: put back"},
+                            refs=[note.id])
+            return False
+        self.board.post("checks", "code", checks.model_dump(), refs=[note.id])
+        return True
+
     def closest_pages(self, texts: list[str], n: int = 3) -> list[WikiPage]:
         want = set().union(*(words(t) for t in texts)) if texts else set()
         scored = [(len(want & words(p.topic + " " + p.summary)), p) for p in self.wiki.pages() if p.verified]
         return [p for s, p in sorted(scored, key=lambda x: -x[0]) if s > 0][:n]
+
+
+def qa_issues(result, checks: Checks) -> list[Issue]:
+    """Final QA's findings as issues for the solver: each unmet task with QA's evidence, the failing checks, and the
+    other issues QA listed (the two summary lines code adds are left out)."""
+    out = [Issue(id=f"Q{t.id}", severity="blocker", where=t.id,
+                 problem=f"final QA says task {t.id} is not met: {t.evidence}") for t in result.tasks if not t.met]
+    if not checks.ok:
+        out.append(Issue(id="QC", severity="blocker", where="checks", problem=json_checks(checks)))
+    skip = ("acceptance not met", "the plain-code checks fail")
+    out += [Issue(id=f"QI{n}", severity="major", where="final QA", problem=i)
+            for n, i in enumerate(result.issues, 1) if not i.startswith(skip)]
+    return out[:MAX_ISSUES]
 
 
 def _show(issues: list[Issue]) -> str:
