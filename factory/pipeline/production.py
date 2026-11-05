@@ -389,9 +389,11 @@ class Production:
         """The plain-code checks as events: each kind of failure is one open event until a later check passes.
         A check that ran no tests corrects only syntax errors, never an earlier failing-test event."""
         events = log_of(self.llm, self.project)
-        # each kind is corrected on its own: syntax fixed while a test still fails closes the syntax events
-        if not checks.syntax_errors:
-            events.resolve_open("a later plain-code check found no syntax error", source="checks", ref="check:syntax")
+        # each kind, and each file, is corrected on its own: a.py fixed while b.py or a test still fails closes
+        # a.py's event
+        for e in events.open_events():
+            if "check:syntax" in e.refs and not any(r == f"file:{rel}" for rel in checks.syntax_errors for r in e.refs):
+                events.resolve(e.id, "a later plain-code check found no syntax error in the file")
         if checks.tests_ran and checks.tests_ok:
             events.resolve_open("a later test run passed", source="checks", ref="check:tests")
         if checks.ok:

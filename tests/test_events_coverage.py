@@ -75,6 +75,15 @@ def test_a_skipped_catalog_page_is_an_event_with_the_topic_ref(cfg, tmp_path):
     assert skips and all("topic:UniProt REST API" in e.refs and "HTTPStatusError" in e.message for e in skips)
 
 
+def test_a_wrapped_searcher_reports_no_skips(tmp_path):
+    from factory.net.http import CallBudget
+    from factory.pipeline.sources import skipped_pages
+    docs = ReferenceDocs(tmp_path, CallBudget("docs", 100),
+                         http=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(406))))
+    docs.search("uniprot rest api json fields", 3)
+    assert skipped_pages(docs.search) and skipped_pages(lambda q, n: docs.search(q, n)) == []  # documented
+
+
 def test_skipped_pages_are_per_thread(tmp_path):
     from concurrent.futures import ThreadPoolExecutor
 
@@ -215,6 +224,8 @@ def test_log_of_with_a_project_sets_the_domain(tmp_path):
     p = Project.create(tmp_path, "p")
     p.board.post("request", "person", {"text": "x", "domain": "code"})
     assert log_of(Fake(), p) is Fake.events and Fake.events.domain == "code"
+    other = Project.create(tmp_path, "later")  # no request yet: the tag already set is kept, never blanked
+    assert log_of(Fake(), other).domain == "code"
     assert log_of(object(), p).record("x", "y") == ""  # a stand-in without a log: still a NullLog
 
 
@@ -250,6 +261,14 @@ def test_a_check_that_ran_no_tests_corrects_only_syntax_errors(tmp_path):
     Production._record_checks(me2, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=False,
                                           failed=["test_a"]))
     assert [(e.message[:6], e.status) for e in log2.events()] == [("syntax", "corrected"), ("1 fail", "open")]
+    # per file: a.py fixed while b.py still fails corrects a.py's event only
+    log3 = EventLog(tmp_path / "r3" / "events.jsonl", "r3")
+    me3 = SimpleNamespace(llm=SimpleNamespace(events=log3), project=p)
+    Production._record_checks(me3, Checks(compiled=[], syntax_errors={"a.py": "bad", "b.py": "bad"}, tests_ran=False,
+                                          tests_ok=None))
+    Production._record_checks(me3, Checks(compiled=["a.py"], syntax_errors={"b.py": "bad"}, tests_ran=False,
+                                          tests_ok=None))
+    assert {e.message[16:20]: e.status for e in log3.events()} == {"a.py": "corrected", "b.py": "open"}
     Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True))
     assert not log.open_events()
 

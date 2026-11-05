@@ -58,7 +58,7 @@ class EventLog:
         self.path = path
         self.run = run or path.parent.name
         self.domain = ""  # copied onto every event recorded from now on
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()  # resolve_open selects and resolves under one hold
 
     def _write(self, row: dict) -> None:  # caller holds the lock
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,10 +105,11 @@ class EventLog:
                      stage: str | None = None, since: str = "", ref: str | None = None) -> int:
         """Correct every open event matching, e.g. all the events of one stage once that stage went through, or
         every event carrying one ref (a topic) once a verified page covers it."""
-        return self.resolve([e.id for e in self.events()
-                             if e.status == "open" and (source is None or e.source == source)
-                             and (stage is None or e.stage == stage) and e.at >= since
-                             and (ref is None or ref in e.refs)], how, evidence)
+        with self._lock:  # select and resolve under one hold, so no record lands between the two
+            return self.resolve([e.id for e in self.events()
+                                 if e.status == "open" and (source is None or e.source == source)
+                                 and (stage is None or e.stage == stage) and e.at >= since
+                                 and (ref is None or ref in e.refs)], how, evidence)
 
     def _rows(self) -> Iterator[dict]:
         if not self.path.exists():
@@ -165,9 +166,11 @@ class NullLog(EventLog):
 
 def log_of(llm, project=None) -> EventLog:
     """The run's event log behind an LLM client (a NullLog for a stand-in without one). With a ``project``, the log's
-    domain is set from it first, so every stage that tags events does it the same way (factory/pipeline/domain.py)."""
+    domain is set from it the first time it can be (a project has no request entry before its interview starts), so
+    every stage that tags events does it the same way (factory/pipeline/domain.py). A run is one project, so a tag
+    once set is never overwritten."""
     log = getattr(llm, "events", None) or NullLog()
-    if project is not None:
+    if project is not None and not log.domain:
         from factory.pipeline.domain import project_domain
         log.domain = project_domain(project)
     return log
