@@ -1,0 +1,106 @@
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant I as Interviewer (model 1)
+    participant B as Blackboard (project folder)
+    participant P1 as Planner 1 (model 2)
+    participant P2 as Planner 2 (model 3)
+    participant E as Editor (model 1 or 4)
+    participant KE as Knowledge Evaluator
+    participant L as Librarian
+    participant RO as Research Orchestrator
+    participant RA as Research Agents
+    participant WV as Wiki Verifier
+    participant H as Head Orchestrator
+    participant S as Sub-orchestrators
+    participant C as Project Critic
+    participant PS as Problem Solver 1
+    participant F as Final Evaluator
+    participant A1 as Auditor 1
+    participant A2 as Auditor 2
+    participant API as Claude and ChatGPT APIs
+
+    Note over U,B: 1. Intake
+    U->>I: Submit task request
+    loop Until user is satisfied
+        I->>U: Ask questions, propose tasks (Plan A)
+        U-->>I: Answers, changes, preliminary approval?
+    end
+    I->>B: Create project folder, task.txt
+
+    Note over P1,E: 2. Planning loop
+    P1->>B: Critique Plan A, write Plan B
+    P2->>B: Pros and cons of both plans
+    E->>B: Edit each plan using pros and cons
+    P1->>B: Vote
+    P2->>B: Vote
+    E->>B: Vote
+    B-->>KE: Refined plan with tasks and subtasks
+
+    Note over KE,WV: 3. Knowledge loop
+    loop Until requested knowledge is present
+        KE->>L: Topics and knowledge areas needed
+        L-->>KE: Which topics the wikis cover
+        opt Topics not covered
+            loop Until enough information
+                KE->>RO: Missing topics
+                RO->>RA: Subtask per topic or subtopic
+                RA-->>RO: Documents (Elsevier, NCBI, PMC, catalogs)
+                RO->>RO: Approve each document, more research needed?
+            end
+            RO->>L: Approved documents
+            L->>L: Sort into categories
+            loop Until additions are accurate
+                L->>WV: Wiki additions
+                WV-->>L: Accurate or fix needed
+            end
+            L-->>KE: Wiki updated
+            KE->>KE: Requested info present? More knowledge needed?
+        end
+    end
+    KE-->>H: Knowledge approved
+
+    Note over H,S: 4. Production
+    H->>B: Read project templates from knowledge base
+    H->>S: Delegate tasks
+    S-->>H: Subtask outputs
+    H->>H: Organize outputs together
+
+    Note over C,PS: 5. Critic loop
+    loop Until solutions accepted or second decline
+        H->>C: Finished project
+        C->>PS: Holes, failures, inefficiencies
+        PS-->>C: Suggested solutions
+        alt Critic accepts
+            C-->>F: Accepted project
+        else Critic declines
+            PS->>L: Check wiki for relevant topics
+            alt Wiki has nothing relevant
+                PS->>KE: Run knowledge and research loop again
+            end
+            PS-->>C: New solutions
+        end
+    end
+
+    alt Declined again after knowledge loop reactivated
+        Note over A1,API: 7. Re-design loop
+        A1->>A1: Evaluate successes, failures, causes
+        loop Until auditors agree
+            A1->>A2: Evaluation
+            A2-->>A1: Suggestions
+            A1-->>A2: Evaluation of suggestions
+        end
+        A1->>API: Summary of progress, transcript, suggestions
+        loop Until fix decided or cost limit reached
+            API->>API: Claude and ChatGPT debate improvements
+        end
+        API-->>U: Report of the fix for approval
+    else Accepted
+        Note over F,U: 6. Final evaluation
+        F->>F: QA: check all files, test runs
+        alt Approved
+            F-->>U: Folder with files (possibly by email)
+        else Not approved
+            F-->>H: Issues found, return to production
+        end
+    end
