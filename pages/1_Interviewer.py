@@ -13,7 +13,7 @@ from factory.llm import LLM, new_run_dir
 from factory.llm.gate import deny_all
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import MAX_QUESTIONS, Interview
-from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+from factory.pipeline.knowledge import KnowledgeLoop, default_scout, default_searchers
 from factory.pipeline.planning import PlanningLoop
 from factory.pipeline.run import build
 from factory.pipeline.wiki import Wiki
@@ -103,8 +103,12 @@ if iv.board.latest("approval"):
             cfg = config()
             with st.spinner("Finding what the plan needs, searching OpenAlex, Europe PMC and NCBI, writing the "
                             "wiki..."):
-                KnowledgeLoop(iv.llm, Registry.load(cfg), iv.project, Wiki(cfg.work_dir / "wiki"),
-                              default_searchers(cfg.work_dir / "research-cache")).run()
+                registry = Registry.load(cfg)
+                wiki = Wiki(cfg.work_dir / "wiki")
+                KnowledgeLoop(iv.llm, registry, iv.project, wiki,
+                              default_searchers(cfg.work_dir / "research-cache"),
+                              scout=default_scout(iv.llm, registry, cfg.work_dir / "research-cache", wiki,
+                                                  iv.project.root.name)).run()
             st.rerun()
         if knowledge is not None:
             st.subheader("Knowledge loop: " + ("approved" if knowledge.data["ok"] else "incomplete"))

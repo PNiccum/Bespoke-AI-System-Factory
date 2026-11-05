@@ -30,6 +30,7 @@ from factory.pipeline.knowledge import KnowledgeLoop, Topic
 from factory.pipeline.production import OUTPUT, Checks, NewFile, Production, parse_files
 from factory.pipeline.wiki import Wiki, WikiPage, words
 from factory.registry import Registry
+from factory.repairs import diff_of, library_of
 
 CRITIC, SOLVER = "project_critic", "problem_solver"
 MAX_ROUNDS, MAX_ISSUES, MAX_SHOWN_CHARS = 4, 6, 40_000
@@ -165,6 +166,8 @@ class CriticLoop:
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
         self.production, self.knowledge = production, knowledge
         self.agents = {n: registry.agents[n] for n in (CRITIC, SOLVER)}
+        self.library = library_of(llm)  # QA repairs that stuck (factory/repairs.py)
+        self.pending_repairs: list[str] = []  # this build's applied repairs, confirmed or dropped by run.build
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str, pages: list[WikiPage] = (), **parse):
         public = self.llm.cfg.data_public and all(p.license == "public" for p in pages)
@@ -305,12 +308,16 @@ class CriticLoop:
         if not issues:
             return False
         task = (self.project.root / "task.txt").read_text(encoding="utf-8")
-        note = self.board.post("note", "code", {"round": rnd, "text": "final QA found problems: repairing "
-                                                f"{', '.join(i.id for i in issues)}"})
+        note = self.board.post("note", "code", {"round": rnd, "qa_repair": True,  # the tallies count this field
+                                                "text": f"final QA found problems: repairing {', '.join(i.id for i in issues)}"})
         before_checks = self.production.check()
         snapshot = {rel: (self.production.out / rel).read_text(errors="replace", encoding="utf-8")
                     for rel in self.production.files()}
-        fixes = self._solve(task, issues, "", rnd, [], note.id)
+        past = self.library.section([i.problem for i in issues]) if self.library else ""
+        if past:
+            self.board.post("note", "code", {"round": rnd, "text": "showing the solver past repairs that stuck"},
+                            refs=[note.id])
+        fixes = self._solve(task, issues, past, rnd, [], note.id)
         for fix in fixes.fixes:
             for f in fix.files:
                 rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
@@ -332,7 +339,22 @@ class CriticLoop:
                             refs=[note.id])
             return False
         self.board.post("checks", "code", checks.model_dump(), refs=[note.id])
+        self._remember(fixes, issues, snapshot, after)
         return True
+
+    def _remember(self, fixes: Fixes, issues: list[Issue], before: dict[str, str], after: dict[str, str]) -> None:
+        """Save each applied fix as a pending library entry; ``run.build`` confirms them if QA then approves."""
+        if not self.library:
+            return
+        by_id = {i.id: i for i in issues}
+        for fix in fixes.fixes:
+            paths = sorted({f.path.removeprefix(f"{OUTPUT}/").lstrip("/") for f in fix.files})
+            issue = by_id.get(fix.issue)
+            rid = self.library.add(issue.problem if issue else fix.issue, diff_of(before, after, paths),
+                                   explanation=fix.explanation, files=paths, run=self.llm.run_dir.name
+                                   if hasattr(self.llm, "run_dir") else "", project=self.project.id)
+            if rid:
+                self.pending_repairs.append(rid)
 
     def closest_pages(self, texts: list[str], n: int = 3) -> list[WikiPage]:
         want = set().union(*(words(t) for t in texts)) if texts else set()
