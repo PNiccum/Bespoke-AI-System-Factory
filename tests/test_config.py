@@ -110,11 +110,18 @@ def test_a_role_cannot_escalate_from_one_free_model_to_another(tmp_path):
         load_config(write(tmp_path, data))
 
 
+@pytest.fixture(autouse=True)
+def _restore_environ():
+    """load_dotenv writes the real os.environ; put back exactly what was there, whatever keys a test's .env set."""
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
+
+
 def restore_environ(monkeypatch):
-    """Undo whatever load_dotenv writes into the real os.environ: register a restore for each key it may set."""
-    for key in ("ASPIRE_DATA_PRIVATE", "FACTORY_TIER", "ARC_API_KEY"):
-        monkeypatch.setenv(key, "placeholder")  # registers the undo; the delete below leaves the key unset
-        monkeypatch.delenv(key)
+    for key in ("ASPIRE_DATA_PRIVATE", "FACTORY_TIER", "FACTORY_ROLE_TIERS", "ARC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_dotenv_fills_missing_keys_but_never_overrides_the_environment(monkeypatch, tmp_path):
@@ -174,6 +181,13 @@ def test_dotenv_inline_comments_are_ignored(monkeypatch, tmp_path):
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nFACTORY_TIER=economy # default\n")
     cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
     assert cfg.data_public is True and cfg.tier == "economy"
+
+
+def test_dotenv_quoted_values_with_trailing_comments(monkeypatch, tmp_path):
+    restore_environ(monkeypatch)
+    (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0" # off\nFACTORY_TIER="quality" # x\nARC_API_KEY="a #b"\n')
+    cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
+    assert cfg.data_public is True and cfg.tier == "quality" and os.environ["ARC_API_KEY"] == "a #b"
 
 
 def test_factory_tier_in_dotenv_takes_effect_and_leaves_the_data_guard_alone(monkeypatch, tmp_path):

@@ -220,9 +220,10 @@ def load_dotenv(path: Path) -> dict[str, str]:
         key = key.strip()
         if sep and key and not key.startswith("#"):
             value = value.strip()
-            if value[:1] not in ("'", '"'):  # an unquoted value ends at " #": `KEY=0  # off` is 0, not "0  # off"
-                value = value.split(" #", 1)[0].split("\t#", 1)[0].strip()
-            value = value.strip("\"'")
+            if value[:1] in ("'", '"') and (end := value.find(value[0], 1)) > 0:  # quoted: everything after the closing quote is ignored
+                value = value[1:end]
+            else:  # unquoted: the value ends at " #", so `KEY=0  # off` is 0, not "0  # off"
+                value = value.split(" #", 1)[0].split("\t#", 1)[0].strip().strip("\"'")
             found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
             os.environ.setdefault(key, value)
     return found
