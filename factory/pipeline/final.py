@@ -98,7 +98,7 @@ def check_failure(checks: Checks) -> str:
     """The failing plain-code checks in one line; imports the sandbox lacks are named even when tests fail too,
     since the round cannot pass until both are fixed."""
     failing = ", ".join(checks.syntax_errors) or ", ".join(checks.failed) or (
-        "" if checks.unavailable_imports else "tests fail")
+        "tests fail" if checks.tests_ok is False else "")
     lacking = (("imports the sandbox lacks: " + ", ".join(sorted(checks.unavailable_imports)))
                if checks.unavailable_imports else "")
     return "the plain-code checks fail: " + "; ".join(x for x in (failing, lacking) if x)

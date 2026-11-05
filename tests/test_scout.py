@@ -351,3 +351,5 @@ def test_final_names_failing_tests_and_lacking_imports_together():
     only = c.model_copy(update={"failed": [], "tests_ok": True})
     assert check_failure(only) == "the plain-code checks fail: imports the sandbox lacks: matplotlib"
     assert check_failure(c.model_copy(update={"unavailable_imports": {}})) == "the plain-code checks fail: t1"
+    unnamed = c.model_copy(update={"failed": []})  # a collection error or timeout names no test
+    assert check_failure(unnamed) == "the plain-code checks fail: tests fail; imports the sandbox lacks: matplotlib"
