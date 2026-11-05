@@ -428,6 +428,20 @@ def test_the_docs_catalog_has_the_api_and_format_pages_the_gap_runs_needed():
     assert {"opentargets_graphql", "david_functional_annotation", "cellosaurus_description", "europepmc_rest"} <= keys
 
 
+def test_a_page_of_plain_restatements_is_verified_by_code_without_a_model(cfg, tmp_path):
+    body = " ".join(f"Primers should have a Tm of 55-65 C ({i}). {{{{q:europepmc:PMC{i}|Primers should have a Tm of "
+                    f"55-65 C ({i})}}}}" for i in (1, 2))
+    plain = json.dumps({"summary": "Primer Tm.", "body": body})
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Primer Tm"), queries(), review(1, 2), plain,
+                                       topics(enough=True))
+    assert kl.run().ok
+    page = wiki.covers("Primer Tm")
+    assert page and page.verified
+    checks = project.board.entries("wiki_check")
+    assert checks[-1].author == "code" and checks[-1].data["by"] == "restatement check"
+    assert len(arc.requests) == 5  # evaluate, queries, review, write, re-evaluate: no verifier call
+
+
 def test_two_gaps_pass_only_when_at_least_as_many_topics_are_covered(cfg, tmp_path):
     kl, _, _, _ = knowledge(cfg, tmp_path, topics("x"), docs=())
     for name in ("Topic one", "Topic two"):
@@ -436,3 +450,19 @@ def test_two_gaps_pass_only_when_at_least_as_many_topics_are_covered(cfg, tmp_pa
     assert list(kl._open_gaps(two, 2)) == two  # the MCF7 run: 4 covered, 2 open
     assert kl._open_gaps(two, 1) == {}
     assert list(kl._open_gaps(two[:1], 0)) == ["Topic one"]  # a single gap needs no covered topic
+
+
+def test_a_plan_with_no_outside_source_skips_research_but_not_the_scout(cfg, tmp_path):
+    from factory.pipeline.knowledge import self_contained
+    assert self_contained("Count words in a text file", "tokenise, sort, print") != ""
+    assert self_contained("Query the OpenAlex API for papers", "") == ""
+    assert self_contained("Make me a primer design tool", "") == ""
+    kl, arc, project, _ = knowledge(cfg, tmp_path)
+    (project.root / "task.txt").write_text("Count words in a text file", encoding="utf-8")
+    (project.root / "plan.json").write_text('{"title": "Word counter", "tasks": []}', encoding="utf-8")
+    seen = []
+    kl.scout = type("S", (), {"run": lambda self, t, p: seen.append(t) or type("R", (), {
+        "model_dump": lambda s: {}, "model_dump_json": lambda s, **k: "{}", "render": lambda s: ""})()})()
+    out = kl.run()
+    assert out.ok and out.rounds == 0 and out.skipped and not arc.requests and seen  # scout ran, no model call for research
+    assert project.board.latest("knowledge").data["skipped"] == out.skipped
