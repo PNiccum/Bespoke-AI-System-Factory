@@ -39,6 +39,7 @@ class Event(BaseModel):
     id: str
     at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     run: str = ""
+    domain: str = ""  # the project's subject area, set once per project by code (factory/pipeline/domain.py)
     source: str  # llm | pipeline | qa | redesign | code: the part of the system that met it
     stage: str = ""
     severity: Severity = "error"
@@ -56,23 +57,35 @@ class EventLog:
     def __init__(self, path: Path, run: str = ""):
         self.path = path
         self.run = run or path.parent.name
-        self._lock = threading.Lock()
+        self.domain = ""  # copied onto every event recorded from now on
+        self._lock = threading.RLock()  # resolve_open selects and resolves under one hold
 
-    def _append(self, row: dict) -> None:
+    def _write(self, row: dict) -> None:  # caller holds the lock
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock, self.path.open("a", encoding="utf-8") as f:
+        with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    def _append(self, row: dict) -> None:
+        with self._lock:
+            self._write(row)
+
     def record(self, source: str, message: str, *, stage: str = "", severity: Severity = "error",
-               refs: list[str] | tuple[str, ...] = ()) -> str:
-        """Write an event and return its id. Never raises: a full disk must not turn a recoverable error fatal."""
+               refs: list[str] | tuple[str, ...] = (), once: bool = False) -> str:
+        """Write an event and return its id. Never raises: a full disk must not turn a recoverable error fatal.
+        ``once``: skip it (returning "") while an open event with the same fingerprint *and the same refs* exists,
+        for a check that runs again and again and would otherwise stack the same failure up. The fingerprint blanks
+        paths and numbers, so the refs are what tell two files or two tests apart: pass them."""
+        fp = fingerprint(source, stage, str(message))
         try:
-            with self._lock:
-                n = sum(1 for _ in self._rows()) + 1  # ids count lines, so they stay unique with resolutions in
-            ev = Event(id=f"E{n:04d}", run=self.run, source=source, stage=stage, severity=severity,
-                       message=" ".join(str(message).split())[:600], fingerprint=fingerprint(source, stage, str(message)),
-                       refs=list(refs))
-            self._append({"type": "event", **ev.model_dump(exclude={"status", "how", "evidence", "corrected_at"})})
+            with self._lock:  # the id counts lines, so the count and the write happen under one hold of the lock
+                rows = list(self._rows())  # one read serves both the id and the once= check
+                if once and any(e.fingerprint == fp and e.status == "open" and set(e.refs) == set(refs)
+                                for e in self._events_of(rows)):
+                    return ""
+                ev = Event(id=f"E{len(rows) + 1:04d}", run=self.run, domain=self.domain, source=source, stage=stage,
+                           severity=severity, message=" ".join(str(message).split())[:600], fingerprint=fp,
+                           refs=list(refs))
+                self._write({"type": "event", **ev.model_dump(exclude={"status", "how", "evidence", "corrected_at"})})
             return ev.id
         except OSError:
             return ""
@@ -81,18 +94,22 @@ class EventLog:
         """Mark events corrected. Called by code that saw the fix happen, never by a model. Returns how many were
         open and are now corrected."""
         want = {ids} if isinstance(ids, str) else set(ids)
-        todo = [e for e in self.events() if e.id in want and e.status == "open"]
-        for e in todo:
-            self._append({"type": "resolution", "event": e.id, "how": how, "evidence": list(evidence),
-                          "at": datetime.now(UTC).isoformat()})
+        with self._lock:  # read and write under one hold, so a parallel record or resolve cannot slip between
+            todo = [e for e in self.events() if e.id in want and e.status == "open"]
+            for e in todo:
+                self._write({"type": "resolution", "event": e.id, "how": how, "evidence": list(evidence),
+                             "at": datetime.now(UTC).isoformat()})
         return len(todo)
 
     def resolve_open(self, how: str, evidence: list[str] | tuple[str, ...] = (), *, source: str | None = None,
-                     stage: str | None = None, since: str = "") -> int:
-        """Correct every open event matching, e.g. all the events of one stage once that stage went through."""
-        return self.resolve([e.id for e in self.events()
-                             if e.status == "open" and (source is None or e.source == source)
-                             and (stage is None or e.stage == stage) and e.at >= since], how, evidence)
+                     stage: str | None = None, since: str = "", ref: str | None = None) -> int:
+        """Correct every open event matching, e.g. all the events of one stage once that stage went through, or
+        every event carrying one ref (a topic) once a verified page covers it."""
+        with self._lock:  # select and resolve under one hold, so no record lands between the two
+            return self.resolve([e.id for e in self.events()
+                                 if e.status == "open" and (source is None or e.source == source)
+                                 and (stage is None or e.stage == stage) and e.at >= since
+                                 and (ref is None or ref in e.refs)], how, evidence)
 
     def _rows(self) -> Iterator[dict]:
         if not self.path.exists():
@@ -103,9 +120,10 @@ class EventLog:
             except ValueError:
                 continue  # a line cut short by a run that was stopped mid-write
 
-    def events(self) -> list[Event]:
+    @staticmethod
+    def _events_of(rows: list[dict]) -> list[Event]:
         out: dict[str, Event] = {}
-        for row in self._rows():
+        for row in rows:
             if row.get("type") == "event":
                 out[row["id"]] = Event(**{k: v for k, v in row.items() if k != "type"})
             elif row.get("type") == "resolution" and row.get("event") in out:
@@ -113,6 +131,9 @@ class EventLog:
                 e.status, e.how, e.evidence, e.corrected_at = "corrected", row.get("how", ""), row.get("evidence", []), \
                     row.get("at", "")
         return list(out.values())
+
+    def events(self) -> list[Event]:
+        return self._events_of(list(self._rows()))
 
     def open_events(self) -> list[Event]:
         return [e for e in self.events() if e.status == "open"]
@@ -143,8 +164,16 @@ class NullLog(EventLog):
         return []
 
 
-def log_of(llm) -> EventLog:
-    return getattr(llm, "events", None) or NullLog()
+def log_of(llm, project=None) -> EventLog:
+    """The run's event log behind an LLM client (a NullLog for a stand-in without one). With a ``project``, the log's
+    domain is set from it the first time it can be (a project has no request entry before its interview starts), so
+    every stage that tags events does it the same way (factory/pipeline/domain.py). A run is one project, so a tag
+    once set is never overwritten."""
+    log = getattr(llm, "events", None) or NullLog()
+    if project is not None and not log.domain:
+        from factory.pipeline.domain import project_domain
+        log.domain = project_domain(project)
+    return log
 
 
 # --------------------------------------------------------------------------
@@ -196,6 +225,20 @@ def meta_analysis(events: list[Event]) -> list[Group]:
                             how=sorted({e.how for e in es if e.how}), first_seen=es[0].at, last_seen=es[-1].at,
                             returned_after_fix=bool(later)))
     return sorted(groups, key=lambda g: (-g.count, g.fingerprint))
+
+
+def by_domain(events: list[Event]) -> list[dict]:
+    """Events per domain: how many, how many corrected, and the most frequent problem. "" is an untagged run."""
+    rows: dict[str, list[Event]] = {}
+    for e in events:
+        rows.setdefault(e.domain, []).append(e)
+    out = []
+    for d, es in sorted(rows.items()):
+        top = meta_analysis(es)[0]
+        out.append({"domain": d or "(untagged)", "runs": len({e.run for e in es}), "events": len(es),
+                    "corrected": sum(e.status == "corrected" for e in es), "open": sum(e.status == "open" for e in es),
+                    "most frequent": f"{top.stage}: {top.message[:100]} ({top.count}x)"})
+    return out
 
 
 # Runs that are not builds: self-extension and replays write their own run folders (and their own events).

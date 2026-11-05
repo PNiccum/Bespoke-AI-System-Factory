@@ -333,6 +333,8 @@ class LLM:
                       **asdict(raw.usage))
             if raw.stop_reason == "max_tokens":
                 out[i] = TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens})")
+                # the same shape as converse's record of a cut-off, so the two share a fingerprint
+                self.events.record("llm", f"{role}: {rc.model}: TruncatedError: {out[i]}"[:400], stage=tag or role)
             elif raw.stop_reason == "refusal":
                 out[i] = RefusedError(f"{tag or role}: model declined the request")
             else:
@@ -433,6 +435,7 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
                             errors))
         except TruncatedError as e:
             errors.append(str(e))
+            # the cut-off itself is already an event (recorded where the model answered, in converse)
             cut_off = True
             if salvage and (note := salvage.keep(e.partial)):
                 kept_note = note
@@ -451,5 +454,8 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             errors.append(f"paid rescue skipped: {str(e)[:160]}")
         except (TruncatedError, ValueError, ValidationError) as e:
             errors.append(f"paid rescue failed: {type(e).__name__}: {str(e)[:160]}")
+            events.record("llm", f"{tag}-paid: " + ("reply cut off at max_tokens" if isinstance(e, TruncatedError)
+                                                     else f"unusable output: {errors[-1]}"),
+                          stage=tag, severity="warning")
     events.record("llm", f"{tag}: no valid output after {attempts} attempts: {errors[-1][:200]}", stage=tag)
     raise RuntimeError(f"{tag}: no valid output after {attempts} attempts: {errors}")

@@ -39,11 +39,12 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
 from factory.pipeline.scout import Scout
-from factory.pipeline.sources import CONNECTORS, Doc, Searcher
+from factory.pipeline.sources import CONNECTORS, Doc, Searcher, skipped_pages
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
 from factory.pipeline.wiki import words as wiki_words
 from factory.registry import Registry
@@ -302,6 +303,7 @@ class KnowledgeLoop:
         self.scout = scout
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
+        self.events = log_of(llm, project)  # every topic that stalls is an event, corrected by a verified page
         self._topics: dict[str, _TopicState] = {}
         self._lock = threading.Lock()
 
@@ -378,7 +380,8 @@ class KnowledgeLoop:
                 covered |= {p.topic: p.slug for p in pages}
             self.board.post("coverage", LIBRARIAN, {"covered": {n: p.slug for n, p in have.items() if p},
                                                     "missing": missing, "deferred": deferred}, refs=[ev.id])
-            todo = [t for t in topics if t.name in missing or t.name in deferred]
+            # a topic already over budget was deferred in an earlier round and stays with the critic loop
+            todo = [t for t in topics if (t.name in missing or t.name in deferred) and t.name not in over_budget]
             room = MAX_RESEARCHED - researched
             if len(todo) > room:  # over the run's budget: the extra topics are left to the critic loop, not blocking
                 skipped = {t.name for t in todo[max(room, 0):]}
@@ -388,6 +391,9 @@ class KnowledgeLoop:
                 deferred = [*deferred, *(n for n in sorted(skipped) if n not in deferred)]
                 self.board.post("note", "code", {"text": f"research budget of {MAX_RESEARCHED} topics reached; "
                                                  f"deferred: {'; '.join(sorted(skipped))}"})
+                for name in sorted(skipped):
+                    self.events.record("knowledge", f"topic deferred: research budget of {MAX_RESEARCHED} reached",
+                                       stage="research", severity="warning", refs=[f"topic:{name}"])
             researched += len(todo)
             if not todo:  # nothing missing, or only earlier topics not named again: already researched, no new work
                 break
@@ -407,6 +413,17 @@ class KnowledgeLoop:
             missing = []
             self.board.post("note", "code", {"text": "the build goes ahead with a recorded gap: "
                                                  + "; ".join(f"{n} ({why})" for n, why in gaps.items())})
+            for n, why in gaps.items():
+                self.events.record("knowledge", f"build goes ahead with a gap: {why}", stage="knowledge gate",
+                                   severity="warning", refs=[f"topic:{n}"])
+        for n in missing:
+            self.events.record("knowledge", "knowledge loop stopped: topic still has no verified page",
+                               stage="knowledge gate", refs=[f"topic:{n}"])
+        for n in deferred:
+            if n in over_budget:  # already recorded as "topic deferred: research budget" when it was skipped
+                continue
+            self.events.record("knowledge", "topic left to the critic loop without a page", stage="knowledge gate",
+                               severity="warning", refs=[f"topic:{n}"])
         ok = not missing
         result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
                                  dropped=dropped, decided=decided, gaps=gaps)
@@ -468,6 +485,8 @@ class KnowledgeLoop:
             return self._research(topic)
         except RuntimeError as e:
             self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": f"research failed: {str(e)[:300]}"})
+            self.events.record("knowledge", f"research failed: {str(e)[:300]}", stage="research",
+                               refs=[f"topic:{topic.name}"])
             return None
 
     def _research(self, topic: Topic) -> WikiPage | None:
@@ -483,10 +502,15 @@ class KnowledgeLoop:
         if not enough_sources(st.approved):
             self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": f"only {len(st.approved)} approved "
                                                    f"sources after {RESEARCH_ROUNDS} rounds"})
+            self.events.record("knowledge", f"only {len(st.approved)} approved sources after {RESEARCH_ROUNDS} search "
+                               f"rounds (rejected: {'; '.join(st.rejected[-3:])[:200] or 'none found'})",
+                               stage="research", severity="warning", refs=[f"topic:{topic.name}"])
             return None
         if set(st.approved) == st.failed_with:  # the same documents already made a rejected page
             self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": "no new sources since the rejected "
                                                    "page; not rewritten"})
+            self.events.record("knowledge", "no new sources since the rejected page; not rewritten", stage="research",
+                               severity="warning", refs=[f"topic:{topic.name}"])
             return None
         page = self.write_page(topic, list(st.approved.values()), st.issues)
         for g in range(1, GAP_SEARCHES + 1):
@@ -551,7 +575,12 @@ class KnowledgeLoop:
                 docs = search(q.query, PER_QUERY)
             except Exception as e:  # noqa: BLE001 (one engine failing is recorded, not fatal; it may work next time)
                 self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "error": f"{type(e).__name__}: {e}"})
+                self.events.record("sources", f"{q.connector} search failed: {type(e).__name__}: {str(e)[:200]}",
+                                   stage="search", severity="warning", refs=[f"topic:{topic.name}"])
                 continue
+            for why in skipped_pages(search):  # pages the connector passed over (a 406, a captcha, a stub)
+                self.events.record("sources", f"{q.connector} page skipped: {why}", stage="search", severity="warning",
+                                   refs=[f"topic:{topic.name}"])
             st.queries.add(key)
             self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "found": [d.id for d in docs]})
             found |= {d.id: d for d in docs if d.text.strip() and d.id not in st.approved and d.id not in st.seen}
@@ -622,7 +651,13 @@ class KnowledgeLoop:
                 issues = [] if check.accurate else (check.issues or ["the verifier found the page inaccurate"])
             if not issues:
                 break
+            self.events.record("knowledge", f"page rejected (draft {attempt}): " + "; ".join(issues)[:300],
+                               stage="wiki verify", severity="warning", refs=[f"topic:{topic.name}"])
         page.verified, page.issues = not issues, issues
+        if page.verified:  # the stalls on this topic, if any, are over
+            # only the loop's own stalls: a search engine fault (source "sources") is corrected by nothing here
+            self.events.resolve_open(f"a verified page now covers the topic ({page.slug})", [page.slug],
+                                     source="knowledge", ref=f"topic:{topic.name}")
         path = self.wiki.save(page)
         self.board.post("wiki_page", LIBRARIAN, {"topic": topic.name, "slug": page.slug, "path": str(path),
                                                  "verified": page.verified, "sources": page.sources},
