@@ -291,8 +291,9 @@ def test_the_gate_uses_both_tiers_by_default_and_the_hard_tier_holds_out_half():
     hard = [t for t in tasks if t.name in {"lru_cache", "interval_merge", "report_tz", "inventory_remove",
                                             "toposort_cycle", "ini_parser", "retry_decorator", "bill_split"}]
     assert sorted(t.name for t in hard if t.heldout) == ["bill_split", "ini_parser", "retry_decorator", "toposort_cycle"]
-    assert [t.name for t in gate_tasks(ROOT, ROOT / "bench" / "tasks.yaml")] == \
-        [t.name for t in gate_tasks(ROOT, [ROOT / "bench" / "tasks.yaml"])]
+    easy = [t.name for t in gate_tasks(ROOT, ROOT / "bench" / "tasks.yaml")]
+    assert easy == [t.name for t in gate_tasks(ROOT, [ROOT / "bench" / "tasks.yaml"])]
+    assert "leap_year" in easy and not {t.name for t in hard} & set(easy)
     with pytest.raises(ValueError):
         gate_tasks(ROOT, [ROOT / "bench" / "tasks.yaml", ROOT / "bench" / "tasks.yaml"])
 
