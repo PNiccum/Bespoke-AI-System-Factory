@@ -24,6 +24,7 @@ knowledge loop starts from.
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 
 from pydantic import BaseModel
@@ -249,8 +250,11 @@ class PlanningLoop:
                                                           if kept[k] is not p]}, refs=[an.id])
 
         # 4. The critic re-checks its weaknesses on both plans; open ones are problems
-        open_a = self.recheck(task, weaknesses, edited.resolved, plan_a, ed.id)
-        open_b = self.recheck(task, weaknesses, {}, plan_b, ed.id, label="B", tag="plan-recheck-b")
+        # (the two re-checks are independent, so they run side by side)
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="recheck") as pool:
+            fa = pool.submit(self.recheck, task, weaknesses, edited.resolved, plan_a, ed.id)
+            fb = pool.submit(self.recheck, task, weaknesses, {}, plan_b, ed.id, label="B", tag="plan-recheck-b")
+            open_a, open_b = fa.result(), fb.result()
 
         # 5. Votes, counted in code
         plans = {"A": plan_a, "B": plan_b}
@@ -260,10 +264,16 @@ class PlanningLoop:
         vote_prompt = VOTE_PROMPT.format(task=task, plan_a=show(plan_a), plan_b=show(plan_b),
                                          analysis=json.dumps(analysis.model_dump()))
         votes = {}
-        for agent in VOTERS:
+
+        def cast(agent: str):
             try:
-                v = self._call(agent, vote_prompt, Vote, f"plan-vote-{agent}")
+                return self._call(agent, vote_prompt, Vote, f"plan-vote-{agent}")
             except RuntimeError:  # no valid vote after the retries
+                return None
+        with ThreadPoolExecutor(max_workers=len(VOTERS), thread_name_prefix="vote") as pool:
+            cast_votes = list(pool.map(cast, VOTERS))  # the voters do not see each other, so they run side by side
+        for agent, v in zip(VOTERS, cast_votes, strict=True):  # posted in a fixed order
+            if v is None:
                 votes[agent] = "spoiled"
                 self.board.post("vote", agent, {"choice": None, "why": "no valid vote", "counted": False},
                                 refs=[ed.id])
