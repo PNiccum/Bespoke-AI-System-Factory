@@ -264,6 +264,8 @@ def gate_tasks(root: Path, tasks_file: Path | list[Path] | None = None) -> list[
     ``tasks_file`` names one or more files. Each file's ``heldout`` flags are kept as written."""
     files = [root / f for f in DEFAULT_TASK_FILES] if tasks_file is None else \
         [tasks_file] if isinstance(tasks_file, Path) else list(tasks_file)
+    if missing := [str(f) for f in files if not f.is_file()]:
+        raise FileNotFoundError(f"no benchmark file at {', '.join(missing)}")
     tasks = [t for f in files for t in load_tasks(f, root)]
     if len({t.name for t in tasks}) != len(tasks):
         raise ValueError("the benchmark files share a task name")
@@ -573,7 +575,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--min-runs", type=int, default=MIN_RUNS, help="--from-events: runs an error must be open in")
     ap.add_argument("--no-replay", action="store_true", help="skip replaying archived failures (each is a full build)")
     ap.add_argument("--tasks", action="append", default=[], metavar="FILE",
-                    help="benchmark file(s) for the gate (default: bench/tasks.yaml and bench/tasks_hard.yaml)")
+                    help="benchmark file(s) for the gate (default: bench/tasks.yaml and bench/tasks_hard.yaml, "
+                         "nine held-out tasks; one run of each per candidate, free models)")
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     if args.rollback:

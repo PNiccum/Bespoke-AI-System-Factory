@@ -296,6 +296,8 @@ def test_the_gate_uses_both_tiers_by_default_and_the_hard_tier_holds_out_half():
     assert "leap_year" in easy and not {t.name for t in hard} & set(easy)
     with pytest.raises(ValueError):
         gate_tasks(ROOT, [ROOT / "bench" / "tasks.yaml", ROOT / "bench" / "tasks.yaml"])
+    with pytest.raises(FileNotFoundError, match="tasks_hrad"):
+        gate_tasks(ROOT, ROOT / "bench" / "tasks_hrad.yaml")
 
 
 def test_coder_and_builder_prompts_ask_for_the_whole_spec(cfg):
