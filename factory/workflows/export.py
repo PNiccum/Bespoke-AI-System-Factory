@@ -61,6 +61,7 @@ review recorded. The model's comments are judgement and are not recomputed. Exit
 """
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -73,6 +74,13 @@ sys.path.insert(0, str(HERE))
 from diff_inspect import inspect  # noqa: E402
 
 
+def clean_env():
+    """This shell's environment without keys, tokens, secrets or passwords: tests never need a credential."""
+    return {k: v for k, v in os.environ.items()
+            if not any(m in k.upper() for m in ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))
+            and not k.upper().startswith("GIT_CONFIG_")}
+
+
 def broken(repo, patch):
     """Test names that fail or error, or None when the patch does not apply."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -83,7 +91,7 @@ def broken(repo, patch):
             return None
         junit = Path(tmp) / "junit.xml"
         subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", f"--junitxml={junit}"],
-                       cwd=work, capture_output=True)
+                       cwd=work, capture_output=True, env=clean_env())
         if not junit.exists():
             return set()
         return {c.get("classname", "") + "::" + c.get("name", "") for c in ET.parse(junit).getroot().iter("testcase")

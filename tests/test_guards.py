@@ -97,3 +97,30 @@ def test_a_fix_that_removes_a_passing_test_fails_the_check(cfg, tmp_path):
     result = Orchestrator(llm, registry, on_event=events.append).run(task)
     assert result.status == "fixed" and result.attempts == 2
     assert any(e.step == "check" and "fewer tests ran (1 vs 2)" in e.detail for e in events)
+
+
+@pytest.mark.parametrize("template", ["factory.export.RERUN", "factory.workflows.export.RERUN_REVIEW"])
+def test_rerun_scripts_run_pytest_without_keys(template, monkeypatch, tmp_path):
+    """A bundle's rerun.py must not hand the shell's API keys to the tests it runs (they are generated code)."""
+    import importlib
+    import subprocess
+    import sys
+
+    mod, name = template.rsplit(".", 1)
+    src = getattr(importlib.import_module(mod), name)
+    script = tmp_path / "rerun.py"
+    script.write_text(src)
+    (tmp_path / "diff_inspect.py").write_text("def inspect(*a):\n    return {}\n")  # the review bundle ships its own
+    ns: dict = {"__name__": "rerun_under_test", "__file__": str(script)}
+    exec(compile(src, str(script), "exec"), ns)  # noqa: S102
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_shouldnotleak")
+    monkeypatch.setenv("PATH_OK", "kept")
+    env = ns["clean_env"]()
+    assert "ANTHROPIC_API_KEY" not in env and "GITHUB_TOKEN" not in env and env["PATH_OK"] == "kept"
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "test_env.py").write_text("import os\n\ndef test_no_keys():\n    assert 'ANTHROPIC_API_KEY' not in os.environ\n")
+    r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", str(repo)],
+                       env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout
