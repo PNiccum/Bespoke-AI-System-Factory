@@ -148,6 +148,7 @@ class _Hold:
     """An upper-bound estimate held on the shared credit (``rid``) and the run's cap while a paid call is in flight."""
     rid: str
     left: float
+    submitted: bool = False  # a provider batch is running under this hold
     settled: bool = False  # leave the shared reservation alone: it is gone, or must stay to cover an unrecorded cost
 
 
@@ -331,7 +332,7 @@ class LLM:
         except BaseException:
             if hold:
                 try:
-                    submitted = bool(self._pending_batch(rc, keys, reqs)[1])
+                    submitted = hold.submitted or bool(self._pending_batch(rc, keys, reqs)[1])
                 except Exception:
                     submitted = True  # cannot tell: fail closed and keep the hold
                 if submitted:
@@ -361,6 +362,8 @@ class LLM:
             batch_id = record["batch_id"]  # resume the batch an earlier run submitted
         else:
             batch_id = provider.submit_batch(reqs)
+            if hold:
+                hold.submitted = True  # billing now: if anything fails from here, its hold must stay
             record = {"batch_id": batch_id, "provider": rc.provider, "role": role, "n": len(reqs),
                       "submitted": datetime.now(UTC).isoformat()}
         record["hold"] = hold.rid if hold else None  # so a later resume can drop this run's hold if it dies

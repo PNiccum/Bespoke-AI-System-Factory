@@ -391,3 +391,16 @@ def test_a_corrupt_pending_batch_file_stops_rather_than_resubmitting(cfg, tmp_pa
     with pytest.raises(RuntimeError, match="unreadable"):
         llm2.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
     assert fresh.submitted == []
+
+
+def test_a_failed_record_write_after_submit_keeps_the_batch_hold(cfg, tmp_path, monkeypatch):
+    cfg.providers["claude"].batch = True
+    fake = FakeBatchProvider({"i0": ok("x")})
+    llm = LLM(cfg, tmp_path, providers={"arc": FakeProvider([]), "claude": fake}, approver=approve_all)
+
+    def fail(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr("factory.llm.client._retry_on_permission_error", fail)
+    with pytest.raises(OSError):
+        llm.complete_batch("agent", [{"user": "x"}], data="public", poll_seconds=0)
+    assert fake.submitted and len(llm.spend._read_reserved()) == 1  # billing, so the credit stays covered
