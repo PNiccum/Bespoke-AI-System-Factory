@@ -109,6 +109,7 @@ def test_classify_is_deterministic_and_bio_wins_a_tie():
              "document must profile every function of the module")
     assert classify(mixed) == "bio"
     assert classify("write a report that documents the functions in a table") == "other"
+    assert classify("a sequence of steps with an abstract base class") == "other"  # not a bio or a text request
 
 
 def test_a_project_without_a_tag_is_classified_from_its_request_text_only(tmp_path):

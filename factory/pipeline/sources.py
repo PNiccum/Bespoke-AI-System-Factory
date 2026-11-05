@@ -289,11 +289,11 @@ class ReferenceDocs(CachedAPI):
         return getattr(self._skips, "items", [])
 
     def search(self, query: str, n: int = 3) -> list[Doc]:
+        self._skips.items = []  # first, so a call that fails leaves no skips from the last one behind
         want = words(query)
         scored = sorted(((len(want & words(f"{title} {about}")), key, title, url)
                          for key, title, url, about in DOCS_CATALOG), reverse=True)
         docs = []
-        self._skips.items = []
         for score, key, title, url in scored[:n]:
             if score == 0:
                 break

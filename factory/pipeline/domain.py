@@ -19,12 +19,12 @@ DOMAINS = ("bio", "data", "text", "code", "other")
 # name the subject count: "report", "document", "table", "function" or "module" appear in requests of every kind,
 # so they are left out rather than letting one generic word decide the tag.
 HINTS: dict[str, tuple[str, ...]] = {
-    "bio": ("protein*", "proteom*", "gene", "genes", "genom*", "primer*", "pcr", "rna", "mrna", "dna", "sequence*",
+    "bio": ("protein*", "proteom*", "gene", "genes", "genom*", "primer*", "pcr", "rna", "mrna", "dna", "sequencing",
             "uniprot", "ncbi", "pubmed", "pmc", "cell line*", "mcf7", "assay*", "enzyme*", "antibod*", "clinical",
             "drug*", "chembl", "open targets", "pathway*", "ontology", "biolog*", "peptide*", "serum", "refseq"),
     "data": ("csv", "dataframe*", "spreadsheet*", "dataset*", "statistic*", "aggregate*", "pivot", "dedup*",
              "log file*", "logs", "metric*", "anomal*", "time series", "parquet", "null*", "tsv", "excel"),
-    "text": ("summar*", "article*", "citation*", "literature", "openalex", "abstract*", "essay*", "transcript*",
+    "text": ("summar*", "article*", "citation*", "literature", "openalex", "abstracts", "essay*", "transcript*",
              "translat*", "classif*", "sentiment", "claims", "wiki"),
     "code": ("bug", "bugs", "patch", "pull request*", "diff", "refactor*", "unit test*", "pytest", "repositor*",
              "repo", "api client", "cli", "failing test*", "stack trace", "exception*", "traceback"),

@@ -249,5 +249,6 @@ def time_lost(calls: list[dict]) -> dict:
     return {"model_seconds": round(total, 1), "lost_seconds": round(lost, 1),
             "lost_share": round(lost / total, 3) if total else 0.0, "cut_off": len(cut), "refused": len(refused),
             # a retried attempt and a fallback each have their own row, so they are counted apart from failed calls
-            "failed_calls": sum("error" in c and "fallback_to" not in c and "attempt" not in c for c in calls),
+            "failed_calls": sum("error" in c and "event" not in c and "fallback_to" not in c and "attempt" not in c
+                                for c in calls),
             "retries": sum("attempt" in c for c in calls), "fallbacks": sum("fallback_to" in c for c in calls)}
