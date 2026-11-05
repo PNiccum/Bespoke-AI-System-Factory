@@ -43,7 +43,7 @@ from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
-from factory.pipeline.lessons import BadSources, bad_sources_text, domain_of, lessons_dir
+from factory.pipeline.lessons import SKIP_AFTER, BadSources, bad_sources_text, domain_of, lessons_dir
 from factory.pipeline.scout import Scout
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher, skipped_pages
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
@@ -597,9 +597,9 @@ class KnowledgeLoop:
             st.queries.add(key)
             self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "found": [d.id for d in docs]})
             found |= {d.id: d for d in docs if d.text.strip() and d.id not in st.approved and d.id not in st.seen}
-        skipped = [i for i in found if i in known]  # rejected for this topic before: no model reads them again
+        skipped = [i for i in found if known.get(i, {}).get("count", 0) >= SKIP_AFTER]  # rejected often: no model reads them again
         if skipped:
-            found = {i: d for i, d in found.items() if i not in known}
+            found = {i: d for i, d in found.items() if i not in skipped}
             self.board.post("note", "code", {"topic": topic.name, "skipped_known_bad_sources": skipped})
         if not found:
             return []

@@ -12,14 +12,11 @@ from tests.test_knowledge import Engine, check, doc, draft, knowledge, queries, 
 from tests.test_orchestrator import ROOT, Scripted, cfg  # noqa: F401
 
 
-def test_domain_comes_from_the_request_tag_or_its_words(tmp_path):
+def test_domain_is_the_projects_tag(tmp_path):
     p = Project.create(tmp_path, "t")
-    p.board.post("request", "person", {"text": "Filter the protein list from a mass spec run"})
-    assert domain_of(p) == "proteomics"
-    q = Project.create(tmp_path, "u")
-    q.board.post("request", "person", {"text": "anything", "domain": "Lab Automation"})
-    assert domain_of(q) == "lab-automation"
-    assert domain_of(Project.create(tmp_path, "v")) == "general"
+    p.board.post("request", "person", {"text": "Filter the protein list from a mass spec run", "domain": "bio"})
+    assert domain_of(p) == "bio"
+    assert domain_of(Project.create(tmp_path, "v")) == "other"
 
 
 def test_bad_sources_are_per_topic_expire_and_clear(tmp_path):
@@ -49,6 +46,7 @@ def test_a_rejected_document_is_remembered_and_skipped_in_the_next_project(cfg, 
     kl2, arc2, project2, _ = knowledge(cfg, tmp_path / "second", queries(), review(4, 5), draft(4, 5), check(True),
                                        docs=(3, 4, 5))
     kl2.bad = kl.bad
+    kl.bad.record(kl.domain, "PCR primer design", "europepmc:PMC3", "off topic again")  # a second rejection
     kl2.research(Topic(name="PCR primer design", why="needed"))
     assert "PMC3" not in arc2.requests[1].messages[-1]["content"] and "PMC4" in arc2.requests[1].messages[-1]["content"]
     assert "Sources that failed for this topic" in arc2.requests[0].messages[-1]["content"]
@@ -78,7 +76,7 @@ def test_a_lesson_must_cite_entries_that_exist(cfg, tmp_path):
     assert [r["lesson"] for r in rows] == ["Primer papers from Europe PMC pass review; start there.",
                                            "Check source counts early; one round left the topic short."]
     assert rows[0]["evidence"] == [s.id]  # the unknown id is removed
-    assert rows[0]["domain"] == "bioinformatics" and page.name == "bioinformatics.md"
+    assert rows[0]["domain"] == "bio" and page.name == "bio.md"
     text = page.read_text()
     assert s.id in text and "Invented" not in text and "no evidence at all" not in text
 

@@ -5,7 +5,8 @@ Both live in ``<workspace>/lessons/`` beside the shared wiki, so every run on a 
 **Bad sources** (``bad_sources.json``) is plain code. When the research orchestrator rejects a document for a topic,
 code records it under the task's *domain* and the topic. The next time research for that topic finds the same
 document, code skips it before a model reads it, and the orchestrator is told which sources failed and why, so it
-searches elsewhere. An entry expires after ``TTL_DAYS`` (a page can be fixed), and a document approved later removes
+searches elsewhere; a source rejected ``SKIP_AFTER`` times is skipped outright (one rejection only warns, so a
+source that was judged wrongly once can still be approved, which clears its entry). An entry expires after ``TTL_DAYS`` (a page can be fixed), and a document approved later removes
 its entry. A rejection is about one topic only: the same paper can be right for another topic.
 
 **Lessons** (``lessons.jsonl`` and a page per domain, ``<domain>.md``) are written after a project is delivered or
@@ -13,8 +14,7 @@ re-designed, by one free ARC call. The call sees the blackboard's entries by id 
 cite blackboard ids for every lesson. Code drops a lesson that cites no entry that exists, so a lesson cannot float
 free of what happened. The page is rendered from the saved rows by code; the model never writes the file.
 
-The domain is a tag on the project. It is read from the request entry's ``domain`` field if one was set, else guessed
-from the request by keyword (``domain_of``), so lessons from a proteomics task do not steer a log-parsing task.
+The domain is the project's tag from ``factory/pipeline/domain.py``, so lessons from a bio task do not steer a code task.
 """
 
 from __future__ import annotations
@@ -32,30 +32,19 @@ from factory.events import FILE, Event, EventLog
 from factory.llm import LLM
 from factory.llm.client import complete_validated
 from factory.pipeline.blackboard import Project
+from factory.pipeline.domain import project_domain
 
 ROLE = "historian"  # a free ARC role; nothing here is ever sent to a paid model
 TTL_DAYS = 30
 MAX_LESSONS = 8
 MAX_ENTRIES = 60  # blackboard entries one prompt carries
 
-DOMAINS = {  # keyword -> domain, first match wins; a request that matches none is "general"
-    "proteomics": ("protein", "proteom", "peptide", "mass spec", "mcf7", "gene ontology", "uniprot", "david"),
-    "bioinformatics": ("gene", "genom", "sequence", "primer", "pcr", "rna", "dna", "biolog", "cell"),
-    "data-analysis": ("csv", "spreadsheet", "dataset", "table", "statistic", "plot", "log file", "logs"),
-    "software": ("bug", "repo", "pull request", "refactor", "python", "api", "cli", "test"),
-}
+SKIP_AFTER = 2  # rejections before a source is skipped without a model looking; one rejection only warns
 
 
 def domain_of(project: Project) -> str:
-    """The project's domain tag: an explicit ``domain`` on the request entry, else a keyword guess from its text."""
-    request = next(iter(project.board.entries("request")), None)
-    if request is None:
-        return "general"
-    explicit = str(request.data.get("domain", "")).strip().lower()
-    if explicit:
-        return re.sub(r"[^a-z0-9]+", "-", explicit).strip("-") or "general"
-    text = str(request.data.get("text", "")).lower()
-    return next((d for d, words in DOMAINS.items() if any(w in text for w in words)), "general")
+    """The project's domain tag (factory/pipeline/domain.py): the one on the request entry, else one from its words."""
+    return project_domain(project) or "other"
 
 
 def lessons_dir(workspace_or_wiki_root: Path) -> Path:
