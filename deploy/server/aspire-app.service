@@ -1,0 +1,15 @@
+# systemd USER unit for the Streamlit app the professor opens. Start: systemctl --user start aspire-app
+# Reachable only on eduroam / VT VPN, which is the server's own limit. Port 8501.
+[Unit]
+Description=ASPIRE Streamlit app
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__ROOT__
+ExecStart=__ROOT__/.venv/bin/streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,22 @@
+# Copy to queue.yaml on the server and edit. Run: python deploy/server/queue_runner.py deploy/server/queue.yaml
+# Every job is free ARC only. A job needs allow_paid: true before --ask/--redesign are accepted, and Parker's
+# own go-ahead (see docs/server.md) before that line is ever added.
+workdir: ~/aspire            # the clone
+env_file: ~/aspire/.env      # ARC_API_KEY etc.; read here, never printed
+jobs:
+  - name: bench-projects
+    cmd: python -m factory.bench_projects --parallel 3
+    timeout_hours: 8
+  - name: proteomics
+    cmd: python -m factory.bench_projects --projects bench/projects_proteomics.yaml --parallel 3
+    timeout_hours: 8
+  - name: bench-fix-tests-review
+    cmd: python -m factory.bench
+    timeout_hours: 4
+  # The Lazar lab list: ARC models only, never Claude/GPT. Disabled until Parker says to copy the file here.
+  # Runs only when the file exists; the runner strips the Claude/OpenAI keys and sets ASPIRE_DATA_PRIVATE=1.
+  # - name: mcf7-research
+  #   private: true
+  #   needs_files: [~/aspire-private/mcf7_list.csv]
+  #   cmd: python -m factory research --project <project folder>   # steps as in bench/research/mcf7_release/README.md
+  #   timeout_hours: 8
