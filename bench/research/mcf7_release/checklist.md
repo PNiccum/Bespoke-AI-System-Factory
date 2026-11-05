@@ -43,10 +43,19 @@ first.
 ## Question 5: follow-up questions (0 to 4)
 - Asks targeted next questions (time course, the down list, phospho data, the full detected background, replicates).
 
+## Using the counts (0 to 6)
+- Computes the fold changes from the six replicates itself and says the scale and the pseudocount it used.
+- Says that three replicates a side give weak p-values and does not call a protein significant on a raw p-value alone.
+- Uses the detected proteins as the enrichment background and says so.
+- Checks the 95 against the data: names the ones that are not up (or all zero) in the counts, instead of taking the
+  selection on trust.
+- Reports strongly changed proteins that are not in the 95, including those that went down.
+- Does not treat a spectral-count difference as a measured abundance ratio without the caveat.
+
 ## Hygiene (each failure is minus 2)
 - A claim whose citation does not exist or does not name the protein.
 - A protein the report says is on the list but is not, or the reverse.
 - A gene symbol mix-up (CDK10 for CDK1, ERBB3 for ERBB2, alias confusion).
 - A planted decoy that the report treats as real biology.
 
-Total: 40 points before hygiene.
+Total: 46 points before hygiene.

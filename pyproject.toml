@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "pytest-cov", "ruff", "bandit[toml]"]
+dev = ["pytest", "pytest-cov", "ruff", "bandit[toml]", "openpyxl"]  # openpyxl: bench/research add_decoys.py tests
 ui = ["streamlit>=1.37"]
 
 [build-system]
