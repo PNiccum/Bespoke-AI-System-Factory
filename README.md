@@ -133,10 +133,15 @@ python -m factory research --project workspace/factory/projects/<id>
 First the prior-art scout (`factory/pipeline/scout.py`) looks for what already exists: one ARC call proposes
 standard-library modules, PyPI packages and GitHub searches, and code checks each against `sys.stdlib_module_names`,
 the PyPI JSON and the GitHub search API (an invented name is dropped), then applies fixed rules: an open licence, a
-release or push in the last three years, and whether the sandbox can import it (the standard library and anything in
-`ASPIRE_SANDBOX_PACKAGES`; everything else is a reference to follow, not import). The result, with URLs and fetch
-dates, is `reuse.json`; the evaluator sees it and the head orchestrator records what it adopts (`ASPIRE_SCOUT=0` turns
-it off). The research connectors also include `pypi` (a package's README) and `github` (repository descriptions).
+release or push in the last three years, and whether the sandbox can import it. Importable means the standard library,
+the pinned set in `sandbox/requirements.txt` (numpy, pandas, scipy, requests, pyyaml, openpyxl, biopython, pydantic),
+and anything in `ASPIRE_SANDBOX_PACKAGES`. In the default `process` sandbox the tests run in the factory's own Python,
+so a listed package counts only if it is installed there; in a container the list is the truth (rebuild the image after
+changing it). Everything else is a reference to follow, not import; for the top three reference repositories code also
+reads the README and file list. The result, with URLs and fetch dates, is `reuse.json`; the evaluator sees it, the head
+orchestrator records what it adopts, and the checks block an import the sandbox cannot satisfy (`ASPIRE_SCOUT=0` turns
+the scout off). The research connectors also include `pypi` (a package's README) and `github` (repository
+descriptions).
 
 Before the evaluator runs, plain code (`self_contained` in `factory/pipeline/knowledge.py`) looks for a signal in the task
 and plan that research could help: an API, a named data source, a file format, or a field with its own methods. With none,
