@@ -167,6 +167,20 @@ def test_a_budget_deferred_topic_is_recorded_once(cfg, tmp_path, monkeypatch):
     assert len(salt) == 1 and salt[0].message.startswith("topic deferred: research budget")
 
 
+def test_a_topic_deferred_in_round_one_and_named_again_is_not_researched_or_recorded_twice(cfg, tmp_path,
+                                                                                            monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_RESEARCHED", 1)
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    kl, _, _, wiki = knowledge(cfg, tmp_path, topics("Primer3 settings", "Salt correction"), queries(), review(1, 2),
+                               draft(1, 2), check(True), topics("Salt correction"))
+    result = kl.run()
+    assert result.deferred == ["Salt correction"] and wiki.get("Salt correction") is None  # budget spent in round one
+    salt = [e for e in events_of(kl) if "topic:Salt correction" in e.refs]
+    assert len(salt) == 1 and salt[0].message.startswith("topic deferred: research budget")
+    cov = kl.board.latest("coverage").data
+    assert cov["deferred"] == ["Salt correction"] and cov["missing"] == []  # named once, not once per round
+
+
 def test_record_once_skips_a_repeat_while_the_first_is_open(tmp_path):
     log = EventLog(tmp_path / "r" / "events.jsonl", "r")
     first = log.record("checks", "2 failing test(s): a, b", stage="checks", once=True)
