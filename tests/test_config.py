@@ -1,5 +1,6 @@
 """The factory config loads, starts every role on ARC, and enforces family separation in both tiers."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -124,6 +125,22 @@ def test_aspire_data_private_makes_lab_data_unsendable_to_paid_providers(monkeyp
     assert load_config(ROOT / "configs" / "factory.yaml").data_public is False
     monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "0")
     assert load_config(ROOT / "configs" / "factory.yaml").data_public is True
+
+
+@pytest.mark.parametrize("line", ["ASPIRE_DATA_PRIVATE=1", "export ASPIRE_DATA_PRIVATE=1", "ASPIRE_DATA_PRIVATE='1'"])
+def test_aspire_data_private_set_only_in_dotenv_still_blocks_paid_providers(monkeypatch, tmp_path, line):
+    monkeypatch.delenv("ASPIRE_DATA_PRIVATE", raising=False)
+    (tmp_path / ".env").write_text(f"# flags\n{line}\n")
+    try:
+        assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    finally:
+        os.environ.pop("ASPIRE_DATA_PRIVATE", None)  # load_dotenv writes os.environ directly
+
+
+def test_real_environment_can_still_switch_the_flag_off_over_dotenv(monkeypatch, tmp_path):
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "0")
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is True
 
 
 def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):

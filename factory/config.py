@@ -211,7 +211,10 @@ def load_dotenv(path: Path) -> None:
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
-        key, sep, value = line.strip().partition("=")
+        line = line.strip()
+        if line.startswith("export "):  # `export KEY=value`, as shells write it
+            line = line[len("export "):]
+        key, sep, value = line.partition("=")
         if sep and key and not key.startswith("#"):
             os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
 
@@ -221,6 +224,11 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     from the environment, or from a ``.env`` file at the project root."""
     path = Path(path).resolve()
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    # configs/ sits at the project root; resolve relative paths from there.
+    root = path.parent.parent if path.parent.name == "configs" else path.parent
+    # Load .env first: ASPIRE_DATA_PRIVATE (the lab-data guard) and FACTORY_* may be set only there, and a flag read
+    # before this line would silently stay off.
+    load_dotenv(root / ".env")
     if tier := tier or os.environ.get("FACTORY_TIER"):
         data["tier"] = tier
     if os.environ.get("ASPIRE_DATA_PRIVATE", "").strip() not in ("", "0"):  # lab data: Claude and OpenAI refuse it
@@ -231,9 +239,6 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     unknown = set(data.get("role_tiers", {})) - set(data.get("roles", {}))
     if unknown:
         raise ValueError(f"role_tiers names unknown roles: {sorted(unknown)}")
-    # configs/ sits at the project root; resolve relative paths from there.
-    root = path.parent.parent if path.parent.name == "configs" else path.parent
-    load_dotenv(root / ".env")
     cfg = FactoryConfig(**data, root=root)
     for p in cfg.providers.values():  # relative key paths are relative to the project root
         if p.api_key_file and not p.api_key_file.expanduser().is_absolute():
