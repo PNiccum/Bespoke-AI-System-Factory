@@ -45,6 +45,13 @@ MAX_CANDIDATES = 12  # what the later stages are shown
 REPO_NAME = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 MAX_DETAILED = 3  # reference repositories whose README and file list are read
 README_CHARS = 1500  # of each README the designer sees
+MAX_FILES = 40  # top-level names kept per repository
+
+
+def safe_name(name: str) -> str:
+    """A repository file name as plain text: letters, digits and ._-/ only, at most 60 characters. It is third-party
+    text that reaches a prompt, so nothing else of it is kept."""
+    return re.sub(r"[^A-Za-z0-9._/-]", "", name)[:60]
 OPEN_LICENSES = ("mit", "bsd", "apache", "isc", "psf", "python software foundation", "mpl", "unlicense", "cc0",
                  "zlib", "lgpl")
 # a package's own licence field is free text; these are copyleft licences whose code must not be copied in
@@ -249,11 +256,10 @@ def unused_reuse(claimed: list[str], result: ReuseResult | None, out: Path, file
     for rel in files:
         if rel.endswith(".py"):
             imported |= imports_of((out / rel).read_text(encoding="utf-8", errors="replace"))
-    importable = {c.name.lower(): c for c in result.candidates if c.use == "import"}
+    importable = {norm(c.name): c for c in result.candidates if c.use == "import"}
     missing = []
     for line in claimed:
-        name = line.split(":", 1)[0].strip().lower()
-        c = importable.get(name)
+        c = importable.get(norm(line.split(":", 1)[0]))
         if c is None:
             continue  # a [reference] tool is followed, not imported, so there is nothing to check in code
         mod = c.name if c.kind == "stdlib" else import_name(c.name)
@@ -376,13 +382,14 @@ class Scout:
 
     def _details(self, result: ReuseResult) -> ReuseResult:
         """README and top-level files of the best few reference repositories (a remembered candidate keeps its own)."""
-        for c in [c for c in result.candidates if c.kind == "github" and c.use == "reference"][:MAX_DETAILED]:
+        todo = [c for c in result.candidates if c.kind == "github" and c.use == "reference" and not (c.readme or c.files)]
+        for c in todo[:MAX_DETAILED]:
             if not REPO_NAME.fullmatch(c.name):  # the name goes into an API path
                 result.errors.append(f"github {c.name[:60]!r}: not an owner/repo name, details skipped")
                 continue
             try:
                 c.readme = self.github.readme(c.name)[:README_CHARS * 2]
-                c.files = self.github.files(c.name)
+                c.files = [safe_name(f) for f in self.github.files(c.name)][:MAX_FILES]
             except Exception as e:  # noqa: BLE001
                 result.errors.append(f"github {c.name} details: {type(e).__name__}: {str(e)[:120]}")
         return result
