@@ -106,6 +106,13 @@ plan (acceptance checks present, ids unique, no task depending on a later one) a
 creates `workspace/<name>/projects/<id>/` with `task.txt`, `plan_a.json` and `blackboard.jsonl`, the shared log
 every later stage of the pipeline reads and writes (`factory/pipeline/`).
 
+Before the first question, plain code looks for an earlier delivered project with a similar request
+(`factory/pipeline/precedent.py`, no model call): the request becomes a fingerprint (its content keywords and a hash
+of them), every project whose final QA approved is scored against it, and the best few (a `precedent` entry on the
+blackboard, even when empty) are shown to the Interviewer, the plan critic and the head orchestrator as a starting
+template: what was asked, how it was designed and laid out, and where its deliverable is. They may follow it, adapt it
+or ignore it. `python -m factory similar "<request>"` lists the matches.
+
 Then the planning loop puts three model families on Plan A:
 
 ```bash

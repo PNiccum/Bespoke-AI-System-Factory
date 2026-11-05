@@ -29,6 +29,7 @@ from pydantic import BaseModel, model_validator
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
+from factory.pipeline.precedent import offer
 from factory.pipeline.scout import ReuseResult
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
@@ -242,6 +243,8 @@ class Production:
         plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text(encoding="utf-8"))
         pages = self.pages()
         wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
+        if earlier := offer(self.project, task):  # a delivered project with a similar request, as a starting template
+            wiki += "\n\n" + earlier
         gaps = (self.board.latest("knowledge").data.get("gaps") or {})
         if gaps:
             wiki += ("\n\n## Known gaps (research found no verified source)\n"

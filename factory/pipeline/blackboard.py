@@ -36,6 +36,7 @@ KINDS = frozenset({
     "recheck",  # the plan critic's check of which of its weaknesses the edited Plan A still has
     "vote",  # one agent's vote between the plans
     "decision",  # the winning plan, counted in code
+    "precedent",  # delivered projects with a similar request, matched by code (precedent.py), possibly none
     "prior_art",  # existing tools the scout found for the task, with the rule that decided each one's use
     "topics",  # what the knowledge evaluator says the work needs
     "coverage",  # which of those topics the wiki already covers
