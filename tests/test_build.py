@@ -378,3 +378,9 @@ def test_accepted_fixes_that_change_nothing_escalate(cfg, tmp_path, monkeypatch)
     result = critic.run(checks)
     assert not result.accepted and result.step == "wiki"
     assert any("unchanged" in e.data.get("text", "") for e in project.board.entries("note"))
+
+
+def test_final_qa_judges_the_delivered_result_not_the_process():
+    from factory.pipeline.final import QA_PROMPT
+    assert "Judge the delivered result, not how it was made" in QA_PROMPT
+    assert "an issue to list, not an unmet task" in QA_PROMPT

@@ -45,7 +45,10 @@ class FinalResult(BaseModel):
 
 QA_PROMPT = """Do final QA on this solution before it goes to the person. For each task, say whether its acceptance \
 criterion is met, with the evidence (a file and what it does, or a test that passed). Be strict: a criterion that \
-nothing in the files or tests shows is not met.
+nothing in the files or tests shows is not met. Judge the delivered result, not how it was made: a criterion about \
+the order of work (tests written first, or failing in a certain way before the code existed) is met when those tests \
+exist and pass now. The plain-code checks are the record of the test run; a test count or run log written in a \
+file that disagrees with them is an issue to list, not an unmet task.
 
 ## Tasks and acceptance criteria
 {tasks}
