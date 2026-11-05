@@ -299,7 +299,7 @@ pull request that changes how ASPIRE asks or judges a model is merged:
 
 | Change touches | Run on the laptop | Pass when |
 |---|---|---|
-| `factory/orchestrator.py`, `factory/workflows/`, `registry/agents/coder.yaml`, `reviewer.yaml`, `code_navigator.yaml` | `python -m factory.bench --tasks bench/tasks_hard.yaml` (about 80 minutes) | ASPIRE solves at least as many as the last recorded run, hidden tests included |
+| `factory/orchestrator.py`, `factory/workflows/`, `registry/agents/coder.yaml`, `reviewer.yaml`, `code_navigator.yaml` | `python -m factory.bench --tasks bench/tasks_hard.yaml --repeat 3` (about 80 minutes) | ASPIRE's total over the 24 runs, hidden tests included, is within one of the last recorded run or above it (one task in one trial is run-to-run noise; two is not) |
 | `factory/pipeline/`, the pipeline agents' prompts | `python -m factory.bench_projects` | No project stops earlier than it did in the last recorded run |
 | Anything else | `pytest` in CI | green |
 
