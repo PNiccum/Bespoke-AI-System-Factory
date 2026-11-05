@@ -280,3 +280,26 @@ def test_replays_can_be_skipped(cfg, monkeypatch, own_registry):
     assert replayed == [] and result.status == "adopted"
     from factory.failures import FailureArchive
     assert FailureArchive.of(cfg).get("c1").status == "open"  # unverified, so not marked fixed
+
+
+def test_the_gate_uses_both_tiers_by_default_and_the_hard_tier_holds_out_half():
+    from factory.extend import gate_tasks
+
+    tasks = gate_tasks(ROOT)
+    names = {t.name for t in tasks}
+    assert {"leap_year", "bill_split", "lru_cache"} <= names and len(names) == len(tasks)
+    hard = [t for t in tasks if t.name in {"lru_cache", "interval_merge", "report_tz", "inventory_remove",
+                                            "toposort_cycle", "ini_parser", "retry_decorator", "bill_split"}]
+    assert sorted(t.name for t in hard if t.heldout) == ["bill_split", "ini_parser", "retry_decorator", "toposort_cycle"]
+    assert [t.name for t in gate_tasks(ROOT, ROOT / "bench" / "tasks.yaml")] == \
+        [t.name for t in gate_tasks(ROOT, [ROOT / "bench" / "tasks.yaml"])]
+    with pytest.raises(ValueError):
+        gate_tasks(ROOT, [ROOT / "bench" / "tasks.yaml", ROOT / "bench" / "tasks.yaml"])
+
+
+def test_coder_and_builder_prompts_ask_for_the_whole_spec(cfg):
+    """The hard tier's misses passed every visible test and failed a hidden one (bill_split skipped input validation
+    three times), so both prompts name the rules the failing test does not cover."""
+    for agent in ("coder", "builder"):
+        prompt = Registry.load(cfg, ROOT / "registry").agents[agent].prompt.lower()
+        assert "input validation" in prompt and "cannot see" in prompt

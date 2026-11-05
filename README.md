@@ -195,7 +195,9 @@ python -m factory.bench_projects --only wordstats --repeat 3
 - `bench/tasks_hard.yaml` holds eight repository tasks. Some have two bugs in one class or a cause two modules
   away from the symptom. One is a feature built to tests that already exist (`inventory_remove`), and the rest are a
   parser or an algorithm brought up to its written spec. They are judged like the main benchmark, with hidden
-  tests, and kept in their own file so the main numbers and self-extension's held-out gate do not change.
+  tests, and kept in their own file so the main numbers do not change. Four of them are held out: self-extension
+  learns from the other four and is judged on these, because the hard tier is where ASPIRE and a single call
+  differ (18/24 against 11/24), while the main tier is where they tie.
 - `bench/projects.yaml` holds four small tools: a word-frequency CLI, a CSV profiler, an access-log error-spike
   finder, and an OpenAlex reading-list digest. Each starts from a written request and Plan A, then goes through the
   planning loop, the knowledge loop, production, the critic loop and final QA. Plain code then runs acceptance tests
@@ -274,6 +276,20 @@ python -m factory.mcp --root path/to/repos
 ```
 
 See [docs/mcp.md](docs/mcp.md) for the tools, why ASPIRE uses MCP, and a client config.
+
+## Regression checks before a merge
+
+GitHub Actions cannot reach ARC, so the live checks run on a laptop on the VT network, free models only, before a
+pull request that changes how ASPIRE asks or judges a model is merged:
+
+| Change touches | Run on the laptop | Pass when |
+|---|---|---|
+| `factory/orchestrator.py`, `factory/workflows/`, `registry/agents/coder.yaml`, `reviewer.yaml`, `code_navigator.yaml` | `python -m factory.bench --tasks bench/tasks_hard.yaml` (about 80 minutes) | ASPIRE solves at least as many as the last recorded run, hidden tests included |
+| `factory/pipeline/`, the pipeline agents' prompts | `python -m factory.bench_projects` | No project stops earlier than it did in the last recorded run |
+| Anything else | `pytest` in CI | green |
+
+The main tier (`python -m factory.bench`) is a tie between ASPIRE and a single call, so it is a smoke test, not a
+regression check. Record each run under the project folder's `evaluation/live/` and in `docs/evaluation.md`.
 
 ## Demo walkthrough
 

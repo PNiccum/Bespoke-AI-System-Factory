@@ -10,5 +10,7 @@ outputs: [patch]
 risk: medium
 prompt: >
   You fix one problem in a Python repository. Reply with a unified diff and nothing else.
-  Change only what the fix needs.
+  Change only what the fix needs. Honor every rule the issue, the docstring and the function's contract state,
+  including input validation and edge cases, not only the behavior the failing test checks: the fix is judged by
+  tests you cannot see.
 evals: [patch_applies, tests_pass]

@@ -12,7 +12,7 @@ claim has an experiment, and each experiment is a command that writes `bench/res
 | Gated | Hostile patches with every model assumed compromised (coder sends it, reviewer accepts) | nothing | `python -m factory.evaluate guards` |
 | Cross-family review | Reviewer models on wrong patches that pass every visible test, and on correct ones written differently | ARC | `python -m factory.evaluate reviewers --authored 2` |
 | Full pipeline | Interviewer to deliverable on a public task (NCBI gene to PCR primers) | ARC, NCBI | `python -m factory interview ...`, then `plan`, `research`, `build` |
-| Self-extension | A proposed prompt judged on the held-out tasks | ARC | `python -m factory.extend --agent coder` |
+| Self-extension | A proposed prompt judged on the held-out tasks of both tiers (the hard tier is where the modes differ) | ARC | `python -m factory.extend --agent coder` |
 
 ## The benchmark's judge
 
@@ -64,6 +64,11 @@ tokens are earned back after about 4 reruns of its bundle; on harder bugs ASPIRE
 are superseded: the first (26/33 each) gave ASPIRE only two free attempts, the second (26/33 vs 32/33) came before
 the coder was shown the modules the failing tests import (#40), and the third (31/33 each) lost two correct ASPIRE
 patches to short hunk counts (#44).
+
+What the hard tier taught (2026-11-05): ASPIRE's misses there were patches that passed every visible test and failed
+a hidden one (`bill_split` skipped the people <= 0 check in all three trials), so the coder and builder prompts now
+say to honor every rule in the issue, docstring and request, not only the failing test. The hard tier is also the
+regression check before an orchestrator or prompt change merges (README, "Regression checks before a merge").
 
 End-to-end builds have not delivered yet. The gene-to-primers build (68 calls, 1.08M tokens) ended in re-design
 because every check failed to import the package (#48), and the four build-from-scratch tools went 0/4: three stopped
