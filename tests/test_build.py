@@ -568,6 +568,15 @@ def test_salvage_merge_leaves_a_malformed_reply_for_validation_to_reject():
         {"path": "a.py", "content": "A = 2\n"}] and sv.kept() == []
 
 
+def test_a_failed_paid_rescue_still_reports_the_kept_files_as_lost(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), "no blocks", "still none",
+                                         orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    llm.providers["openai"] = Scripted("not files either")
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert llm.providers["arc"].cut and project.board.entries("build")[0].data["salvage_lost"] == ["primer.py"]
+
+
 def test_a_build_that_is_not_cut_off_leaves_no_salvage_note(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["arc"] = Scripted(*PRODUCE)

@@ -433,10 +433,10 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate,
                              lighter=cut_off)
             data_ = parse(c) if parse else c.json()
-            if salvage and not told_kept:  # a reply that never saw the kept pieces stands alone
+            out = model_cls.model_validate(salvage.merge(data_) if salvage and told_kept else data_)
+            if salvage and not told_kept:  # a valid reply that never saw the kept pieces stands alone
                 salvage.discard()
-            return settled((model_cls.model_validate(salvage.merge(data_) if salvage and told_kept else data_), c,
-                            errors))
+            return settled((out, c, errors))
         except TruncatedError as e:
             errors.append(str(e))
             # the cut-off itself is already an event (recorded where the model answered, in converse)
@@ -453,9 +453,10 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         try:
             c = llm.complete(role, p, system=system, tag=f"{tag}-paid", data=data, max_tokens=max_tokens,
                              escalate=True)
+            out = model_cls.model_validate(parse(c) if parse else c.json())
             if salvage:  # the rescue prompt asks for everything and never saw the kept pieces: its reply stands alone
                 salvage.discard()
-            return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
+            return settled((out, c, errors))
         except (SpendDenied, BudgetExceeded, DataScopeError) as e:  # not approved or not allowed: no spend
             errors.append(f"paid rescue skipped: {str(e)[:160]}")
         except (TruncatedError, ValueError, ValidationError) as e:
