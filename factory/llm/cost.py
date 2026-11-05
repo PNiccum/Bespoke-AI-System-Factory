@@ -21,6 +21,15 @@ class BudgetExceeded(RuntimeError):
     """A run cap was reached; the caller stops and reports instead of continuing."""
 
 
+class StageCapReached(RuntimeError):
+    """One pipeline stage used its token ceiling (``Budget.stage_max_tokens``). Unlike BudgetExceeded this ends only
+    the stage: the pipeline moves on (the critic loop to final QA) instead of stopping the run."""
+
+    def __init__(self, stage: str, used: int, limit: int):
+        super().__init__(f"stage token cap reached: {stage} used {used:,} of {limit:,}")
+        self.stage, self.used, self.limit = stage, used, limit
+
+
 @dataclass
 class Usage:
     input_tokens: int = 0  # uncached input only
@@ -59,6 +68,9 @@ class Ledger:
     calls: int = 0
     cached_calls: int = 0
     started: float = field(default_factory=time.monotonic)
+    stage: str = ""  # the stage now running (set by LLM.stage), "" outside any
+    stage_tokens: int = 0  # tokens used since that stage was entered
+    by_stage: dict = field(default_factory=dict)  # stage -> tokens, over every entry
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     def add(self, priced: float, real: float, tokens: int, cached: bool = False) -> None:
@@ -66,6 +78,9 @@ class Ledger:
             self.priced_usd += priced
             self.real_usd += real
             self.tokens += tokens
+            if self.stage:
+                self.stage_tokens += tokens
+                self.by_stage[self.stage] = self.by_stage.get(self.stage, 0) + tokens
             self.calls += 1
             self.cached_calls += cached
 
@@ -78,6 +93,9 @@ class Ledger:
             raise BudgetExceeded(f"cost cap reached: ${self.real_usd:.2f} of ${b.max_real_usd:.2f} real spend")
         if b.max_tokens is not None and self.tokens >= b.max_tokens:
             raise BudgetExceeded(f"token cap reached: {self.tokens:,} of {b.max_tokens:,}")
+        limit = b.stage_max_tokens.get(self.stage) if self.stage else None
+        if limit is not None and self.stage_tokens >= limit:
+            raise StageCapReached(self.stage, self.stage_tokens, limit)
         if b.max_seconds is not None and time.monotonic() - self.started >= b.max_seconds:
             raise BudgetExceeded(f"time cap reached: {b.max_seconds:.0f} s")
 
@@ -88,4 +106,5 @@ class Ledger:
             "shadow_usd": round(self.priced_usd - self.real_usd, 4),  # estimate if the free models were paid
 
             "seconds": round(time.monotonic() - self.started, 1),
+            "tokens_by_stage": dict(self.by_stage),
         }

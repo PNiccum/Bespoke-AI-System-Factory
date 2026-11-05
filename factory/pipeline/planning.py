@@ -236,6 +236,10 @@ class PlanningLoop:
         return left
 
     def run(self) -> Outcome:
+        with self.llm.stage("planning"):  # token ceiling: budget.stage_max_tokens
+            return self._run()
+
+    def _run(self) -> Outcome:
         approval = self.board.latest("approval")
         if approval is None:
             raise RuntimeError("the planning loop starts from an approved Plan A; approve one first")
