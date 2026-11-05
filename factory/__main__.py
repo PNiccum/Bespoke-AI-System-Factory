@@ -105,14 +105,17 @@ def run_planning(args) -> int:
 def run_research(args) -> int:
     """The knowledge loop: topics the plan needs, wiki coverage, research, cited and verified wiki pages."""
     from factory.pipeline.blackboard import Project
-    from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+    from factory.pipeline.knowledge import KnowledgeLoop, default_scout, default_searchers
     from factory.pipeline.wiki import Wiki
 
     cfg = load_config(args.config)
     project = Project.open(Path(args.project))
     llm = LLM(cfg, new_run_dir(cfg, "research"), approver=ask_on_terminal)
-    loop = KnowledgeLoop(llm, Registry.load(cfg), project, Wiki(cfg.work_dir / "wiki"),
-                         default_searchers(cfg.work_dir / "research-cache"))
+    registry = Registry.load(cfg)
+    loop = KnowledgeLoop(llm, registry, project, Wiki(cfg.work_dir / "wiki"),
+                         default_searchers(cfg.work_dir / "research-cache"),
+                         scout=default_scout(llm, registry, cfg.work_dir / "research-cache",
+                                             Wiki(cfg.work_dir / "wiki"), project.root.name))
     result = loop.run(again=args.again)
     for topic, slug in result.covered.items():
         print(f"  covered: {topic} ({cfg.work_dir / 'wiki' / slug}.md)")
@@ -195,6 +198,11 @@ def main(argv: list[str] | None = None) -> int:
                              "folder (planning, research and build then run fresh)")
     restart.add_argument("--project", required=True)
     restart.add_argument("--config", default="configs/factory.yaml")
+    similar = sub.add_parser("similar", help="list delivered projects whose request is close to this one; no model "
+                             "calls")
+    similar.add_argument("request", nargs="?")
+    similar.add_argument("--request-file")
+    similar.add_argument("--config", default="configs/factory.yaml")
     wiki = sub.add_parser("wiki", help="rewrite the wiki's index.md and list problems (broken links, orphans, "
                           "unverified pages); no model calls")
     wiki.add_argument("--config", default="configs/factory.yaml")
@@ -215,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
         src = Project.open(Path(args.project))
         new = Project.restart(src, src.root.parent)
         print(f"new project: {new.root}\nnext: python -m factory plan --project {new.root}")
+        return 0
+    if args.command == "similar":
+        from factory.pipeline import precedent
+        text = Path(args.request_file).read_text(encoding="utf-8") if args.request_file else (args.request or "")
+        found = precedent.find(load_config(args.config).work_dir / "projects", text)
+        print(precedent.render(found) or "no delivered project is close to this request")
         return 0
     if args.command == "wiki":
         from factory.pipeline.wiki import Wiki

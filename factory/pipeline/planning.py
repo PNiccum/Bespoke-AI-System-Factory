@@ -32,9 +32,11 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan, check_plan
+from factory.pipeline.precedent import offer
 from factory.registry import Registry
 from factory.risks import render, risks_for
 
@@ -194,6 +196,7 @@ class PlanningLoop:
         self.llm, self.project, self.board = llm, project, project.board
         self.agents = {name: registry.agents[name] for name in (CRITIC, ANALYST, EDITOR)}
         self.data = "public" if llm.cfg.data_public else "private"
+        log_of(llm, project)
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str):
         spec = self.agents[agent]
@@ -229,7 +232,9 @@ class PlanningLoop:
 
         # 1. Critique and Plan B, with one fix when Plan B fails its checks
         risks = risks_for(self.llm, task)
-        prompt = CRITIC_PROMPT.format(task=task, plan_a=show(plan_a), shape=SHAPE, risks=render(risks))
+        earlier = offer(self.project, task)  # the Interviewer's lookup if it ran, else made now (same blackboard entry)
+        prompt = CRITIC_PROMPT.format(task=task + (f"\n\n{earlier}" if earlier else ""), plan_a=show(plan_a),
+                                      shape=SHAPE, risks=render(risks))
         if risks:
             self.board.post("note", "code", {"risks": [r.model_dump() for r in risks]}, refs=[approval.id])
         critique = self._call(CRITIC, prompt, Critique, "plan-critique")
