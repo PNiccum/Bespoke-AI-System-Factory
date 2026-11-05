@@ -206,6 +206,26 @@ DOCS_CATALOG = (
     ("europepmc_fields", "Europe PMC REST search fields",
      "https://www.ebi.ac.uk/europepmc/webservices/rest/fields?format=json",
      "europe pmc rest api search query fields syntax json result pmid pmcid abstract title author"),
+    # Added 2026-11-05: four runs stopped on one API schema or export format each. These addresses have not been
+    # fetched from the cloud container (its network allows no host here); a page that errors or is blocked skips itself.
+    ("europepmc_rest", "Europe PMC RESTful web service (search syntax, quoting, paging)",
+     "https://europepmc.org/RestfulWebService",
+     "europe pmc rest web service search query syntax quoting phrase boolean field and or not pageSize cursorMark "
+     "resultType format json parameters"),
+    ("david_functional_annotation", "DAVID functional annotation tool: help and chart output",
+     "https://davidbioinformatics.nih.gov/content.jsp?file=functional_annotation.html",
+     "david functional annotation chart report export download table columns term count percent pvalue fold "
+     "enrichment benjamini bonferroni fdr ease score gene list tsv"),
+    ("opentargets_graphql", "Open Targets Platform: GraphQL API", "https://platform-docs.opentargets.org/data-access/graphql-api",
+     "open targets platform graphql api query target disease drug associated evidence clinical phase known drugs"),
+    ("opentargets_schema", "Open Targets Platform GraphQL schema (SDL)",
+     "https://api.platform.opentargets.org/api/v4/graphql/schema",
+     "open targets graphql schema type target drug knowndrugs clinical phase mechanism of action disease evidence "
+     "association score fields"),
+    ("cellosaurus_description", "Cellosaurus: description of the cell line knowledge resource",
+     "https://www.cellosaurus.org/description.html",
+     "cellosaurus cell line name nomenclature identifier cvcl accession synonyms mcf-7 mcf7 normalization "
+     "misidentified naming conventions"),
     ("hpa_download", "Human Protein Atlas: downloadable data", "https://www.proteinatlas.org/about/download",
      "human protein atlas hpa download tsv rna expression cell line tissue file format columns"),
     ("go_annotations", "Gene Ontology: GO annotations", "https://geneontology.org/docs/go-annotations/",

@@ -50,6 +50,7 @@ EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER = ("knowledge_evaluator", "research
 # MAX_ROUNDS evaluations, so at most MAX_ROUNDS - 1 research passes, each followed by a fresh evaluation
 MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 4, 6, 3, 3, 5
 MAX_RESEARCHED = 12  # topics researched in one run; the rest are left to the critic loop, so more rounds stay bounded
+MAX_OPEN_GAPS = 1  # outside topics researched without a verified page that a run may carry into the build
 SHOWN_PAGES = 40  # wiki pages the evaluator sees, the most relevant to the task
 GAP_SEARCHES = 1  # search rounds after a page fails its checks, aimed at what the verifier found unsupported
 RESEARCH_WORKERS = 4  # topics researched at once; ARC allows 20 requests in flight per user
@@ -115,6 +116,10 @@ class KnowledgeResult(BaseModel):
     deferred: list[str] = []  # first asked for in the last round and still without a page: left to the critic loop
     dropped: dict[str, str] = {}  # topic -> why the evaluator let it go without a page
     decided: dict[str, str] = {}  # topic -> why: a choice the plan or the builders make, so research skips it
+    # topic -> what research found: at most MAX_OPEN_GAPS outside topics researched in every round that still have
+    # no verified page. The build goes ahead with the gap recorded (the builders are told, the final report shows
+    # it) and the critic loop can research it again if the work turns out to need it.
+    gaps: dict[str, str] = {}
 
 
 EVALUATE_PROMPT = """A team of agents is about to carry out this plan. Decide what knowledge it needs that a capable \
@@ -157,7 +162,7 @@ Search hints: {hints}
 - europepmc: biomedical and life-science papers (PubMed, PubMed Central)
 - ncbi_gene: genes by symbol or name, with organism, e.g. "BRCA1[sym] AND human[orgn]"
 - docs: reference manuals and API documentation (NCBI E-utilities, RefSeq, Primer3, Biopython, UniProt, Europe \
-PMC, Human Protein Atlas, Gene Ontology, ChEMBL, OpenAlex, Apache logs, Python csv/codecs/datetime/json, Markdown \
+PMC, Human Protein Atlas, Gene Ontology, ChEMBL, Open Targets GraphQL, DAVID, Cellosaurus, Europe PMC search syntax, OpenAlex, Apache logs, Python csv/codecs/datetime/json, Markdown \
 tables, pytest and pyproject packaging); use it for how a \
 tool, API or format works, and keyword queries such as "efetch rettype fasta nucleotide"
 {previous}
@@ -358,12 +363,32 @@ class KnowledgeLoop:
                                                         "missing": missing, "deferred": deferred, "final": True},
                                 refs=[ev.id])
                 break
+        gaps = self._open_gaps(missing)
+        if gaps:
+            missing = []
+            self.board.post("note", "code", {"text": "the build goes ahead with a recorded gap: "
+                                                 + "; ".join(f"{n} ({why})" for n, why in gaps.items())})
         ok = not missing
         result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
-                                 dropped=dropped, decided=decided)
+                                 dropped=dropped, decided=decided, gaps=gaps)
         k = self.board.post("knowledge", EVALUATOR if ok else "code", result.model_dump())
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
+
+    def _open_gaps(self, missing: list[str]) -> dict[str, str]:
+        """The one or two topics that stopped a run which otherwise has its knowledge, when each was really researched
+        (searched, not just named): all four proteomics and MCF7 runs of 2026-11-05 stopped on a single API schema or
+        export format that no source in reach settled. More open topics than MAX_OPEN_GAPS still block."""
+        if not missing or len(missing) > MAX_OPEN_GAPS:
+            return {}
+        out = {}
+        for name in missing:
+            st = self._topics.get(name)
+            if st is None or not (st.queries or st.approved):
+                return {}  # never searched: that is a failure to research, not a gap research could not close
+            out[name] = (f"{len(st.approved)} approved source(s), no verified page"
+                         + (f"; last check: {st.issues[0][:160]}" if st.issues else ""))
+        return out
 
     def research_many(self, topics: list[Topic]) -> list[WikiPage | None]:
         """Research several topics at once, results in the order given. Topics are independent (each searches,
