@@ -9,6 +9,7 @@ import streamlit as st
 
 from factory import events as ev
 from factory.config import load_config
+from factory.llm.cost import BudgetExceeded
 from factory.llm.gate import SpendLedger
 from factory.ui import inspect
 
@@ -32,7 +33,11 @@ st.caption("Free ARC models do the work; a paid call needs your approval. Every 
            "folder's llm_calls.jsonl, and paid spend is tracked across runs in the workspace's spend ledger.")
 
 st.subheader("Paid credit")
-spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
+try:
+    spent = SpendLedger(cfg.work_dir / "spend.json", cfg.credits).spent
+except BudgetExceeded as e:
+    spent = {}
+    st.error(str(e))
 cols = st.columns(max(1, len(cfg.credits.by_provider)))
 for col, (provider, credit) in zip(cols, cfg.credits.by_provider.items(), strict=False):
     used = spent.get(provider, 0.0)

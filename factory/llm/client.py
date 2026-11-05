@@ -237,7 +237,7 @@ class LLM:
             raw, seconds = self._call_with_retries(rc.provider, req, role, tag)
             priced, real = price_call(info, self.cfg.models, raw.usage)
             self.ledger.add(priced, real, raw.usage.total)
-            self.spend.settle(hold.rid if hold else None, rc.provider, real)
+            self._settle(hold, rc.provider, real, role, tag)
         finally:
             self._release(hold)
         self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, prompt_sha256=key,
@@ -347,7 +347,7 @@ class LLM:
             self.ledger.add(priced, real, raw.usage.total)
             item = min(hold.left, estimate_usd(info, len(json.dumps(req.messages)) + len(req.system or ""),
                                                req.max_tokens) * info.batch_discount) if hold else 0.0
-            self.spend.settle(hold.rid if hold else None, rc.provider, real, part=item)  # this item's share of the hold
+            self._settle(hold, rc.provider, real, role, tag, part=item)  # this item's share of the hold
             if hold:
                 self.ledger.unhold(item)
                 hold.left -= item
@@ -384,6 +384,19 @@ class LLM:
             return _Hold(self.spend.reserve(rc.provider, estimate, **({"ttl_s": ttl_s} if ttl_s else {})), estimate)
         except BaseException:
             self.ledger.unhold(estimate)
+            raise
+
+    def _settle(self, hold: _Hold | None, provider: str, real: float, role: str, tag: str,
+                part: float | None = None) -> None:
+        """Write a finished call's real cost to the shared ledger. If that fails the money is already spent, so the
+        amount is logged (log line and event) before the error stops the run: it is never lost silently."""
+        try:
+            self.spend.settle(hold.rid if hold else None, provider, real, part=part)
+        except Exception as e:
+            self._log(event="spend_unrecorded", role=role, provider=provider, real_usd=round(real, 6),
+                      error=f"{type(e).__name__}: {e}"[:300])
+            self.events.record("llm", f"{tag or role}: ${real:.4f} was spent on {provider} but could not be written "
+                               f"to the spend ledger: {type(e).__name__}: {e}"[:400], stage=tag or role)
             raise
 
     def _release(self, hold: _Hold | None) -> None:

@@ -212,3 +212,36 @@ def test_a_corrupt_ledger_file_fails_closed(tmp_path):
     path.write_text("")
     with pytest.raises(BudgetExceeded, match="unreadable"):
         SpendLedger(path, Credits(by_provider={"claude": 5.0}, reserve_usd=0.0)).check("claude")
+
+
+def test_a_stale_reservation_stops_counting_and_a_corrupt_reservation_file_fails_closed(tmp_path):
+    credits = Credits(by_provider={"claude": 1.0}, reserve_usd=0.0)
+    ledger = SpendLedger(tmp_path / "spend.json", credits)
+    ledger.reserve("claude", 0.9, ttl_s=0.0)  # lapses at once
+    ledger.reserve("claude", 0.9)  # would be refused if the stale hold still counted
+    ledger.reserved_path.write_text("{not json")
+    with pytest.raises(BudgetExceeded, match="unreadable"):
+        ledger.reserve("claude", 0.1)
+
+
+def test_partial_settle_keeps_the_rest_of_the_hold(tmp_path):
+    ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 5.0}, reserve_usd=0.0))
+    rid = ledger.reserve("claude", 1.0)
+    ledger.settle(rid, "claude", 0.1, part=0.4)
+    assert ledger._read_reserved()[rid]["usd"] == pytest.approx(0.6) and ledger.spent["claude"] == pytest.approx(0.1)
+    ledger.settle(rid, "claude", 0.0, part=0.6)
+    assert ledger._read_reserved() == {}
+
+
+def test_a_settle_failure_after_a_paid_call_is_logged_with_its_cost(cfg, tmp_path):
+    llm, _ = make(cfg, tmp_path, approver=Recorder(True))
+
+    def broken(*a, **k):
+        raise OSError("disk full")
+    llm.spend.settle = broken
+    with pytest.raises(OSError):
+        llm.complete("agent", "x", data="public")
+    lines = [json.loads(l) for l in (tmp_path / "llm_calls.jsonl").read_text().splitlines()]
+    lost = [l for l in lines if l.get("event") == "spend_unrecorded"]
+    assert lost and lost[0]["real_usd"] > 0
+    assert llm.ledger.held_usd == 0.0
