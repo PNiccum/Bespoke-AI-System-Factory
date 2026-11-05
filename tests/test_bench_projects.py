@@ -78,7 +78,7 @@ def fake_pipeline(monkeypatch, *, problems=(), knowledge_ok=True, status="delive
             return SimpleNamespace(problems=list(problems))
 
     class Knowledge:
-        def __init__(self, *a):
+        def __init__(self, *a, **kw):
             pass
 
         def run(self):
@@ -96,6 +96,7 @@ def fake_pipeline(monkeypatch, *, problems=(), knowledge_ok=True, status="delive
     monkeypatch.setattr(planning_mod, "PlanningLoop", Planning)
     monkeypatch.setattr(knowledge_mod, "KnowledgeLoop", Knowledge)
     monkeypatch.setattr(knowledge_mod, "default_searchers", lambda cache: {})
+    monkeypatch.setattr(knowledge_mod, "default_scout", lambda llm, registry, cache: None)
     monkeypatch.setattr(run_mod, "build", build)
 
 

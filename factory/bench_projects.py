@@ -140,7 +140,7 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
     """``resume``: an earlier run's project folder. Its finished stages are kept (a plan with no problems, approved
     knowledge, a built output/ with its checks) and the run goes on from the first stage that did not finish; the
     model calls of a kept stage are not made again."""
-    from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+    from factory.pipeline.knowledge import KnowledgeLoop, default_scout, default_searchers
     from factory.pipeline.planning import PlanningLoop
     from factory.pipeline.run import build
     from factory.pipeline.wiki import Wiki
@@ -176,7 +176,8 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
                 out.resumed.append("research")
                 ok, missing = True, []
             else:
-                knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers).run()
+                knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers,
+                                          scout=default_scout(llm, registry, cfg.work_dir / "research-cache")).run()
                 ok, missing = knowledge.ok, knowledge.missing
             if not ok:
                 out.why = f"knowledge not approved; missing: {', '.join(missing) or 'unknown'}"
