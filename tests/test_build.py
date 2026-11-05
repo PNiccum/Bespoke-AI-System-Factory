@@ -520,7 +520,7 @@ def test_kept_files_are_not_reported_as_written_when_the_retry_fails(cfg, tmp_pa
     assert llm.providers["arc"].cut
     assert not (project.root / "output" / "primer.py").exists() and salvage_notes(project) == []
     failed = project.board.entries("build")[0].data
-    assert failed["written"] == [] and failed["failed"] and failed["salvaged"] == ["primer.py"]
+    assert failed["written"] == [] and failed["failed"] and failed["salvage_lost"] == ["primer.py"]
 
 
 def test_a_kept_file_the_retry_writes_again_is_not_counted_as_saved(cfg, tmp_path):
@@ -544,11 +544,21 @@ def test_a_paid_rescue_that_rewrites_kept_files_is_not_counted_as_salvage(cfg, t
     assert salvage_notes(project) == [] and (project.root / "output" / "primer.py").read_text() == "X = 2\n"
 
 
+def test_a_paid_rescue_that_writes_only_the_rest_counts_the_kept_file(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)  # approve_all on a scripted provider: no real spend
+    llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), "no blocks", "still none",
+                                         orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    llm.providers["openai"] = Scripted("=== FILE: util.py ===\nX = 1\n=== END FILE ===")
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert llm.providers["arc"].cut and (project.root / "output" / "primer.py").read_text() == CODE
+    assert [n["salvaged"] for n in salvage_notes(project)] == [["primer.py"]]
+
+
 def test_a_build_that_is_not_cut_off_leaves_no_salvage_note(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["arc"] = Scripted(*PRODUCE)
     Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
-    assert salvage_notes(project) == [] and all("salvaged" not in e.data for e in project.board.entries("build"))
+    assert salvage_notes(project) == [] and all(not e.data.get("salvage_lost") for e in project.board.entries("build"))
 
 
 def test_final_qa_prompt_tells_qa_to_name_a_failing_check():

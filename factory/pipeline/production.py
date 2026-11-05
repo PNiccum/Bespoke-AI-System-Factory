@@ -206,21 +206,20 @@ class FileSalvage:
 
     def kept(self) -> list[str]:
         """Kept files the retry did not replace, as output-relative paths (the way ``_write`` names them)."""
-        return sorted({_out_rel(p) for p in self.files if p not in self.rewritten})
+        return sorted(p for p in self.files if p not in self.rewritten)
 
     def keep(self, partial: str) -> str | None:
         self.rewritten = set()  # a new cut-off starts a new retry: what an earlier merge saw no longer applies
         for path, body in FILE_BLOCK.findall(partial):
-            self.files[path.strip().strip("`")] = body
+            self.files[_out_rel(path.strip().strip("`"))] = body  # one key per file, however the model named it
         if not self.files:
             return None
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
 
     def merge(self, data: dict) -> dict:
         new = {_out_rel(f["path"]): f["content"] for f in data.get("files", [])}
-        self.rewritten = {p for p in self.files if _out_rel(p) in new}
-        kept = {_out_rel(p): c for p, c in self.files.items()}
-        files = [{"path": p, "content": c} for p, c in {**kept, **new}.items()]
+        self.rewritten = {p for p in self.files if p in new}
+        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
         return {**data, "files": files}
 
 
@@ -331,11 +330,10 @@ class Production:
                                f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
                                salvage=salvage)
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
-            # files kept from a cut-off reply are not written when the retry fails; "salvaged" says what was lost
+            # files kept from a cut-off reply are not written when the retry fails: "salvage_lost" lists them
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": "",
-                                               **({"salvaged": sorted({_out_rel(p) for p in salvage.files})}
-                                                  if salvage.files else {})},
+                                               "salvage_lost": sorted(salvage.files)},
                             refs=[ref])
             return
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
