@@ -295,3 +295,18 @@ def test_reserve_replaces_an_earlier_hold_atomically(tmp_path):
     with pytest.raises(BudgetExceeded):
         ledger.reserve("claude", 1.5, replaces=new)  # refused: the hold it would replace stays
     assert set(ledger._read_reserved()) == {new}
+
+
+def test_replace_and_read_retry_when_windows_has_the_file_open(tmp_path, monkeypatch):
+    import os as _os
+    ledger = SpendLedger(tmp_path / "spend.json", Credits(by_provider={"claude": 5.0}, reserve_usd=0.0))
+    real, calls = _os.replace, {"n": 0}
+
+    def flaky(src, dst):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise PermissionError("in use")
+        real(src, dst)
+    monkeypatch.setattr("factory.llm.gate.os.replace", flaky)
+    ledger.add("claude", 0.5)
+    assert calls["n"] == 3 and ledger.spent["claude"] == pytest.approx(0.5)

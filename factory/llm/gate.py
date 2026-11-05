@@ -83,6 +83,17 @@ class SpendGate:
             self._approved_roles.add((req.role, req.model))
 
 
+def _retry_on_permission_error(fn, tries: int = 50, wait_s: float = 0.02):
+    """Windows refuses to replace or read a file another process has open at that instant; try again briefly."""
+    for attempt in range(tries):
+        try:
+            return fn()
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(wait_s)
+
+
 @contextlib.contextmanager
 def _file_lock(path: Path):
     """An exclusive lock on ``path`` shared by every process on this machine (fcntl, or msvcrt on Windows)."""
@@ -144,7 +155,7 @@ class SpendLedger:
 
     def _read_spent(self) -> dict[str, float]:
         try:
-            spent = json.loads(self.path.read_text(encoding="utf-8"))
+            spent = json.loads(_retry_on_permission_error(lambda: self.path.read_text(encoding="utf-8")))
             if not isinstance(spent, dict):
                 raise ValueError("not a JSON object")
             return spent
@@ -168,7 +179,7 @@ class SpendLedger:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        _retry_on_permission_error(lambda: os.replace(tmp, path))
 
     def _refuse_if_over(self, provider: str, spent: dict[str, float], held: dict[str, dict], estimate: float,
                         ignoring: str | None = None) -> None:
