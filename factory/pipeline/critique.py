@@ -323,5 +323,10 @@ def json_checks(checks: Checks) -> str:
     if checks.setup_error:
         parts.append(f"setup failure, fix this first: {checks.setup_error}")
     elif checks.tests_ok is False:
-        parts.append(f"failing tests: {', '.join(checks.failed) or 'see output'}; {checks.output_tail[-500:]}")
+        why = "\n".join(f"  {t}: {r}" for t, r in checks.reasons.items())
+        parts.append(f"failing tests: {', '.join(checks.failed) or 'see output'}; {checks.output_tail[-500:]}"
+                     + (f"\nwhy each fails:\n{why}" if why else "")
+                     + "\nFor each failing test decide whether the test or the code is wrong: fix a test that "
+                       "contradicts the task or has a bug (a missing fixture argument, a wrong expected value); fix "
+                       "the code when the test is right. Never weaken a check that states a task's acceptance criterion.")
     return "; ".join(parts) or "checks failed"

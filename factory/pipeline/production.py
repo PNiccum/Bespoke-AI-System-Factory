@@ -99,6 +99,7 @@ class Checks(BaseModel):
     passed: list[str] = []
     failed: list[str] = []
     output_tail: str = ""
+    reasons: dict[str, str] = {}  # failing test -> why (first error line)
     setup_error: str = ""  # the tests could not even be imported (a package or path problem, not a failing test)
 
     @property
@@ -341,6 +342,7 @@ class Production:
                      f"`pytest` run inside {OUTPUT}/ with {' and '.join(paths)} on the path can import them")
         return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
                       passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
+                      reasons=report.reasons,
                       setup_error=setup)
 
 

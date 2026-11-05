@@ -405,3 +405,15 @@ def test_a_qa_repair_that_breaks_the_checks_is_put_back(cfg, tmp_path):
     result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
     assert result.repairs == 0 and result.rounds == 2  # the broken repair was put back; a full rebuild followed
     assert (project.root / "output" / "tests" / "test_primer.py").read_text() == TEST
+
+
+def test_failing_checks_tell_the_solver_why_each_test_fails(cfg, tmp_path):
+    from factory.pipeline.critique import json_checks
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    llm.providers["arc"] = Scripted(design(), orders("T1", "primer.py"), built(("primer.py", CODE)),
+                                    orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", WRONG)))
+    registry = Registry.load(cfg, ROOT / "registry")
+    checks = Production(llm, registry, project, wiki).run()
+    assert not checks.ok and "assert 12 == 99" in " ".join(checks.reasons.values())
+    text = json_checks(checks)
+    assert "why each fails" in text and "the test or the code is wrong" in text

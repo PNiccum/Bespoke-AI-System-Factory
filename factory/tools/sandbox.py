@@ -105,6 +105,7 @@ class TestReport(BaseModel):
     seconds: float
     timed_out: bool = False
     output_tail: str = ""  # last lines of pytest's output, for the coder and the person reading the run
+    reasons: dict[str, str] = {}  # failing test -> its first error line (the tail alone cannot say why 24 tests fail)
 
     @property
     def ok(self) -> bool:
@@ -267,6 +268,19 @@ def read_junit(path: Path) -> tuple[list[str], list[str], list[str], int]:
     return passed, failed, errors, skipped
 
 
+def junit_reasons(path: Path, limit: int = 30, width: int = 200) -> dict[str, str]:
+    """Each failing or erroring test's message (first line, cut), for up to ``limit`` tests."""
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for case in ET.parse(path).getroot().iter("testcase"):  # noqa: S314  # nosec B314
+        bad = case.find("failure") if case.find("failure") is not None else case.find("error")
+        if bad is not None and len(out) < limit:
+            text = (bad.get("message") or bad.text or "").strip().splitlines()
+            out[node_id(case)] = (text[0] if text else "")[:width]
+    return out
+
+
 def steady_output(out: str, tmp: Path) -> str:
     """pytest's output without what changes from run to run (the temporary folder, timings), so the same failure
     gives the same text: a model prompt built from it is then the same request, which the response cache and a
@@ -299,6 +313,7 @@ def run_tests(inp: RunTestsIn, overlay: Path | None = None) -> TestReport:
         passed, failed, errors, skipped = read_junit(junit)
         return TestReport(patch_applied=applied, exit_code=code, passed=passed, failed=failed, errors=errors,
                           skipped=skipped, seconds=round(time.monotonic() - t0, 2), timed_out=timed_out,
+                          reasons=junit_reasons(junit),
                           output_tail="\n".join(steady_output(out, Path(tmp)).splitlines()[-40:]))
 
 
