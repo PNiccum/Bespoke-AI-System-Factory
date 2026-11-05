@@ -51,7 +51,11 @@ criterion is met, with the evidence (a file and what it does, or a test that pas
 nothing in the files or tests shows is not met. Judge the delivered result, not how it was made: a criterion about \
 the order of work (tests written first, or failing in a certain way before the code existed) is met when those tests \
 exist and pass now. The plain-code checks are the record of the test run; a test count or run log written in a \
-file that disagrees with them is an issue to list, not an unmet task.
+file that disagrees with them is an issue to list, not an unmet task. \
+When every test passes, mark a task unmet ONLY by naming a concrete failing check in "failing_check": a command or \
+input you ran against the files, with the expected and the actual result. Wording, naming, style, documentation or \
+counts are never grounds to mark a task unmet. A feature that is missing or untested counts only when you name the \
+command or input that shows it is missing. Code applies this rule: an unmet task with no failing check is set to met.
 
 ## Tasks and acceptance criteria
 {tasks}

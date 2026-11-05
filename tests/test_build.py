@@ -472,3 +472,8 @@ def test_a_resumed_build_starts_at_the_critic_on_the_earlier_builds_files(cfg, t
     assert project.board.latest("note").data["resumed"] == len(files) or any(
         e.data.get("resumed") for e in project.board.entries("note"))
     assert not llm.providers["arc"].texts  # every scripted reply was used: the critic and QA ran, nothing else
+
+
+def test_final_qa_prompt_tells_qa_to_name_a_failing_check():
+    from factory.pipeline.final import QA_PROMPT
+    assert "ONLY by naming a concrete failing check" in QA_PROMPT and '"failing_check"' in QA_PROMPT
