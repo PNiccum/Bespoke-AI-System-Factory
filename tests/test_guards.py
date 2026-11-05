@@ -109,7 +109,7 @@ def test_bug_fix_rerun_gives_the_tests_no_keys(monkeypatch, tmp_path):
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / "test_env.py").write_text(
-        "import os\n\ndef test_no_keys():\n    assert 'ANTHROPIC_API_KEY' not in os.environ and os.environ.get('HTTPS_PROXY') is None\n")
+        "import os\n\ndef test_no_keys():\n    assert not {'ANTHROPIC_API_KEY', 'HTTPS_PROXY', 'https_proxy', 'GIT_CONFIG_COUNT'} & set(os.environ)\n")
     subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -118,6 +118,8 @@ def test_bug_fix_rerun_gives_the_tests_no_keys(monkeypatch, tmp_path):
     (bundle / "fix.patch").write_text("diff --git a/x.txt b/x.txt\nnew file mode 100644\n--- /dev/null\n+++ b/x.txt\n@@ -0,0 +1 @@\n+x\n")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
     monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.example:8080")
+    monkeypatch.setenv("https_proxy", "http://user:pw@proxy.example:8080")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     r = subprocess.run([sys.executable, str(bundle / "rerun.py"), str(repo)], capture_output=True, text=True)
     assert r.returncode == 0 and "whole suite: PASS" in r.stdout, r.stdout + r.stderr
 
