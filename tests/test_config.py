@@ -196,6 +196,13 @@ def test_dotenv_text_after_a_closing_quote_fails_closed(monkeypatch, tmp_path, l
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
+def test_dotenv_other_keys_still_lose_stray_quotes(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text("ARC_API_KEY=abc'\n")
+    load_config(write(tmp_path, shipped()))
+    assert os.environ["ARC_API_KEY"] == "abc"
+
+
 def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
     clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nARC_API_KEY=ab #cd\n")

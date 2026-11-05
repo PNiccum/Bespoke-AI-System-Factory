@@ -226,7 +226,9 @@ def load_dotenv(path: Path) -> dict[str, str]:
             if value[:1] in ("'", '"') and (end := value.find(value[0], 1)) > 0 and (
                     not (rest := value[end + 1:].strip()) or rest.startswith("#")):  # quoted, then nothing or a comment
                 value = value[1:end]
-            # otherwise kept whole: `KEY=0  # off` and a malformed `KEY="0` are not "0", so the lab-data flag reads them as on
+            elif key != "ASPIRE_DATA_PRIVATE":
+                value = value.strip("\"'")  # as before for every other key
+            # the lab-data flag is kept whole: `0  # off` and a malformed `"0` are not "0", so it reads them as on
             found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
             if key == "ASPIRE_DATA_PRIVATE" and _is_private(value):
                 found[key] = value  # except the lab-data flag: any line that turns it on counts, whatever the order
