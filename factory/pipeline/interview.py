@@ -25,6 +25,7 @@ from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Entry, Project
 from factory.pipeline.precedent import offer
 from factory.registry import Registry
+from factory.risks import render, risks_for
 
 MAX_QUESTIONS = 6
 PER_TURN = 3
@@ -61,6 +62,7 @@ out. The result must be something they can run again without you: code, a workfl
 ## Conversation so far
 {transcript}
 
+{risks}
 ## Your move
 {move}
 
@@ -208,7 +210,7 @@ class Interview:
         left = MAX_QUESTIONS - self.questions_asked
         earlier = offer(self.project, self.request)
         prompt = PROMPT.format(transcript=self.transcript() + (f"\n\n{earlier}" if earlier else ""),
-                               move=self._move())
+                               move=self._move(), risks=render(risks_for(self.llm, self.request)))
         turn = self._ask_model(prompt, "interview")
         if turn.action == "ask" and (left <= 0 or not turn.questions or self._last_turn_is_plan()):
             turn = self._ask_model(f"{prompt}\n\nYou must propose a plan now; reply with action \"propose\".",

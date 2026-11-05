@@ -167,3 +167,46 @@ def test_a_recheck_reply_without_the_blocks_field_still_blocks(cfg, tmp_path):
                     json.dumps(PLAN), old)
     out = pl.run()
     assert out.problems and out.problems[0].startswith("W1 still open")
+
+
+def test_the_voters_are_told_each_plans_blocking_problems_and_noted_count(cfg, tmp_path):
+    # MCF7 run, 2026-11-05: both votes went to A without knowing A had blocking problems, so both were spoiled
+    pl, arc, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1"), recheck(), vote("B"), vote("B"))
+    pl.run()
+    prompts = [r.messages[-1]["content"] for r in arc.requests if "Problems the code found" in r.messages[-1]["content"]]
+    assert len(prompts) == 2 and prompts[0] == prompts[1]  # both voters get the same text
+    prompt = prompts[0]
+    assert "Plan A: blocking problems: W1 still open" in prompt
+    assert "Plan B: blocking problems: none. Noted weaknesses (not blocking): 0" in prompt
+
+
+def test_noted_weaknesses_carried_into_the_build_are_summarised_on_the_board(cfg, tmp_path):
+    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1", blocks=False), recheck(),
+                          vote("A"), vote("A"))
+    out = pl.run()
+    assert out.noted == ["W1 noted: no subtasks (still no subtasks)"]
+    note = project.board.latest("note")
+    assert note.data["text"].startswith("Plan A goes ahead with 1 open noted weakness")
+    assert project.board.latest("decision").data["noted_count"] == 1
+
+
+def test_a_long_noted_list_is_cut_in_the_summary_but_kept_whole(cfg, tmp_path):
+    ws = [f"weak{i}" for i in range(1, 9)]
+    many = json.dumps({"weaknesses": ws, "plan_b": PLAN_B})
+    pl, _, project = loop(cfg, tmp_path, many, ANALYSIS, edit(), recheck(*(f"W{i}" for i in range(1, 9)), blocks=False),
+                          recheck(), vote("A"), vote("A"))
+    out = pl.run()
+    note = project.board.latest("note")
+    assert len(out.noted) == 8 and note.data["noted"] == out.noted
+    assert "and 3 more" in note.data["text"] and "W6 noted" not in note.data["text"]
+
+
+def test_noted_weaknesses_survive_a_repair_round_and_add_what_the_repair_left_noted(cfg, tmp_path):
+    two = json.dumps({"weaknesses": ["no subtasks", "extra step"], "plan_b": PLAN_B})
+    a = json.dumps({"open": [{"id": "W1", "why": "x", "blocks": True}, {"id": "W2", "why": "y", "blocks": False}]})
+    repaired = json.dumps({"open": [{"id": "W1", "why": "z", "blocks": False}]})
+    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), a, recheck("W1"), vote("A"), vote("A"),
+                    json.dumps({**PLAN, "title": "repaired"}), repaired)
+    out = pl.run()
+    assert out.winner == "A" and out.problems == []
+    assert sorted(n.split(" noted")[0] for n in out.noted) == ["W1", "W2"]

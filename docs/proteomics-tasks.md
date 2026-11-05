@@ -1,6 +1,6 @@
 # Proteomics test tasks
 
-These tasks come from the Lazar lab's description of how they interpret a protein list (relayed by Parker on
+These tasks come from a research lab's description of how they interpret a protein list (relayed by Parker on
 2026-11-03). The worked example is MCF7 cells deprived of serum for 48 h and released for 24 h in serum-rich medium;
 the 95 proteins are a selected subset of those that went up. The lab wants to know whether the set shows release
 into the cell cycle, which proteins contradict that (arrest, apoptosis), which are drug targets or proposed

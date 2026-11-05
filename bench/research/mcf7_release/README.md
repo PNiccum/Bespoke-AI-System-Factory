@@ -1,6 +1,6 @@
 # Research task: MCF7 serum starvation and release (open-ended biology)
 
-The Lazar lab's question, run through the whole ASPIRE pipeline as a test of open-ended research rather than a coding
+A research lab's question, run through the whole ASPIRE pipeline as a test of open-ended research rather than a coding
 task with known tests. The lab's list of 95 upregulated proteins (`Dataset_for_AI_advanced_agent_091626_iml`) is
 unpublished lab data: it stays on the laptop, goes only to ARC models and public databases, and never enters this
 repository or reaches Claude or OpenAI. `ASPIRE_DATA_PRIVATE=1` enforces that in code: with it set, the config's
