@@ -211,13 +211,13 @@ class FileSalvage:
     def keep(self, partial: str) -> str | None:
         self.rewritten = set()  # a new cut-off starts a new retry: what an earlier merge saw no longer applies
         for path, body in FILE_BLOCK.findall(partial):
-            self.files[_out_rel(path.strip().strip("`"))] = body  # one key per file, however the model named it
+            self.files[_rel(path.strip().strip("`"))] = body  # one key per file, however the model named it
         if not self.files:
             return None
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
 
     def merge(self, data: dict) -> dict:
-        new = {_out_rel(f["path"]): f["content"] for f in data.get("files", [])}
+        new = {_rel(f["path"]): f["content"] for f in data.get("files", [])}
         self.rewritten = {p for p in self.files if p in new}
         files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
         return {**data, "files": files}
@@ -347,7 +347,7 @@ class Production:
     def _write(self, built: Built, order: WorkOrder, ref: str) -> list[str]:
         written, refused = [], []
         for f in built.files:
-            rel = _out_rel(f.path)
+            rel = _rel(f.path)
             if len(self.files()) >= MAX_FILES and rel not in self.files():
                 refused.append(f"{rel}: more than {MAX_FILES} files")
             elif len(f.content) > MAX_FILE_CHARS:
@@ -473,12 +473,8 @@ def order_waves(orders: list[WorkOrder]) -> list[list[WorkOrder]]:
     return [[o for o, lv in zip(orders, level, strict=True) if lv == n] for n in range(max(level, default=-1) + 1)]
 
 
-def _out_rel(path: str) -> str:
-    """A path the builder gave, relative to output/ (the builder may or may not prefix it)."""
-    return path.removeprefix(f"{OUTPUT}/").lstrip("/")
-
-
 def _rel(path: str) -> str:
+    """A path a model gave, relative to output/ (it may or may not be prefixed, or padded with spaces)."""
     return path.strip().removeprefix(f"{OUTPUT}/").lstrip("/")
 
 
