@@ -126,7 +126,7 @@ def accept(output: Path, name: str, projects_dir: Path = PROJECTS) -> Acceptance
 def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[SpendRequest], bool] = deny_all,
                 providers: dict | None = None, redesign: bool = False, trial: int = 1,
                 projects_dir: Path = PROJECTS, registry_dir: Path | None = None) -> ProjectOutcome:
-    from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+    from factory.pipeline.knowledge import KnowledgeLoop, default_scout, default_searchers
     from factory.pipeline.planning import PlanningLoop
     from factory.pipeline.run import build
     from factory.pipeline.wiki import Wiki
@@ -146,7 +146,8 @@ def run_project(cfg: FactoryConfig, task: ProjectTask, *, approver: Callable[[Sp
             out.why = f"plan problems: {'; '.join(planned.problems)}"
         else:
             out.reached = "research"
-            knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers).run()
+            knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers,
+                                      scout=default_scout(llm, registry, cfg.work_dir / "research-cache")).run()
             if not knowledge.ok:
                 out.why = f"knowledge not approved; missing: {', '.join(knowledge.missing) or 'unknown'}"
             else:
