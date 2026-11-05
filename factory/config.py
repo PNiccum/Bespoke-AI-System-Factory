@@ -219,7 +219,10 @@ def load_dotenv(path: Path) -> dict[str, str]:
         key, sep, value = line.partition("=")
         key = key.strip()
         if sep and key and not key.startswith("#"):
-            value = value.strip().strip("\"'")
+            value = value.strip()
+            if value[:1] not in ("'", '"'):  # an unquoted value ends at " #": `KEY=0  # off` is 0, not "0  # off"
+                value = value.split(" #", 1)[0].split("\t#", 1)[0].strip()
+            value = value.strip("\"'")
             found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
             os.environ.setdefault(key, value)
     return found

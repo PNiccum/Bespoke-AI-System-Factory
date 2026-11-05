@@ -110,6 +110,13 @@ def test_a_role_cannot_escalate_from_one_free_model_to_another(tmp_path):
         load_config(write(tmp_path, data))
 
 
+def restore_environ(monkeypatch):
+    """Undo whatever load_dotenv writes into the real os.environ: register a restore for each key it may set."""
+    for key in ("ASPIRE_DATA_PRIVATE", "FACTORY_TIER", "ARC_API_KEY"):
+        monkeypatch.setenv(key, "placeholder")  # registers the undo; the delete below leaves the key unset
+        monkeypatch.delenv(key)
+
+
 def test_dotenv_fills_missing_keys_but_never_overrides_the_environment(monkeypatch, tmp_path):
     monkeypatch.delenv("ARC_API_KEY", raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "from-env")
@@ -129,7 +136,7 @@ def test_aspire_data_private_makes_lab_data_unsendable_to_paid_providers(monkeyp
 
 @pytest.mark.parametrize("line", ["ASPIRE_DATA_PRIVATE=1", "export ASPIRE_DATA_PRIVATE=1", "ASPIRE_DATA_PRIVATE='1'"])
 def test_aspire_data_private_set_only_in_dotenv_still_blocks_paid_providers(monkeypatch, tmp_path, line):
-    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "ASPIRE_DATA_PRIVATE"})
+    restore_environ(monkeypatch)
     (tmp_path / ".env").write_text(f"# flags\n{line}\n")
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
@@ -143,20 +150,33 @@ def test_dotenv_private_flag_beats_an_empty_or_zero_shell_value(monkeypatch, tmp
 
 @pytest.mark.parametrize("raw", [b"\xef\xbb\xbfASPIRE_DATA_PRIVATE=1\n", b"export\tASPIRE_DATA_PRIVATE=1\n"])
 def test_dotenv_parses_bom_and_tab_after_export(monkeypatch, tmp_path, raw):
-    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "ASPIRE_DATA_PRIVATE"})
+    restore_environ(monkeypatch)
     (tmp_path / ".env").write_bytes(raw)
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
 def test_dotenv_duplicate_keys_agree_between_environ_and_the_guard(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "ASPIRE_DATA_PRIVATE"})
+    restore_environ(monkeypatch)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\nASPIRE_DATA_PRIVATE=0\n")
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
     assert os.environ["ASPIRE_DATA_PRIVATE"] == "1"
 
 
+def test_dotenv_cannot_loosen_a_shell_set_guard(monkeypatch, tmp_path):
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "1")
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0\n")
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+def test_dotenv_inline_comments_are_ignored(monkeypatch, tmp_path):
+    restore_environ(monkeypatch)
+    (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nFACTORY_TIER=economy # default\n")
+    cfg = load_config(write(tmp_path, {**shipped(), "data_public": True}))
+    assert cfg.data_public is True and cfg.tier == "economy"
+
+
 def test_factory_tier_in_dotenv_takes_effect_and_leaves_the_data_guard_alone(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "FACTORY_TIER"})
+    restore_environ(monkeypatch)
     (tmp_path / ".env").write_text("FACTORY_TIER=quality\n")
     cfg = load_config(write(tmp_path, shipped()))
     assert cfg.tier == "quality" and cfg.data_public is True  # the spend gate is a runtime check, not config
