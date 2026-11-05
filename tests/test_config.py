@@ -183,6 +183,12 @@ def test_dotenv_cannot_loosen_a_shell_set_guard(monkeypatch, tmp_path):
     assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
+def test_dotenv_malformed_quote_on_the_lab_flag_fails_closed(monkeypatch, tmp_path):
+    clear_factory_env(monkeypatch)
+    (tmp_path / ".env").write_text('ASPIRE_DATA_PRIVATE="0\n')
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
 def test_dotenv_unquoted_inline_comment_fails_closed(monkeypatch, tmp_path):
     clear_factory_env(monkeypatch)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=0  # off\nARC_API_KEY=ab #cd\n")
