@@ -8,8 +8,10 @@ from pathlib import Path
 import streamlit as st
 
 from factory import events as ev
+from factory import historian
 from factory.config import load_config
-from factory.llm.gate import SpendLedger
+from factory.llm import LLM, new_run_dir
+from factory.llm.gate import SpendLedger, deny_all
 from factory.ui import inspect
 
 ROOT = Path(__file__).parent.parent
@@ -99,6 +101,25 @@ else:
     if (run / "history.md").exists():
         with st.expander("Historian's account (history.md)", expanded=True):
             st.markdown((run / "history.md").read_text(encoding="utf-8"))
+
+st.subheader("Ask the historian")
+st.caption("A free ARC model answers from the event log only and names the events it used; their status and fix are "
+           "read from the log, not from the model.")
+scope_all = st.radio("Look at", ["This run", "All runs"], horizontal=True) == "All runs"
+with st.form("ask-historian"):
+    question = st.text_input("Question", placeholder="Why did the build stage fail? Did the same error happen before?")
+    asked = st.form_submit_button("Ask")
+if asked and question.strip():
+    pool = ev.run_events(base) if scope_all else elog
+    if "historian_llm" not in st.session_state:
+        st.session_state.historian_llm = LLM(cfg, new_run_dir(cfg, "historian-ask"), approver=deny_all)
+    with st.spinner("The historian is reading the log..."):
+        reply, cited = historian.ask(st.session_state.historian_llm, question.strip(), pool,
+                                     scope="All runs" if scope_all else f"Run {name}")
+    st.markdown(reply)
+    if cited:
+        st.dataframe([{"id": e.id, "run": e.run, "status": e.status, "stage": e.stage, "message": e.message[:160],
+                       "corrected by": e.how} for e in cited], hide_index=True, use_container_width=True)
 
 st.subheader("Events across all runs (meta analysis)")
 every = ev.run_events(base)

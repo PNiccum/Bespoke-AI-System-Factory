@@ -3,7 +3,7 @@
 import json
 
 from factory.events import EventLog, fingerprint, log_of, meta_analysis, run_events, summary
-from factory.historian import write_meta_history, write_run_history
+from factory.historian import ask, write_meta_history, write_run_history
 from factory.llm import LLM, Usage
 from factory.llm.providers import RawResult, TransientHTTPError
 from tests.test_fallbacks import ByModel, cfg, llm_with, not_found  # noqa: F401
@@ -155,3 +155,35 @@ def test_the_meta_analysis_drops_unknown_fingerprints(cfg, tmp_path):
     llm = LLM(cfg, tmp_path / "h", use_cache=False, providers={"arc": Scripted(reply)})
     text = write_meta_history(llm, runs, tmp_path / "out" / "meta.md").read_text()
     assert "QA keeps failing" in text and "made up" not in text and "Corrected once, then came back" in text
+
+
+def _log_with_two(tmp_path):
+    log = EventLog(tmp_path / "run1" / "events.jsonl", "run1")
+    a = log.record("pipeline", "final QA failed", stage="final QA")
+    b = log.record("pipeline", "solver crashed on the matrix", stage="critic loop")
+    log.resolve(a, "delivered after 1 QA repair(s)")
+    return log.events(), a, b
+
+
+def test_the_answer_cites_only_real_events_and_status_comes_from_the_log(cfg, tmp_path):
+    events, a, b = _log_with_two(tmp_path)
+    reply = json.dumps({"answer": "QA failed and was repaired.", "cited": [a, "E9999"]})
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted(reply)})
+    text, cited = ask(llm, "What happened in QA?", events)
+    assert text.startswith("QA failed") and [e.id for e in cited] == [a]
+    assert cited[0].status == "corrected" and cited[0].how
+
+
+def test_an_answer_that_cites_nothing_real_is_replaced_by_matching_events(cfg, tmp_path):
+    events, a, b = _log_with_two(tmp_path)
+    llm = LLM(cfg, tmp_path, use_cache=False,
+              providers={"arc": Scripted(json.dumps({"answer": "It was fine.", "cited": ["E9999"]}))})
+    text, cited = ask(llm, "why did the solver crash?", events)
+    assert "It was fine" not in text and [e.id for e in cited] == [b]
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": Scripted("not json")})
+    assert [e.id for e in ask(llm, "solver crash?", events)[1]] == [b]
+
+
+def test_asking_an_empty_log_needs_no_model(cfg, tmp_path):
+    text, cited = ask(None, "anything?", [])
+    assert "nothing to answer" in text and cited == []

@@ -186,6 +186,58 @@ def write_meta_history(llm: LLM, runs_base: Path, out: Path) -> Path | None:
     return out
 
 
+ASK_PROMPT = """Question from a person: {question}
+
+{scope}. Every event in the log, as code recorded it (status and 'corrected by' come from code):
+
+{events}
+
+Answer from this log only. If the log does not say, say that it does not. Reply with JSON:
+{{"answer": "plain words, a few sentences", "cited": ["E0001"]}}
+'cited' lists the event ids your answer rests on, from the ids above."""
+
+ASK_LIMIT = 80  # events one question carries; newest first, and the answer says when older ones were left out
+
+
+class Answer(BaseModel):
+    answer: str
+    cited: list[str] = []
+
+
+def _words(text: str) -> set[str]:
+    return {w for w in "".join(c if c.isalnum() else " " for c in text.lower()).split() if len(w) > 3}
+
+
+def ask(llm: LLM, question: str, events: list[Event], *, scope: str = "This run") -> tuple[str, list[Event]]:
+    """Answer a question about the event log: (answer text, the events it cites).
+
+    Grounded the same way as the reports: the model sees only the log, an id it cites that is not in the log is dropped,
+    the cited events are returned from the log (status and fix come from code), and an answer that cites nothing real
+    is replaced by the events that best match the question's words. A log with no events needs no model."""
+    if not events:
+        return "No events were recorded, so there is nothing to answer from.", []
+    known = {e.id: e for e in events}
+    shown = sorted(events, key=lambda e: e.at, reverse=True)[:ASK_LIMIT]
+    lines = "\n".join(f"- {e.id} | run {e.run} | {e.at[:19]} | {e.source}/{e.stage} | {e.severity} | **{e.status}** | "
+                      f"{e.message[:300]}" + (f" | corrected by: {e.how}" if e.how else "") for e in shown)
+    note = f" ({len(events) - len(shown)} older event(s) were left out)" if len(events) > len(shown) else ""
+    text = None
+    cited: list[str] = []
+    with contextlib.suppress(Exception):  # no usable answer: the matching events are still shown
+        done, _, _ = complete_validated(llm, ROLE, ASK_PROMPT.format(question=question, scope=scope, events=lines),
+                                        SYSTEM, Answer, tag="historian-ask", rescue=False)
+        text, cited = done.answer.strip(), [i for i in done.cited if i in {e.id for e in shown}]
+    if text and cited:
+        return text + note, [known[i] for i in dict.fromkeys(cited)]
+    want = _words(question)
+    hits = sorted(shown, key=lambda e: -len(want & _words(f"{e.stage} {e.message} {e.how}")))
+    hits = [e for e in hits if want & _words(f"{e.stage} {e.message} {e.how}")][:5]
+    why = "The historian gave no answer the log backs up" if not text else (
+        "The historian's answer cited no event in the log, so it is not shown")
+    return (f"{why}. These are the events that best match your question." if hits else
+            f"{why}, and no event matches your question."), hits
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m factory.historian", description=__doc__.split("\n\n")[0])
     ap.add_argument("run", nargs="?", help="a run folder: writes its history.md")
