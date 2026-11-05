@@ -180,8 +180,12 @@ class SpendLedger:
     def _write(path: Path, data: dict) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
-        _retry_on_permission_error(lambda: os.replace(tmp, path))
+        try:
+            tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
+            _retry_on_permission_error(lambda: os.replace(tmp, path))
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
 
     def _refuse_if_over(self, provider: str, spent: dict[str, float], held: dict[str, dict], estimate: float,
                         ignoring: str | None = None) -> None:

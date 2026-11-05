@@ -39,7 +39,15 @@ from factory.events import FILE as EVENTS_FILE
 from factory.events import EventLog, log_of
 from factory.llm.cache import ResponseCache, request_key
 from factory.llm.cost import BudgetExceeded, Ledger, Usage, price_call
-from factory.llm.gate import Approver, SpendDenied, SpendGate, SpendLedger, SpendRequest, estimate_usd
+from factory.llm.gate import (
+    Approver,
+    SpendDenied,
+    SpendGate,
+    SpendLedger,
+    SpendRequest,
+    _retry_on_permission_error,
+    estimate_usd,
+)
 from factory.llm.providers import TRANSIENT, RawResult, Request, TransientHTTPError, make_provider
 
 DataClass = Literal["public", "private"]
@@ -357,8 +365,12 @@ class LLM:
                       "submitted": datetime.now(UTC).isoformat()}
         record["hold"] = hold.rid if hold else None  # so a later resume can drop this run's hold if it dies
         tmp = pending.with_suffix(".tmp")
-        tmp.write_text(json.dumps(record), encoding="utf-8")
-        os.replace(tmp, pending)  # a crash never leaves a half-written record
+        try:  # a crash never leaves a half-written record; the batch is billing, so the replace is retried
+            tmp.write_text(json.dumps(record), encoding="utf-8")
+            _retry_on_permission_error(lambda: os.replace(tmp, pending))
+        except BaseException:
+            tmp.unlink(missing_ok=True)
+            raise
         self._log(event="batch_submitted", role=role, model=rc.model, provider=rc.provider, batch_id=batch_id,
                   n=len(reqs))
         t0 = time.monotonic()
