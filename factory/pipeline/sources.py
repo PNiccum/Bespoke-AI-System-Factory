@@ -300,8 +300,55 @@ class ReferenceDocs(CachedAPI):
         return docs
 
 
+class PyPI(CachedAPI):
+    """An exact-name lookup of a Python package: its summary, newest release, licence and README. PyPI has no search
+    API, so the name comes from a model or a search of GitHub, and this reply is what proves the package exists (a
+    model's invented package name returns nothing and is dropped)."""
+    base = "https://pypi.org/pypi"
+
+    def lookup(self, name: str) -> dict:
+        name = re.sub(r"[^A-Za-z0-9._-]", "", name.strip())
+        return self.get(f"{name}/json") if name else {}
+
+    def search(self, query: str, n: int = 3) -> list[Doc]:
+        docs = []
+        for name in re.split(r"[\s,;]+", query.strip())[:n]:
+            info = (self.lookup(name) or {}).get("info")
+            if not info:
+                continue
+            text = f"{info.get('summary') or ''}\n\n{info.get('description') or ''}".strip()
+            docs.append(Doc(id=f"pypi:{info['name'].lower()}", connector="pypi", title=f"{info['name']} {info['version']}",
+                            url=f"https://pypi.org/project/{info['name']}/", text=text[:MAX_TEXT],
+                            citation=f"{info['name']} {info['version']} on PyPI. https://pypi.org/project/{info['name']}/"))
+        return docs
+
+
+class GitHubRepos(CachedAPI):
+    """Repository search on GitHub (public repositories only; ``GITHUB_TOKEN`` raises the rate limit if set, and is
+    sent with the request only). Used to find existing tools and reference implementations for a task."""
+    base = "https://api.github.com"
+    min_interval = 2.0  # 30 searches a minute with a token, 10 without
+
+    def repos(self, query: str, n: int = 5) -> list[dict]:
+        data = self.get("search/repositories", {"q": f"{query} language:python archived:false fork:false",
+                                                "sort": "stars", "order": "desc", "per_page": n})
+        return data.get("items", [])[:n]
+
+    def search(self, query: str, n: int = 5) -> list[Doc]:
+        docs = []
+        for r in self.repos(query, n):
+            lic = (r.get("license") or {}).get("spdx_id") or "no licence"
+            docs.append(Doc(id=f"github:{r['full_name'].lower()}", connector="github", title=r["full_name"],
+                            url=r["html_url"], year=int((r.get("pushed_at") or "0")[:4]) or None,
+                            text=(f"{r.get('description') or ''} Stars {r.get('stargazers_count')}, licence {lic}, "
+                                  f"last push {(r.get('pushed_at') or '')[:10]}, topics: "
+                                  f"{', '.join(r.get('topics') or [])}.")[:MAX_TEXT],
+                            citation=f"{r['full_name']} on GitHub. {r['html_url']}"))
+        return docs
+
+
 Searcher = Callable[[str, int], list[Doc]]
-CONNECTORS = ("openalex", "europepmc", "ncbi_gene", "docs")
+CONNECTORS = ("openalex", "europepmc", "ncbi_gene", "docs", "pypi", "github")
 
 
 def connectors(cache_dir: Path, calls_per_round: int = 60) -> dict[str, Searcher]:
@@ -316,4 +363,8 @@ def connectors(cache_dir: Path, calls_per_round: int = 60) -> dict[str, Searcher
         "europepmc": EuropePMC(cache_dir / "europepmc", budget).search,
         "ncbi_gene": NCBIGene(cache_dir / "ncbi", budget, auth_params=ncbi_auth).search,
         "docs": ReferenceDocs(cache_dir / "docs", budget).search,
+        "pypi": PyPI(cache_dir / "pypi", budget).search,
+        "github": GitHubRepos(cache_dir / "github", budget, headers=(
+            {"Authorization": f"Bearer {os.environ['GITHUB_TOKEN']}"} if os.environ.get("GITHUB_TOKEN") else {})
+        ).search,
     }

@@ -30,6 +30,7 @@ from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
+from factory.pipeline.scout import ReuseResult
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
 from factory.tools.sandbox import RunTestsIn, run_tests
@@ -52,6 +53,7 @@ class Design(BaseModel):
     layout: list[str]  # files the solution will have, with one line on each
     task_notes: dict[str, str] = {}  # task id -> how it fits the design
     template: str = ""  # the wiki page or pattern it follows, if any
+    reuse: list[str] = []  # existing tools from reuse.json it adopts: "<name>: how" (the scout's candidates)
 
 
 class WorkOrder(BaseModel):
@@ -120,9 +122,14 @@ without any model: plain code, using a model only where the task truly needs lan
 ## Knowledge the team gathered (wiki pages)
 {wiki}
 
+## Existing tools found by code
+{reuse}
+Prefer these over writing the same thing again. Import only [import] tools (the sandbox has no network and no other \
+packages); for a [reference] tool follow its approach in your own code and credit it in the README.
+
 Reply with JSON only: {{"language": "...", "entry_point": "<file under output/>", "run_command": "<command run inside \
 output/>", "layout": ["<path>: <what it holds>", ...], "task_notes": {{"T1": "<how this task fits>"}}, "template": \
-"<the wiki page or known pattern this follows, or empty>"}}
+"<the wiki page or known pattern this follows, or empty>", "reuse": ["<tool name>: <what the solution takes from it>"]}}
 Include tests under tests/ that check each task's acceptance criterion."""
 
 ORDERS_PROMPT = """Break this task into work orders for builders. Each order writes whole files.
@@ -245,7 +252,11 @@ class Production:
         if feedback:
             task += f"\n\n## Problems to fix in this round\n{feedback}"
 
-        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki),
+        reuse_path = self.project.root / "reuse.json"
+        reuse = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8")).render()
+                 if reuse_path.exists() else "") or "(none looked up)"
+        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki,
+                                                       reuse=reuse),
                             Design, "design", pages)
         d = self.board.post("design", HEAD, design.model_dump(), license=_license(pages))
         for t in plan.tasks:  # plan order respects depends_on (check_plan rules out forward references)
