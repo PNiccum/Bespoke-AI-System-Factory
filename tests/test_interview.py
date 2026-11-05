@@ -79,7 +79,7 @@ def test_questions_then_plan_then_approval_writes_task_txt(cfg, tmp_path):
     assert "Design primers (after T1)" in text and "Human, BRCA1" in text
     assert json.loads((project.root / "plan_a.json").read_text())["title"] == "Primer tool"
     kinds = [e.kind for e in project.board.entries()]
-    assert kinds == ["request", "question", "answer", "plan", "file", "file", "approval"]
+    assert kinds == ["request", "precedent", "question", "answer", "plan", "file", "file", "approval"]
     with pytest.raises(RuntimeError, match="already approved"):
         iv.reply("one more thing")
 

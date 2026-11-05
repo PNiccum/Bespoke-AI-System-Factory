@@ -206,14 +206,42 @@ def load_models(path: Path) -> dict[str, ModelInfo]:
     return {name: ModelInfo(**info) for name, info in data.get("models", {}).items()}
 
 
-def load_dotenv(path: Path) -> None:
-    """Set variables from a ``.env`` file (KEY=value lines) that the environment does not already set."""
+SPEND_KEYS = ("FACTORY_TIER", "FACTORY_ROLE_TIERS")  # choose a paid tier: the real environment only
+
+
+def load_dotenv(path: Path) -> dict[str, str]:
+    """Set variables from a ``.env`` file (KEY=value lines) that the environment does not already set. Returns every
+    variable the file declares, so a caller can check a flag against the file even when the environment shadows it."""
+    found: dict[str, str] = {}
     if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
-        key, sep, value = line.strip().partition("=")
+        return found
+    for line in path.read_text(encoding="utf-8-sig").splitlines():  # utf-8-sig: Notepad's BOM must not join a key
+        line = line.strip()
+        if line.startswith("export") and line[6:7].isspace():  # `export KEY=value`, as shells write it
+            line = line[6:].strip()
+        key, sep, value = line.partition("=")
+        key = key.strip()
         if sep and key and not key.startswith("#"):
-            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            value = value.strip()
+            if value[:1] in ("'", '"') and (end := value.find(value[0], 1)) > 0 and (
+                    not (rest := value[end + 1:].strip()) or rest.startswith("#")):  # quoted, then nothing or a comment
+                value = value[1:end]
+            elif key != "ASPIRE_DATA_PRIVATE":
+                value = value.strip("\"'")  # as before for every other key
+            # the lab-data flag is kept whole: `0  # off` and a malformed `"0` are not "0", so it reads them as on
+            found.setdefault(key, value)  # first occurrence wins here and in os.environ, so the two always agree
+            if key == "ASPIRE_DATA_PRIVATE" and _is_private(value):
+                found[key] = value  # except the lab-data flag: any line that turns it on counts, whatever the order
+                if not _is_private(os.environ.get(key)):
+                    os.environ[key] = value
+            if key not in SPEND_KEYS:  # never exported, or a later load_config in this process would read them
+                os.environ.setdefault(key, value)
+    return found
+
+
+def _is_private(value: str | None) -> bool:
+    """The lab-data flag is on for any value but empty or "0", so a typo such as "yes" fails closed."""
+    return (value or "").strip() not in ("", "0")
 
 
 def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
@@ -221,19 +249,28 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     from the environment, or from a ``.env`` file at the project root."""
     path = Path(path).resolve()
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if tier := tier or os.environ.get("FACTORY_TIER"):
+    # configs/ sits at the project root; resolve relative paths from there.
+    root = path.parent.parent if path.parent.name == "configs" else path.parent
+    # The spend settings come from the real environment only, as before: a stale .env line must not move a run to a
+    # paid tier. Read them before .env is loaded.
+    env_tier, role_tiers = os.environ.get("FACTORY_TIER"), os.environ.get("FACTORY_ROLE_TIERS", "")
+    # Load .env before the lab-data guard is read: ASPIRE_DATA_PRIVATE may be set only there, and a flag read
+    # before this line would silently stay off.
+    dotenv = load_dotenv(root / ".env")
+    if tier := tier or env_tier:
         data["tier"] = tier
-    if os.environ.get("ASPIRE_DATA_PRIVATE", "").strip() not in ("", "0"):  # lab data: Claude and OpenAI refuse it
+    # Lab data: Claude and OpenAI refuse it. Either source turning the flag on is enough, so a stale or empty shell
+    # value cannot shadow ASPIRE_DATA_PRIVATE=1 in .env.
+    if _is_private(os.environ.get("ASPIRE_DATA_PRIVATE")) or _is_private(dotenv.get("ASPIRE_DATA_PRIVATE")):
         data["data_public"] = False
-    for pair in filter(None, os.environ.get("FACTORY_ROLE_TIERS", "").split(",")):  # "reviewer=quality,coder=quality"
+        if not _is_private(os.environ.get("ASPIRE_DATA_PRIVATE")):  # keep os.environ authoritative for later readers
+            os.environ["ASPIRE_DATA_PRIVATE"] = "1"
+    for pair in filter(None, role_tiers.split(",")):  # "reviewer=quality,coder=quality"
         role, _, t = pair.partition("=")
         data.setdefault("role_tiers", {})[role.strip()] = t.strip()
     unknown = set(data.get("role_tiers", {})) - set(data.get("roles", {}))
     if unknown:
         raise ValueError(f"role_tiers names unknown roles: {sorted(unknown)}")
-    # configs/ sits at the project root; resolve relative paths from there.
-    root = path.parent.parent if path.parent.name == "configs" else path.parent
-    load_dotenv(root / ".env")
     cfg = FactoryConfig(**data, root=root)
     for p in cfg.providers.values():  # relative key paths are relative to the project root
         if p.api_key_file and not p.api_key_file.expanduser().is_absolute():

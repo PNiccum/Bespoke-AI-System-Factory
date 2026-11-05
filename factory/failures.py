@@ -75,6 +75,7 @@ class Case(BaseModel):
     causes: list[Cause] = []
     tried: list[Tried] = []
     fixes: list[Fix] = []
+    fingerprint: str = ""  # set when the case came from an error recurring across runs (factory/events.py)
 
     @property
     def status(self) -> Literal["open", "fixed"]:
@@ -121,6 +122,22 @@ class FailureArchive:
         self.save(case)
         return case
 
+    def open_recurrence_case(self, fingerprint: str, message: str, stage: str, runs: list[str], agent: str) -> Case:
+        """Start a case for an error that kept coming back. It has no project snapshot, because it is not one
+        project's failure, so nothing is replayed for it: the gates and the next ``recurring`` check judge the change."""
+        case = Case(id=f"events-{fingerprint}-{now()}", at=now(), project="", fingerprint=fingerprint,
+                    task=f"An error recurred in {len(runs)} runs ({', '.join(runs)}) at stage '{stage}': {message}",
+                    problems=[message], causes=[Cause(kind="prompt", agent=agent, fix=f"stop this recurring error: {message}")])
+        self.save(case)
+        return case
+
+    def replayable(self, case_id: str) -> bool:
+        return (self.root / case_id / "project").is_dir()
+
+    def last_case_stamps(self) -> dict[str, str]:
+        """For each fingerprint a recurrence case was opened for: when the newest one was opened."""
+        return {c.fingerprint: c.at for c in self.cases() if c.fingerprint}
+
     def save(self, case: Case) -> None:
         self.path(case.id).parent.mkdir(parents=True, exist_ok=True)
         self.path(case.id).write_text(case.model_dump_json(indent=1), encoding="utf-8")
@@ -152,7 +169,8 @@ class FailureArchive:
 
     def regressions(self, agent: str, exclude: str = "", limit: int = MAX_REPLAYS - 1) -> list[Case]:
         """Fixed cases that blamed ``agent``, newest first: a new prompt for it must still deliver them."""
-        fixed = [c for c in self.cases() if c.status == "fixed" and c.blames(agent) and c.id != exclude]
+        fixed = [c for c in self.cases() if c.status == "fixed" and c.blames(agent) and c.id != exclude
+                 and self.replayable(c.id)]
         return fixed[::-1][:limit]
 
     def past_fixes(self, agent: str | None = None, limit: int = 5) -> str:

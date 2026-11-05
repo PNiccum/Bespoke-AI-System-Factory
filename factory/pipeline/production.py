@@ -26,9 +26,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, model_validator
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan
+from factory.pipeline.precedent import offer
+from factory.pipeline.scout import ReuseResult
 from factory.pipeline.wiki import Wiki, WikiPage
 from factory.registry import Registry
 from factory.tools.sandbox import RunTestsIn, run_tests
@@ -51,6 +54,7 @@ class Design(BaseModel):
     layout: list[str]  # files the solution will have, with one line on each
     task_notes: dict[str, str] = {}  # task id -> how it fits the design
     template: str = ""  # the wiki page or pattern it follows, if any
+    reuse: list[str] = []  # existing tools from reuse.json it adopts: "<name>: how" (the scout's candidates)
 
 
 class WorkOrder(BaseModel):
@@ -119,9 +123,14 @@ without any model: plain code, using a model only where the task truly needs lan
 ## Knowledge the team gathered (wiki pages)
 {wiki}
 
+## Existing tools found by code
+{reuse}
+Prefer these over writing the same thing again. Import only [import] tools (the sandbox has no network and no other \
+packages); for a [reference] tool follow its approach in your own code and credit it in the README.
+
 Reply with JSON only: {{"language": "...", "entry_point": "<file under output/>", "run_command": "<command run inside \
 output/>", "layout": ["<path>: <what it holds>", ...], "task_notes": {{"T1": "<how this task fits>"}}, "template": \
-"<the wiki page or known pattern this follows, or empty>"}}
+"<the wiki page or known pattern this follows, or empty>", "reuse": ["<tool name>: <what the solution takes from it>"]}}
 Include tests under tests/ that check each task's acceptance criterion."""
 
 ORDERS_PROMPT = """Break this task into work orders for builders. Each order writes whole files.
@@ -186,6 +195,27 @@ def parse_files(completion) -> dict:
             "notes": notes.group(1).strip() if notes else ""}
 
 
+class FileSalvage:
+    """Keeps the FILE blocks that finished before a builder reply hit max_tokens. In the Nov 2-4 live runs 12 cut-off
+    build replies cost 180 minutes, and the retry re-wrote every file. The finished blocks are plain text that code can
+    parse, so the retry is asked only for the files not yet received, and ``merge`` joins the two replies."""
+
+    def __init__(self):
+        self.files: dict[str, str] = {}
+
+    def keep(self, partial: str) -> str | None:
+        for path, body in FILE_BLOCK.findall(partial):
+            self.files[path.strip().strip("`")] = body
+        if not self.files:
+            return None
+        return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")
+
+    def merge(self, data: dict) -> dict:
+        new = {f["path"]: f["content"] for f in data.get("files", [])}
+        files = [{"path": p, "content": c} for p, c in {**self.files, **new}.items()]
+        return {**data, "files": files}
+
+
 class Production:
     def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki):
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
@@ -235,6 +265,8 @@ class Production:
         plan = ProjectPlan.model_validate_json((self.project.root / "plan.json").read_text(encoding="utf-8"))
         pages = self.pages()
         wiki = "\n\n".join(f"### {p.topic}\n{p.summary}\n{p.body[:3000]}" for p in pages) or "(none)"
+        if earlier := offer(self.project, task):  # a delivered project with a similar request, as a starting template
+            wiki += "\n\n" + earlier
         gaps = (self.board.latest("knowledge").data.get("gaps") or {})
         if gaps:
             wiki += ("\n\n## Known gaps (research found no verified source)\n"
@@ -244,7 +276,11 @@ class Production:
         if feedback:
             task += f"\n\n## Problems to fix in this round\n{feedback}"
 
-        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki),
+        reuse_path = self.project.root / "reuse.json"
+        reuse = (ReuseResult.model_validate_json(reuse_path.read_text(encoding="utf-8")).render()
+                 if reuse_path.exists() else "") or "(none looked up)"
+        design = self._call(HEAD, DESIGN_PROMPT.format(task=task, plan=plan.model_dump_json(indent=1), wiki=wiki,
+                                                       reuse=reuse),
                             Design, "design", pages)
         d = self.board.post("design", HEAD, design.model_dump(), license=_license(pages))
         for t in plan.tasks:  # plan order respects depends_on (check_plan rules out forward references)
@@ -283,7 +319,8 @@ class Production:
             built = self._call(BUILDER, BUILD_PROMPT.format(task=task, design=design.model_dump_json(indent=1),
                                                             order=order.model_dump_json(indent=1), wiki=wiki,
                                                             reads="\n\n".join(reads) or "(none)"), Built,
-                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks")
+                               f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
+                               salvage=FileSalvage())
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": ""}, refs=[ref])
@@ -329,7 +366,9 @@ class Production:
                     errors[rel] = f"line {e.lineno}: {e.msg}"
         has_tests = any(r.startswith("tests/") and r.endswith(".py") for r in self.files())
         if not has_tests:
-            return Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            checks = Checks(compiled=compiled, syntax_errors=errors, tests_ran=False, tests_ok=None)
+            self._record_checks(checks)
+            return checks
         # a src layout imports without an install: pytest gets src/ (and the root) on its path
         paths = ["src", "."] if (self.out / "src").is_dir() else ["."]
         report = run_tests(RunTestsIn(repo_path=str(self.out), timeout_s=300, pythonpath=paths))  # throwaway copy
@@ -340,10 +379,51 @@ class Production:
         if not report.passed and not report.failed and m:
             setup = (f"the tests could not be imported ({m.group(0)}): fix the package layout or imports so that "
                      f"`pytest` run inside {OUTPUT}/ with {' and '.join(paths)} on the path can import them")
-        return Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
-                      passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
-                      reasons=report.reasons,
-                      setup_error=setup)
+        checks = Checks(compiled=compiled, syntax_errors=errors, tests_ran=True, tests_ok=report.ok,
+                        passed=report.passed, failed=report.failed + report.errors, output_tail=tail,
+                        reasons=report.reasons, setup_error=setup)
+        self._record_checks(checks, timed_out=report.timed_out)
+        return checks
+
+    def _record_checks(self, checks: Checks, timed_out: bool = False) -> None:
+        """The plain-code checks as events: each kind of failure is one open event until a later check passes.
+        A check that ran no tests corrects only syntax errors, never an earlier failing-test event."""
+        events = log_of(self.llm, self.project)
+        # each kind, and each file, is corrected on its own: a.py fixed while b.py or a test still fails closes
+        # a.py's event
+        for e in events.open_events():
+            if "check:syntax" in e.refs and not any(r == f"file:{rel}" for rel in checks.syntax_errors for r in e.refs):
+                events.resolve(e.id, "a later plain-code check found no syntax error in the file")
+        if checks.tests_ran and checks.tests_ok:
+            events.resolve_open("a later test run passed", source="checks", ref="check:tests")
+        if checks.ok:
+            return
+        # once=True: the checks run after every repair, and the same failure must not stack up as new events
+        if timed_out:
+            events.record("checks", "the test run timed out in the sandbox", stage="checks", once=True,
+                          refs=["check:tests"])
+        elif checks.setup_error:
+            events.record("checks", f"tests could not be imported: {checks.setup_error[:200]}", stage="checks",
+                          once=True, refs=["check:tests"])
+        for rel, why in checks.syntax_errors.items():
+            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True,
+                          refs=["check:syntax", f"file:{rel}"])
+        if checks.tests_ok is False and not checks.setup_error and not timed_out:
+            if not checks.failed:
+                events.record("checks", f"pytest failed without naming a test: {checks.output_tail[-200:]}",
+                              stage="checks", severity="warning", once=True, refs=["check:tests"])
+                return
+            # the failing set changes as repairs land (A, then A and B, then B): an open event whose tests all pass
+            # now is corrected, and a new event is written only for a test no open event names yet, so the log
+            # holds one open event per problem rather than one per check run
+            now = {f"test:{t}" for t in checks.failed}
+            open_tests = [e for e in events.open_events() if "check:tests" in e.refs and any(
+                r.startswith("test:") for r in e.refs)]
+            events.resolve([e.id for e in open_tests if not now & set(e.refs)],
+                           "those tests pass in a later run", sorted(now))
+            if now - {r for e in open_tests for r in e.refs}:
+                events.record("checks", f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}",
+                              stage="checks", severity="warning", refs=["check:tests", *sorted(now)])
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:

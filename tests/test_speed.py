@@ -158,7 +158,7 @@ def test_bench_projects_run_side_by_side_and_report_in_task_order(tmp_path, monk
 
     running, most, lock = [0], [0], threading.Lock()
 
-    def fake_run(cfg, task, *, approver, redesign, trial):
+    def fake_run(cfg, task, *, approver, redesign, trial, resume=None):
         with lock:
             running[0] += 1
             most[0] = max(most[0], running[0])
