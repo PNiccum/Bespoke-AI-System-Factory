@@ -262,3 +262,24 @@ def test_a_fresh_lock_taken_for_stale_by_a_racing_run_is_put_back(tmp_path):
     os.utime(lock, (0, 0))
     assert _take_over_stale(lock, stale=60) is True and not lock.exists()  # old: removed
     assert not list(tmp_path.glob("*.old"))
+
+
+def test_lessons_refuse_a_paid_historian_role(cfg, tmp_path):
+    p = Project.create(tmp_path / "projects", "t")
+    p.board.post("request", "person", {"text": "x"})
+    n = p.board.post("note", "code", {"text": "y"})
+    arc = Scripted(lessons_reply(("Keep it small.", "watch", [n.id])))
+    llm = LLM(cfg, tmp_path, use_cache=False, providers={"arc": arc})
+    from factory.pipeline.lessons import is_free_role
+    assert is_free_role(cfg)  # the shipped config: ARC only
+    cfg.roles["historian"] = cfg.roles["historian"].model_copy(update={"provider": "claude"})
+    assert not is_free_role(cfg)
+    assert write_lessons(llm, p, "delivered", lessons_dir(tmp_path)) is None and arc.requests == []
+
+
+def test_a_damaged_bad_source_file_is_set_aside_not_overwritten(tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text("[1, 2, 3]")  # valid JSON but not a dict
+    bad = BadSources(path)
+    bad.record("bio", "t", "d:1", "no", project="p")
+    assert "d:1" in bad.known("bio", "t") and list(tmp_path.glob("bad.damaged-*"))

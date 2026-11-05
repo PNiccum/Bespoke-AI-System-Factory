@@ -91,7 +91,7 @@ def _take_over_stale(lock: Path, stale: float) -> bool:
 
 @contextlib.contextmanager
 def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0, stale: float = 60.0):
-    """Threads share ``threads``; separate runs on one machine share the lock file (created exclusively, so it works on
+    """Yields whether the lock is held. Threads share ``threads``; separate runs on one machine share the lock file (created exclusively, so it works on
     Windows too). A lock file older than ``stale`` seconds (longer than any wait) belongs to a crashed run and is removed. If a live run still holds
     it after ``timeout``, the write goes ahead unlocked (these files are by-products) and that run's lock is left alone."""
     lock.parent.mkdir(parents=True, exist_ok=True)
@@ -109,7 +109,7 @@ def _exclusive(lock: Path, threads: threading.Lock, timeout: float = 5.0, stale:
                     break
                 time.sleep(0.02)
         try:
-            yield
+            yield held
         finally:
             if held:
                 with contextlib.suppress(OSError):
@@ -141,10 +141,19 @@ class BadSources:
         self._lock = threading.Lock()  # topics are researched in parallel threads
 
     def _load(self) -> dict:
+        """The saved list. A missing file is an empty list; an unreadable or damaged one is moved aside (so a save
+        never wipes it) and reads as empty."""
         try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
             return {}
+        except (OSError, ValueError):
+            data = None
+        if isinstance(data, dict):
+            return data
+        with contextlib.suppress(OSError):
+            os.replace(self.path, self.path.with_suffix(f".damaged-{int(time.time())}"))
+        return {}
 
     def _save(self, data: dict) -> None:
         _write_atomic(self.path, json.dumps(data, indent=1, ensure_ascii=False))
@@ -157,7 +166,9 @@ class BadSources:
         if not self.enabled:
             return
         now = now or _now()
-        with self._locked():
+        with self._locked() as held:
+            if not held:
+                return  # another run is writing; one lost note in a by-product list is better than a torn file
             data = self._load()
             rows = data.setdefault(domain, {}).setdefault(_key(topic), {})
             stale = rows.get(doc_id, {}).get("last", "9") < (now - timedelta(days=TTL_DAYS)).isoformat()
@@ -186,7 +197,9 @@ class BadSources:
         """A document that was approved after all is no longer a bad source."""
         if not self.enabled or doc_id not in self._load().get(domain, {}).get(_key(topic), {}):
             return False  # nothing to clear: no lock, no write
-        with self._locked():
+        with self._locked() as held:
+            if not held:
+                return False
             data = self._load()
             rows = data.get(domain, {}).get(_key(topic), {})
             if doc_id not in rows:
@@ -320,9 +333,18 @@ def render_page(domain: str, rows: list[dict]) -> str:
 _LESSONS_LOCK = threading.Lock()
 
 
+def is_free_role(cfg) -> bool:
+    """The historian role, its fallbacks and its escalation step all run on ARC (free), and it has no paid step."""
+    role = cfg.roles.get(ROLE)
+    steps = [role, cfg.escalations.get(ROLE)]
+    return bool(role) and role.quality is None and all(r is None or r.provider == "arc" for r in steps)
+
+
 def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> Path | None:
     """Ask for lessons once, keep the ones that cite real entries, and re-render the domain's page. None when the
     model gave nothing usable or nothing survived the check (a failure here never changes the run's result)."""
+    if not is_free_role(llm.cfg):
+        return None  # lessons are a free by-product: never spend on them
     domain = domain_of(project)
     restricted = any(e.license == "arc_only" for e in project.board.entries())
     if restricted:  # lessons go to a machine-wide shared page; a project with ARC-only data teaches nothing there
@@ -337,7 +359,9 @@ def write_lessons(llm: LLM, project: Project, outcome: str, directory: Path) -> 
         return None
     keep = checked(found, project)
     at = _now().isoformat()
-    with _exclusive(directory / "lessons.lock", _LESSONS_LOCK):
+    with _exclusive(directory / "lessons.lock", _LESSONS_LOCK) as held:
+        if not held:
+            return None  # another run is writing the lessons; skip rather than interleave
         known = {(r["domain"], r["lesson"].lower()) for r in read_lessons(directory)}
         new = [{"domain": domain, "project": project.id, "outcome": outcome, "at": at, **les.model_dump()}
                for les in keep if (domain, les.lesson.lower()) not in known]  # the same lesson twice adds nothing

@@ -130,8 +130,9 @@ if iv.board.latest("approval"):
                 cfg = config()
                 with st.status("Building...") as status:
                     result = build(iv.llm, Registry.load(cfg), iv.project, Wiki(cfg.work_dir / "wiki"),
-                          default_searchers(cfg.work_dir / "research-cache"),
-                          on_stage=lambda s: status.update(label=f"Building: {s}"))
+                                   default_searchers(cfg.work_dir / "research-cache"),
+                                   on_stage=lambda s: status.update(label=f"Building: {s}"))
+                with st.spinner("Writing lessons..."):  # once per click: the page reruns only after this
                     lessons_after_build(iv.llm, iv.project, result.status, cfg.work_dir)
                 st.rerun()
             for review in iv.board.entries("critic_review"):
