@@ -105,14 +105,16 @@ def run_planning(args) -> int:
 def run_research(args) -> int:
     """The knowledge loop: topics the plan needs, wiki coverage, research, cited and verified wiki pages."""
     from factory.pipeline.blackboard import Project
-    from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+    from factory.pipeline.knowledge import KnowledgeLoop, default_scout, default_searchers
     from factory.pipeline.wiki import Wiki
 
     cfg = load_config(args.config)
     project = Project.open(Path(args.project))
     llm = LLM(cfg, new_run_dir(cfg, "research"), approver=ask_on_terminal)
-    loop = KnowledgeLoop(llm, Registry.load(cfg), project, Wiki(cfg.work_dir / "wiki"),
-                         default_searchers(cfg.work_dir / "research-cache"))
+    registry = Registry.load(cfg)
+    loop = KnowledgeLoop(llm, registry, project, Wiki(cfg.work_dir / "wiki"),
+                         default_searchers(cfg.work_dir / "research-cache"),
+                         scout=default_scout(llm, registry, cfg.work_dir / "research-cache"))
     result = loop.run(again=args.again)
     for topic, slug in result.covered.items():
         print(f"  covered: {topic} ({cfg.work_dir / 'wiki' / slug}.md)")
