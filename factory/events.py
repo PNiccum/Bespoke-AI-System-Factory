@@ -72,13 +72,15 @@ class EventLog:
     def record(self, source: str, message: str, *, stage: str = "", severity: Severity = "error",
                refs: list[str] | tuple[str, ...] = (), once: bool = False) -> str:
         """Write an event and return its id. Never raises: a full disk must not turn a recoverable error fatal.
-        ``once``: skip it (returning "") while an open event with the same fingerprint exists, for a check that runs
-        again and again and would otherwise stack the same failure up."""
+        ``once``: skip it (returning "") while an open event with the same fingerprint *and the same refs* exists,
+        for a check that runs again and again and would otherwise stack the same failure up. The fingerprint blanks
+        paths and numbers, so the refs are what tell two files or two tests apart: pass them."""
         fp = fingerprint(source, stage, str(message))
         try:
             with self._lock:  # the id counts lines, so the count and the write happen under one hold of the lock
                 rows = list(self._rows())  # one read serves both the id and the once= check
-                if once and any(e.fingerprint == fp and e.status == "open" for e in self._events_of(rows)):
+                if once and any(e.fingerprint == fp and e.status == "open" and set(e.refs) == set(refs)
+                                for e in self._events_of(rows)):
                     return ""
                 ev = Event(id=f"E{len(rows) + 1:04d}", run=self.run, domain=self.domain, source=source, stage=stage,
                            severity=severity, message=" ".join(str(message).split())[:600], fingerprint=fp,

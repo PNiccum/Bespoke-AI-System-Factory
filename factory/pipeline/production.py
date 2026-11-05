@@ -405,11 +405,12 @@ class Production:
                           once=True, refs=["check:tests"])
         for rel, why in checks.syntax_errors.items():
             events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True,
-                          refs=["check:syntax"])
+                          refs=["check:syntax", f"file:{rel}"])
         if checks.tests_ok is False and not checks.setup_error and not timed_out:
             what = (f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}" if checks.failed
                     else f"pytest failed without naming a test: {checks.output_tail[-200:]}")
-            events.record("checks", what, stage="checks", severity="warning", once=True, refs=["check:tests"])
+            events.record("checks", what, stage="checks", severity="warning", once=True,
+                          refs=["check:tests", *(f"test:{t}" for t in checks.failed[:5])])
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:

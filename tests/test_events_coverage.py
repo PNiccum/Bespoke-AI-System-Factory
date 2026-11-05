@@ -190,6 +190,14 @@ def test_record_once_skips_a_repeat_while_the_first_is_open(tmp_path):
     assert log.record("checks", "2 failing test(s): a, b", stage="checks") == "E0002"  # without once= it is written
     log.resolve_open("a later check passed", source="checks")
     assert log.record("checks", "2 failing test(s): a, b", stage="checks", once=True) == "E0005"  # both corrected: new one
+    # the fingerprint blanks paths and digits, so two files (or two tests) with the same message shape are told
+    # apart by their refs, not by the message
+    assert log.record("checks", "syntax error in src/a.py: bad", stage="checks", once=True, refs=["file:src/a.py"])
+    assert log.record("checks", "syntax error in src/b.py: bad", stage="checks", once=True, refs=["file:src/b.py"])
+    assert log.record("checks", "syntax error in src/b.py: bad", stage="checks", once=True, refs=["file:src/b.py"]) == ""
+    assert log.record("checks", "1 failing test(s): tests/t.py::test_1", stage="checks", once=True, refs=["test:t1"])
+    assert log.record("checks", "1 failing test(s): tests/t.py::test_2", stage="checks", once=True, refs=["test:t2"])
+    assert len(log.open_events()) == 5
 
 
 def test_log_of_with_a_project_sets_the_domain(tmp_path):
