@@ -68,3 +68,25 @@ def test_a_list_with_only_id_gene_and_description_gets_decoys_with_descriptions(
     assert next(r for r in got if r["Protein ID"] == "Q9ZZZ9")["Gene name"] == "FAKE1"
     said = capsys.readouterr().out
     assert "fold=None" in said and "WARNING" not in said and "carry none" in said
+
+
+def test_a_replicate_count_xlsx_gets_decoys_with_counts_and_is_written_as_csv(tmp_path, capsys):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Protein ID", "Gene name", "Description ", "Control 1/ Nonproliferative", "Control 2/ Nonproliferative",
+               "Treatment1/ Proliferative", "Treatment2/ Proliferative", None])
+    ws.append(["P06493", "CDK1", "Cyclin-dependent kinase 1", 5, 7, 20, 18, None])
+    ws.append(["P12004", "PCNA", "PCNA", 0, 3, 9, 11, None])
+    lst, out = tmp_path / "big.xlsx", tmp_path / "out.csv"
+    wb.save(lst)
+    assert add_decoys.main([str(lst), str(out)]) == 0
+    got = rows(out, ",")
+    assert list(got[0]) == ["Protein ID", "Gene name", "Description", "Control 1/ Nonproliferative",
+                            "Control 2/ Nonproliferative", "Treatment1/ Proliferative", "Treatment2/ Proliferative"]
+    assert got[0]["Control 1/ Nonproliferative"] == "5" and len(got) == 6
+    vim = next(r for r in got if r["Protein ID"] == "P08670")  # log2fc 1.6: treatment about 6 * 3 = 18, control about 6
+    assert 4 <= int(vim["Control 2/ Nonproliferative"]) <= 8 and 14 <= int(vim["Treatment1/ Proliferative"]) <= 22
+    assert vim["Description"] == "Vimentin"
+    said = capsys.readouterr().out
+    assert "fold=None" in said and "replicate counts=['Control 1/ Nonproliferative'" in said and "carry none" not in said
