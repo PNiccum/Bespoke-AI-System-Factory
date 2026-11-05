@@ -71,7 +71,8 @@ lost = inspect.time_lost(calls)
 if lost["model_seconds"]:
     st.caption(f"Model time {lost['model_seconds'] / 60:.1f} min, of which {lost['lost_seconds'] / 60:.1f} min "
                f"({100 * lost['lost_share']:.0f}%) produced nothing: {lost['cut_off']} cut off at max_tokens, "
-               f"{lost['refused']} refused; plus {lost['failed_calls']} failed call(s) and {lost['fallbacks']} fallback(s).")
+               f"{lost['refused']} refused; plus {lost['failed_calls']} failed call(s), {lost['retries']} retried "
+               f"attempt(s) and {lost['fallbacks']} fallback(s).")
 
 if calls:
     st.markdown("**By model**")

@@ -391,15 +391,18 @@ class Production:
         if checks.ok:
             events.resolve_open("a later plain-code check passed", source="checks")
             return
+        # once=True: the checks run after every repair, and the same failure must not stack up as new events
         if timed_out:
-            events.record("checks", "the test run timed out in the sandbox", stage="checks")
+            events.record("checks", "the test run timed out in the sandbox", stage="checks", once=True)
         elif checks.setup_error:
-            events.record("checks", f"tests could not be imported: {checks.setup_error[:200]}", stage="checks")
+            events.record("checks", f"tests could not be imported: {checks.setup_error[:200]}", stage="checks",
+                          once=True)
         for rel, why in checks.syntax_errors.items():
-            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning")
+            events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True)
         if checks.tests_ok is False and not checks.setup_error and not timed_out:
-            events.record("checks", f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}",
-                          stage="checks", severity="warning")
+            what = (f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}" if checks.failed
+                    else f"pytest failed without naming a test: {checks.output_tail[-200:]}")
+            events.record("checks", what, stage="checks", severity="warning", once=True)
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:

@@ -4,7 +4,7 @@ cross-run tallies. Models are scripted."""
 import httpx
 
 import factory.pipeline.knowledge as knowledge_module
-from factory.events import EventLog, by_domain
+from factory.events import EventLog, by_domain, log_of
 from factory.pipeline.blackboard import Project
 from factory.pipeline.domain import classify, project_domain
 from factory.pipeline.sources import ReferenceDocs
@@ -111,9 +111,10 @@ def test_classify_is_deterministic_and_bio_wins_a_tie():
     assert classify("write a report that documents the functions in a table") == "other"
 
 
-def test_a_project_without_a_tag_is_classified_from_its_task_text(tmp_path):
+def test_a_project_without_a_tag_is_classified_from_its_request_text_only(tmp_path):
     p = Project.create(tmp_path, "old")
     p.board.post("request", "person", {"text": "Summarise these articles from OpenAlex"})
+    (p.root / "task.txt").write_text("design PCR primers for a gene", encoding="utf-8")  # not what the request said
     assert project_domain(p) == "text"
     p2 = Project.create(tmp_path, "tagged")
     p2.board.post("request", "person", {"text": "whatever", "domain": "code"})
@@ -149,10 +150,11 @@ def test_stage_tallies_count_from_the_blackboards(cfg, tmp_path):
 
 def test_time_lost_counts_cut_offs_and_failures():
     calls = [{"seconds": 10, "stop_reason": "end_turn"}, {"seconds": 30, "stop_reason": "max_tokens"},
-             {"error": "boom"}, {"fallback_to": "x", "error": "404"}, {"cached": True, "seconds": 5}]
+             {"error": "boom"}, {"fallback_to": "x", "error": "404"}, {"cached": True, "seconds": 5},
+             {"error": "503", "attempt": 0}]
     t = inspect.time_lost(calls)
     assert t == {"model_seconds": 40.0, "lost_seconds": 30.0, "lost_share": 0.75, "cut_off": 1, "refused": 0,
-                 "failed_calls": 2, "fallbacks": 1}
+                 "failed_calls": 1, "retries": 1, "fallbacks": 1}
 
 
 def test_a_budget_deferred_topic_is_recorded_once(cfg, tmp_path, monkeypatch):
@@ -163,3 +165,33 @@ def test_a_budget_deferred_topic_is_recorded_once(cfg, tmp_path, monkeypatch):
     kl.run()
     salt = [e for e in events_of(kl) if "topic:Salt correction" in e.refs]
     assert len(salt) == 1 and salt[0].message.startswith("topic deferred: research budget")
+
+
+def test_record_once_skips_a_repeat_while_the_first_is_open(tmp_path):
+    log = EventLog(tmp_path / "r" / "events.jsonl", "r")
+    first = log.record("checks", "2 failing test(s): a, b", stage="checks", once=True)
+    assert first == "E0001"
+    assert log.record("checks", "3 failing test(s): a, b", stage="checks", once=True) == ""  # same fingerprint
+    assert log.record("checks", "2 failing test(s): a, b", stage="checks") == "E0002"  # without once= it is written
+    log.resolve_open("a later check passed", source="checks")
+    assert log.record("checks", "2 failing test(s): a, b", stage="checks", once=True) == "E0005"  # both corrected: new one
+
+
+def test_log_of_with_a_project_sets_the_domain(tmp_path):
+    class Fake:
+        events = EventLog(tmp_path / "r" / "events.jsonl", "r")
+    p = Project.create(tmp_path, "p")
+    p.board.post("request", "person", {"text": "x", "domain": "code"})
+    assert log_of(Fake(), p) is Fake.events and Fake.events.domain == "code"
+    assert log_of(object(), p).record("x", "y") == ""  # a stand-in without a log: still a NullLog
+
+
+def test_a_verified_page_leaves_a_connector_fault_open(cfg, tmp_path):
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2), draft(1, 2),
+                            check(True), topics(enough=True))
+    kl.events.record("sources", "engine failed: ConnectError", stage="research", refs=["topic:Primer3 settings"])
+    kl.events.record("knowledge", "topic still has no verified page", stage="research",
+                     refs=["topic:Primer3 settings"])
+    kl.run()
+    by = {e.message[:14]: e.status for e in kl.events.events()}
+    assert by["engine failed:"] == "open" and by["topic still ha"] == "corrected"

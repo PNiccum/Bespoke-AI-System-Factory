@@ -20,6 +20,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline.blackboard import Entry, Project
 from factory.pipeline.precedent import offer
@@ -125,6 +126,7 @@ class Interview:
             raise RuntimeError("this project already has a conversation")
         from factory.pipeline.domain import classify
         self.board.post("request", "person", {"text": request, "domain": classify(request)})
+        log_of(self.llm, self.project)  # the interview's own events carry the tag from here on
         offer(self.project, request)  # plain code looks for earlier delivered projects; the Interviewer sees them
         return self._next()
 

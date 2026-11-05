@@ -60,21 +60,30 @@ class EventLog:
         self.domain = ""  # copied onto every event recorded from now on
         self._lock = threading.Lock()
 
-    def _append(self, row: dict) -> None:
+    def _write(self, row: dict) -> None:  # caller holds the lock
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock, self.path.open("a", encoding="utf-8") as f:
+        with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
+    def _append(self, row: dict) -> None:
+        with self._lock:
+            self._write(row)
+
     def record(self, source: str, message: str, *, stage: str = "", severity: Severity = "error",
-               refs: list[str] | tuple[str, ...] = ()) -> str:
-        """Write an event and return its id. Never raises: a full disk must not turn a recoverable error fatal."""
+               refs: list[str] | tuple[str, ...] = (), once: bool = False) -> str:
+        """Write an event and return its id. Never raises: a full disk must not turn a recoverable error fatal.
+        ``once``: skip it (returning "") while an open event with the same fingerprint exists, for a check that runs
+        again and again and would otherwise stack the same failure up."""
+        fp = fingerprint(source, stage, str(message))
         try:
-            with self._lock:
+            with self._lock:  # the id counts lines, so the count and the write happen under one hold of the lock
+                if once and any(e.fingerprint == fp for e in self.events() if e.status == "open"):
+                    return ""
                 n = sum(1 for _ in self._rows()) + 1  # ids count lines, so they stay unique with resolutions in
-            ev = Event(id=f"E{n:04d}", run=self.run, domain=self.domain, source=source, stage=stage, severity=severity,
-                       message=" ".join(str(message).split())[:600], fingerprint=fingerprint(source, stage, str(message)),
-                       refs=list(refs))
-            self._append({"type": "event", **ev.model_dump(exclude={"status", "how", "evidence", "corrected_at"})})
+                ev = Event(id=f"E{n:04d}", run=self.run, domain=self.domain, source=source, stage=stage,
+                           severity=severity, message=" ".join(str(message).split())[:600], fingerprint=fp,
+                           refs=list(refs))
+                self._write({"type": "event", **ev.model_dump(exclude={"status", "how", "evidence", "corrected_at"})})
             return ev.id
         except OSError:
             return ""
@@ -147,8 +156,14 @@ class NullLog(EventLog):
         return []
 
 
-def log_of(llm) -> EventLog:
-    return getattr(llm, "events", None) or NullLog()
+def log_of(llm, project=None) -> EventLog:
+    """The run's event log behind an LLM client (a NullLog for a stand-in without one). With a ``project``, the log's
+    domain is set from it first, so every stage that tags events does it the same way (factory/pipeline/domain.py)."""
+    log = getattr(llm, "events", None) or NullLog()
+    if project is not None:
+        from factory.pipeline.domain import project_domain
+        log.domain = project_domain(project)
+    return log
 
 
 # --------------------------------------------------------------------------

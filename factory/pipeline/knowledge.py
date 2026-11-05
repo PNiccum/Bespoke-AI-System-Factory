@@ -43,7 +43,6 @@ from factory.events import log_of
 from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
-from factory.pipeline.domain import project_domain
 from factory.pipeline.scout import Scout
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher, skipped_pages
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
@@ -304,8 +303,7 @@ class KnowledgeLoop:
         self.scout = scout
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
-        self.events = log_of(llm)  # every topic that stalls is an event, corrected when a verified page covers it
-        self.events.domain = project_domain(project)
+        self.events = log_of(llm, project)  # every topic that stalls is an event, corrected by a verified page
         self._topics: dict[str, _TopicState] = {}
         self._lock = threading.Lock()
 
@@ -382,7 +380,8 @@ class KnowledgeLoop:
                 covered |= {p.topic: p.slug for p in pages}
             self.board.post("coverage", LIBRARIAN, {"covered": {n: p.slug for n, p in have.items() if p},
                                                     "missing": missing, "deferred": deferred}, refs=[ev.id])
-            todo = [t for t in topics if t.name in missing or t.name in deferred]
+            # a topic already over budget was deferred in an earlier round and stays with the critic loop
+            todo = [t for t in topics if (t.name in missing or t.name in deferred) and t.name not in over_budget]
             room = MAX_RESEARCHED - researched
             if len(todo) > room:  # over the run's budget: the extra topics are left to the critic loop, not blocking
                 skipped = {t.name for t in todo[max(room, 0):]}
@@ -656,8 +655,9 @@ class KnowledgeLoop:
                                stage="wiki verify", severity="warning", refs=[f"topic:{topic.name}"])
         page.verified, page.issues = not issues, issues
         if page.verified:  # the stalls on this topic, if any, are over
+            # only the loop's own stalls: a search engine fault (source "sources") is corrected by nothing here
             self.events.resolve_open(f"a verified page now covers the topic ({page.slug})", [page.slug],
-                                     ref=f"topic:{topic.name}")
+                                     source="knowledge", ref=f"topic:{topic.name}")
         path = self.wiki.save(page)
         self.board.post("wiki_page", LIBRARIAN, {"topic": topic.name, "slug": page.slug, "path": str(path),
                                                  "verified": page.verified, "sources": page.sources},

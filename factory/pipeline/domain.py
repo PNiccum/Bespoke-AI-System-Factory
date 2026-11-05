@@ -48,11 +48,11 @@ def classify(text: str) -> str:
 
 
 def project_domain(project: Project) -> str:
-    """The tag on the project's request entry, or, for a project made before tags existed, one from its text."""
+    """The tag on the project's request entry, or, for a project made before tags existed, one from the request's
+    own text: the same words the interview would have tagged, never a task file, which may say something else."""
     req = next((e for e in project.board.entries("request")), None)
     if req is None:
         return ""
     if req.data.get("domain") in DOMAINS:
         return req.data["domain"]
-    task = project.root / "task.txt"
-    return classify(task.read_text(encoding="utf-8") if task.is_file() else str(req.data.get("text", "")))
+    return classify(str(req.data.get("text", "")))

@@ -17,7 +17,6 @@ from factory.llm import LLM, BudgetExceeded
 from factory.llm.gate import SpendDenied
 from factory.pipeline.blackboard import Project
 from factory.pipeline.critique import CriticLoop
-from factory.pipeline.domain import project_domain
 from factory.pipeline.final import FinalEvaluator, FinalResult
 from factory.pipeline.knowledge import KnowledgeLoop
 from factory.pipeline.production import Checks, Production
@@ -65,8 +64,7 @@ def _build(llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers
     if k is not None and not k.data.get("ok") and not allow_unapproved:
         raise RuntimeError(f"the knowledge loop did not approve this project's knowledge (missing: "
                            f"{', '.join(k.data.get('missing', [])) or 'unknown'}); rerun research first")
-    events = log_of(llm)
-    events.domain = project_domain(project)
+    events = log_of(llm, project)
     production = Production(llm, registry, project, wiki)
     knowledge = KnowledgeLoop(llm, registry, project, wiki, searchers)
     critic = CriticLoop(llm, registry, project, wiki, production, knowledge)
