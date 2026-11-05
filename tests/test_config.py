@@ -129,12 +129,9 @@ def test_aspire_data_private_makes_lab_data_unsendable_to_paid_providers(monkeyp
 
 @pytest.mark.parametrize("line", ["ASPIRE_DATA_PRIVATE=1", "export ASPIRE_DATA_PRIVATE=1", "ASPIRE_DATA_PRIVATE='1'"])
 def test_aspire_data_private_set_only_in_dotenv_still_blocks_paid_providers(monkeypatch, tmp_path, line):
-    monkeypatch.delenv("ASPIRE_DATA_PRIVATE", raising=False)
+    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "ASPIRE_DATA_PRIVATE"})
     (tmp_path / ".env").write_text(f"# flags\n{line}\n")
-    try:
-        assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
-    finally:
-        os.environ.pop("ASPIRE_DATA_PRIVATE", None)  # load_dotenv writes os.environ directly
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
 
 
 @pytest.mark.parametrize("shell", ["", "0"])
@@ -146,12 +143,16 @@ def test_dotenv_private_flag_beats_an_empty_or_zero_shell_value(monkeypatch, tmp
 
 @pytest.mark.parametrize("raw", [b"\xef\xbb\xbfASPIRE_DATA_PRIVATE=1\n", b"export\tASPIRE_DATA_PRIVATE=1\n"])
 def test_dotenv_parses_bom_and_tab_after_export(monkeypatch, tmp_path, raw):
-    monkeypatch.delenv("ASPIRE_DATA_PRIVATE", raising=False)
+    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "ASPIRE_DATA_PRIVATE"})
     (tmp_path / ".env").write_bytes(raw)
-    try:
-        assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
-    finally:
-        os.environ.pop("ASPIRE_DATA_PRIVATE", None)
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+def test_factory_tier_in_dotenv_takes_effect_and_leaves_the_data_guard_alone(monkeypatch, tmp_path):
+    monkeypatch.setattr(os, "environ", {k: v for k, v in os.environ.items() if k != "FACTORY_TIER"})
+    (tmp_path / ".env").write_text("FACTORY_TIER=quality\n")
+    cfg = load_config(write(tmp_path, shipped()))
+    assert cfg.tier == "quality" and cfg.data_public is True  # the spend gate is a runtime check, not config
 
 
 def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):
