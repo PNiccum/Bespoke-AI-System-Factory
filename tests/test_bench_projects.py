@@ -183,7 +183,7 @@ def test_resume_keeps_the_finished_stages_and_goes_on_from_the_first_unfinished_
 
 
 def test_results_folders_never_collide_within_one_second(tmp_path, monkeypatch):
-    import factory.bench_projects as bp
+    import factory.llm.client as client
 
     class Frozen:
         @staticmethod
@@ -191,10 +191,31 @@ def test_results_folders_never_collide_within_one_second(tmp_path, monkeypatch):
             from datetime import datetime
             return datetime(2026, 11, 5, 20, 58, 11, tzinfo=tz)
 
-    monkeypatch.setattr(bp, "datetime", Frozen)
-    a = bp.make_run_dir(tmp_path, "projects")
-    b = bp.make_run_dir(tmp_path, "projects")  # same second, same PID
-    monkeypatch.setattr(bp.os, "getpid", lambda: 4242)
-    c = bp.make_run_dir(tmp_path, "projects")  # same second, other PID
-    assert len({a, b, c}) == 3
-    assert all(p.is_dir() and p.name.endswith("-projects") for p in (a, b, c))
+    monkeypatch.setattr(client, "datetime", Frozen)
+    a = client.unique_dir(tmp_path, "projects")
+    b = client.unique_dir(tmp_path, "projects")
+    c = client.unique_dir(tmp_path)
+    d = client.unique_dir(tmp_path)
+    assert [p.name for p in (a, b, c, d)] == [
+        "20261105T205811Z-projects", "20261105T205811Z-projects-2", "20261105T205811Z", "20261105T205811Z-2"]
+
+
+def test_two_project_benchmarks_started_in_the_same_second_both_run(cfg, monkeypatch, tmp_path):
+    import factory.bench_projects as bp
+    import factory.llm.client as client
+
+    class Frozen:
+        @staticmethod
+        def now(tz=None):
+            from datetime import datetime
+            return datetime(2026, 11, 5, 20, 58, 11, tzinfo=tz)
+
+    monkeypatch.setattr(client, "datetime", Frozen)
+    monkeypatch.setattr(bp, "run_project", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("stop")))
+    for _ in range(2):
+        try:
+            bp.main(["--only", "wordstats", "--out", str(tmp_path)])
+        except Exception:  # the run itself is not under test, only that the folder was created
+            pass
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "20261105T205811Z-projects", "20261105T205811Z-projects-2"]

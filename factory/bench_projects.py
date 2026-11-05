@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import sys
@@ -32,7 +31,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -40,7 +38,7 @@ from pydantic import BaseModel
 
 from factory.bench import safe_stdout
 from factory.config import FactoryConfig, load_config
-from factory.llm import LLM, new_run_dir
+from factory.llm import LLM, new_run_dir, unique_dir
 from factory.llm.gate import SpendRequest, deny_all
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import ProjectPlan, check_plan, render_task
@@ -226,21 +224,6 @@ def summarize(outcomes: list[ProjectOutcome]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def make_run_dir(base: Path, suffix: str = "") -> Path:
-    """Create a fresh results folder named by the second plus this process's PID, so two jobs started in the
-    same second (parallel queue jobs) never collide; a counter covers the same PID reusing the second."""
-    stamp = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{os.getpid()}"
-    for n in range(1000):
-        name = stamp + (f"-{n}" if n else "") + (f"-{suffix}" if suffix else "")
-        out = base / name
-        try:
-            out.mkdir(parents=True)
-            return out
-        except FileExistsError:
-            continue
-    raise FileExistsError(f"no free results folder under {base}")
-
-
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m factory.bench_projects")
     ap.add_argument("--projects", default="bench/projects.yaml")
@@ -264,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ask:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
-    out = make_run_dir(Path(args.out), "projects")
+    out = unique_dir(Path(args.out), "projects")
     outcomes: list[ProjectOutcome] = []
     jobs = [(trial, task) for trial in range(1, args.repeat + 1) for task in tasks]
     resume_of: dict[str, Path] = {}

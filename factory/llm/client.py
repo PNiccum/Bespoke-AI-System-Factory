@@ -108,10 +108,12 @@ def model_unavailable(e: Exception) -> bool:
                            and any(w in text for w in ("not found", "unknown", "does not exist", "not available")))
 
 
-def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
+def unique_dir(parent: Path, label: str = "") -> Path:
+    """Create ``parent/<time>[-label]`` and return it. mkdir is atomic, so two jobs (threads or processes) that
+    start in the same second get ``-2``, ``-3``, ... instead of colliding."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    base = cfg.root / cfg.runs_dir / (f"{stamp}-{label}" if label else stamp)
-    for n in range(1, 100):  # two runs with the same label in the same second get -2, -3, ...
+    base = parent / (f"{stamp}-{label}" if label else stamp)
+    for n in range(1, 100):
         path = base if n == 1 else base.with_name(f"{base.name}-{n}")
         try:
             path.mkdir(parents=True, exist_ok=False)
@@ -119,6 +121,10 @@ def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
         except FileExistsError:
             continue
     raise FileExistsError(f"too many runs named {base.name}")
+
+
+def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
+    return unique_dir(cfg.root / cfg.runs_dir, label)
 
 
 # One concurrency gate per provider for the whole process, not one per LLM: projects run side by side
