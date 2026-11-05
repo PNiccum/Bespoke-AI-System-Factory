@@ -316,7 +316,12 @@ class KnowledgeLoop:
         return out
 
     def run(self, again: bool = False) -> KnowledgeResult:
-        """``again`` reruns a project whose knowledge is already approved; the new result is the one build reads."""
+        """``again`` reruns a project whose knowledge is already approved; the new result is the one build reads.
+        The rounds share the research stage's token ceiling (budget.stage_max_tokens)."""
+        with self.llm.stage("research"):
+            return self._run(again)
+
+    def _run(self, again: bool) -> KnowledgeResult:
         if self.board.latest("decision") is None:
             raise RuntimeError("the knowledge loop starts from the planning loop's plan; run that first")
         if (k := self.board.latest("knowledge")) and k.data.get("ok") and not again:

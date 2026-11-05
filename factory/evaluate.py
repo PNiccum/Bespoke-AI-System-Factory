@@ -28,7 +28,6 @@ import tempfile
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -36,7 +35,7 @@ from pydantic import BaseModel
 
 from factory.bench import HIDDEN, BenchTask, Outcome, judge, judge_hidden, load_tasks, run_baseline
 from factory.config import FactoryConfig, RoleConfig, load_config
-from factory.llm import LLM, Usage, complete_validated, new_run_dir
+from factory.llm import LLM, Usage, complete_validated, new_run_dir, unique_dir
 from factory.llm.gate import SpendRequest, deny_all
 from factory.llm.providers import RawResult
 from factory.orchestrator import REVIEW_PROMPT, Event, Orchestrator, Review, RunResult, Task, plan_for
@@ -47,10 +46,6 @@ ROOT = Path(__file__).resolve().parents[1]
 REVIEW_SET = ROOT / "bench" / "review_set"
 DEFAULT_REVIEWERS = ("arc:DeepSeek-V4.1-Flash-thinking-max", "arc:gpt-oss-120b-thinking-high",
                      "arc:GLM-5.3-thinking-high")
-
-
-def stamp(name: str) -> str:
-    return f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{name}"
 
 
 def write_results(out: Path, rows: list[BaseModel], summary: str) -> None:
@@ -510,7 +505,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
     cfg.sandbox.export()
     tasks = {t.name: t for t in load_tasks(Path(args.tasks), Path.cwd())}
-    out = Path(args.out) / stamp(args.cmd)
+    out = unique_dir(Path(args.out), args.cmd)
     if args.cmd == "guards":
         rows, summary = run_guards(cfg, tasks), guards_summary
     elif args.cmd == "rerun":

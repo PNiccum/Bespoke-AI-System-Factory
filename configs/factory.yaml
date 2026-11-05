@@ -101,6 +101,11 @@ roles:
 budget:
   approve_above_usd: 1.00   # a paid call that would take a run past $1 waits for approval
   max_real_usd: 3.00        # hard stop for one run
+  # Token ceiling for one pass through a stage, all calls inside it counted (checked before each call, so it can
+  # overshoot by the calls in flight). Run 3 (2026-11-05) spent 1.98M tokens for 0/4; the slowest delivered builds
+  # used about 0.5-1M in total. The critic loop, when it hits its ceiling, goes straight to final QA.
+  stage_max_tokens: {planning: 300000, research: 800000, production: 500000, critic: 500000, qa: 250000,
+                     redesign: 400000}
 
 # Paid credit on hand (2026-10-28). $10 is held back for rehearsals and the Dec 3 showcase.
 credits:

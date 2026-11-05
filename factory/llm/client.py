@@ -20,6 +20,7 @@ its free default.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -117,17 +118,24 @@ def model_unavailable(e: Exception) -> bool:
                            and any(w in text for w in ("not found", "unknown", "does not exist", "not available")))
 
 
-def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
+def unique_dir(parent: Path, label: str = "") -> Path:
+    """Create ``parent/<time>[-label]`` and return it. mkdir is atomic, so two jobs (threads or processes) that
+    start in the same second get ``-2``, ``-3``, ... instead of colliding."""
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    base = cfg.root / cfg.runs_dir / (f"{stamp}-{label}" if label else stamp)
-    for n in range(1, 100):  # two runs with the same label in the same second get -2, -3, ...
+    base = parent / (f"{stamp}-{label}" if label else stamp)
+    parent.mkdir(parents=True, exist_ok=True)  # a bad parent (e.g. a file) raises here, not as a fake collision
+    for n in range(1, 100):
         path = base if n == 1 else base.with_name(f"{base.name}-{n}")
         try:
-            path.mkdir(parents=True, exist_ok=False)
+            path.mkdir(exist_ok=False)
             return path
         except FileExistsError:
             continue
     raise FileExistsError(f"too many runs named {base.name}")
+
+
+def new_run_dir(cfg: FactoryConfig, label: str = "") -> Path:
+    return unique_dir(cfg.root / cfg.runs_dir, label)
 
 
 # One concurrency gate per provider for the whole process, not one per LLM: projects run side by side
@@ -174,6 +182,21 @@ class LLM:
                 r: {"provider": rc.provider, "model": rc.model, "max_tokens": rc.max_tokens, "effort": rc.effort,
                     "on_truncation": rc.on_truncation}
                 for r, rc in cfg.roles.items()}}, indent=1), encoding="utf-8")
+
+    @contextlib.contextmanager
+    def stage(self, name: str):
+        """Count the tokens of every call made inside against ``budget.stage_max_tokens[name]``. A stage entered
+        inside another counts toward both."""
+        led = self.ledger
+        with led._lock:
+            outer, outer_tokens = led.stage, led.stage_tokens
+            led.stage, led.stage_tokens = name, 0
+        try:
+            yield
+        finally:
+            with led._lock:
+                used = led.stage_tokens
+                led.stage, led.stage_tokens = outer, outer_tokens + (used if outer else 0)
 
     def complete(self, role: str, user: str, system: str | None = None, *, tag: str = "",
                  data: DataClass = "private", max_tokens: int | None = None, escalate: bool = False,

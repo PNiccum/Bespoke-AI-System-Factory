@@ -103,6 +103,10 @@ class Budget(BaseModel):
     approve_above_usd: float | None = None
     max_tokens: int | None = None
     max_seconds: float | None = None
+    # Token ceiling for one entry into a pipeline stage (keys: planning, research, production, critic, qa, redesign),
+    # counting every model call made inside it. Checked before each call, so a stage can overshoot by the calls
+    # already in flight. Reaching it ends the stage with StageCapReached (factory/llm/cost.py), not the run.
+    stage_max_tokens: dict[str, int] = {}
 
 
 class Credits(BaseModel):
