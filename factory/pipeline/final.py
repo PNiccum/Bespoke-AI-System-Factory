@@ -114,8 +114,10 @@ class FinalEvaluator:
         issues += [f"QA called {t.id} unmet but {t.override_reason} while the tests pass; code kept it met"
                    for t in qa.tasks if t.overridden]
         if not checks.ok:
-            issues.insert(0, "the plain-code checks fail: " + (", ".join(checks.syntax_errors) or
-                                                               ", ".join(checks.failed) or "tests fail"))
+            issues.insert(0, "the plain-code checks fail: " + (
+                ", ".join(checks.syntax_errors) or ", ".join(checks.failed)
+                or (("imports the sandbox lacks: " + ", ".join(sorted(checks.unavailable_imports)))
+                    if checks.unavailable_imports else "tests fail")))
         if missing := sorted(wanted - met):
             issues.insert(0, f"acceptance not met: {', '.join(missing)}")
         approved = checks.ok and not (wanted - met)
