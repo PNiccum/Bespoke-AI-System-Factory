@@ -189,6 +189,16 @@ def test_failed_qa_twice_leads_to_redesign_and_the_debate_waits_for_a_person(cfg
     assert "acceptance not met: T2" in project.board.entries("final")[0].data["issues"][0]
 
 
+def test_a_stalled_critic_still_gets_final_qa_and_a_working_result_is_delivered(cfg, tmp_path, monkeypatch):
+    from factory.pipeline.critique import CriticLoop, CriticResult
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    monkeypatch.setattr(CriticLoop, "run", lambda self, checks: CriticResult(accepted=False, redesign=True,
+                                                                               rounds=3, step="research"))
+    llm.providers["arc"] = Scripted(*PRODUCE, qa(("T1", True), ("T2", True)))
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.status == "delivered" and result.final.approved
+
+
 def test_the_paid_debate_runs_to_agreement_under_its_cap(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["claude"] = Scripted(json.dumps({"proposal": "add a Primer3 tool"}),

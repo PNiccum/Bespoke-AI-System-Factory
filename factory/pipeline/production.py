@@ -159,7 +159,9 @@ Reply with the files as plain text blocks, not JSON, so code needs no escaping:
 <the whole file, exactly as it should be saved>
 === END FILE ===
 
-One block per file, then a last line: NOTES: <one line>"""
+One block per file, then a last line: NOTES: <one line>
+Do not write test results, test counts or run logs into any file: the checks run the tests themselves, and a recorded \
+count goes stale as soon as a test is added."""
 
 FILE_BLOCK = re.compile(r"^=== FILE: *(.+?) *===[ \t]*\n(.*?)^=== END FILE ===[ \t]*$", re.M | re.S)
 
