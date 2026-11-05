@@ -138,6 +138,11 @@ release or push in the last three years, and whether the sandbox can import it (
 dates, is `reuse.json`; the evaluator sees it and the head orchestrator records what it adopts (`ASPIRE_SCOUT=0` turns
 it off). The research connectors also include `pypi` (a package's README) and `github` (repository descriptions).
 
+Before the evaluator runs, plain code (`self_contained` in `factory/pipeline/knowledge.py`) looks for a signal in the task
+and plan that research could help: an API, a named data source, a file format, or a field with its own methods. With none,
+the knowledge loop is skipped (`knowledge.json` has `skipped` set and no pages), saving the evaluator and per-topic calls;
+the scout still runs first. One hit keeps the full loop. `ASPIRE_SKIP_RESEARCH=0` turns the skip off; `--again` always researches.
+
 The knowledge evaluator (gpt-oss) lists the topics the work depends on. The librarian checks the shared wiki
 (`workspace/<name>/wiki/`) in plain code: a topic is covered by a verified page with at least two sources. For each
 missing topic the research orchestrator writes searches, plain-code connectors run them against OpenAlex, Europe PMC

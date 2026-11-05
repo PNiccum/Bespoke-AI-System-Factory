@@ -436,3 +436,19 @@ def test_two_gaps_pass_only_when_at_least_as_many_topics_are_covered(cfg, tmp_pa
     assert list(kl._open_gaps(two, 2)) == two  # the MCF7 run: 4 covered, 2 open
     assert kl._open_gaps(two, 1) == {}
     assert list(kl._open_gaps(two[:1], 0)) == ["Topic one"]  # a single gap needs no covered topic
+
+
+def test_a_plan_with_no_outside_source_skips_research_but_not_the_scout(cfg, tmp_path):
+    from factory.pipeline.knowledge import self_contained
+    assert self_contained("Count words in a text file", "tokenise, sort, print") != ""
+    assert self_contained("Query the OpenAlex API for papers", "") == ""
+    assert self_contained("Make me a primer design tool", "") == ""
+    kl, arc, project, _ = knowledge(cfg, tmp_path)
+    (project.root / "task.txt").write_text("Count words in a text file", encoding="utf-8")
+    (project.root / "plan.json").write_text('{"title": "Word counter", "tasks": []}', encoding="utf-8")
+    seen = []
+    kl.scout = type("S", (), {"run": lambda self, t, p: seen.append(t) or type("R", (), {
+        "model_dump": lambda s: {}, "model_dump_json": lambda s, **k: "{}", "render": lambda s: ""})()})()
+    out = kl.run()
+    assert out.ok and out.rounds == 0 and out.skipped and not arc.requests and seen  # scout ran, no model call for research
+    assert project.board.latest("knowledge").data["skipped"] == out.skipped
