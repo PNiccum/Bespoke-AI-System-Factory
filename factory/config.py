@@ -206,17 +206,27 @@ def load_models(path: Path) -> dict[str, ModelInfo]:
     return {name: ModelInfo(**info) for name, info in data.get("models", {}).items()}
 
 
-def load_dotenv(path: Path) -> None:
-    """Set variables from a ``.env`` file (KEY=value lines) that the environment does not already set."""
+def load_dotenv(path: Path) -> dict[str, str]:
+    """Set variables from a ``.env`` file (KEY=value lines) that the environment does not already set. Returns every
+    variable the file declares, so a caller can check a flag against the file even when the environment shadows it."""
+    found: dict[str, str] = {}
     if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8").splitlines():
+        return found
+    for line in path.read_text(encoding="utf-8-sig").splitlines():  # utf-8-sig: Notepad's BOM must not join a key
         line = line.strip()
-        if line.startswith("export "):  # `export KEY=value`, as shells write it
-            line = line[len("export "):]
+        if line.startswith("export") and line[6:7].isspace():  # `export KEY=value`, as shells write it
+            line = line[6:].strip()
         key, sep, value = line.partition("=")
+        key = key.strip()
         if sep and key and not key.startswith("#"):
-            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+            found[key] = value.strip().strip("\"'")
+            os.environ.setdefault(key, found[key])
+    return found
+
+
+def _is_private(value: str | None) -> bool:
+    """The lab-data flag is on for any value but empty or "0", so a typo such as "yes" fails closed."""
+    return (value or "").strip() not in ("", "0")
 
 
 def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
@@ -228,10 +238,12 @@ def load_config(path: str | Path, tier: str | None = None) -> FactoryConfig:
     root = path.parent.parent if path.parent.name == "configs" else path.parent
     # Load .env first: ASPIRE_DATA_PRIVATE (the lab-data guard) and FACTORY_* may be set only there, and a flag read
     # before this line would silently stay off.
-    load_dotenv(root / ".env")
+    dotenv = load_dotenv(root / ".env")
     if tier := tier or os.environ.get("FACTORY_TIER"):
         data["tier"] = tier
-    if os.environ.get("ASPIRE_DATA_PRIVATE", "").strip() not in ("", "0"):  # lab data: Claude and OpenAI refuse it
+    # Lab data: Claude and OpenAI refuse it. Either source turning the flag on is enough, so a stale or empty shell
+    # value cannot shadow ASPIRE_DATA_PRIVATE=1 in .env.
+    if _is_private(os.environ.get("ASPIRE_DATA_PRIVATE")) or _is_private(dotenv.get("ASPIRE_DATA_PRIVATE")):
         data["data_public"] = False
     for pair in filter(None, os.environ.get("FACTORY_ROLE_TIERS", "").split(",")):  # "reviewer=quality,coder=quality"
         role, _, t = pair.partition("=")

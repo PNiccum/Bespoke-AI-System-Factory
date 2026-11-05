@@ -137,10 +137,21 @@ def test_aspire_data_private_set_only_in_dotenv_still_blocks_paid_providers(monk
         os.environ.pop("ASPIRE_DATA_PRIVATE", None)  # load_dotenv writes os.environ directly
 
 
-def test_real_environment_can_still_switch_the_flag_off_over_dotenv(monkeypatch, tmp_path):
-    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", "0")
+@pytest.mark.parametrize("shell", ["", "0"])
+def test_dotenv_private_flag_beats_an_empty_or_zero_shell_value(monkeypatch, tmp_path, shell):
+    monkeypatch.setenv("ASPIRE_DATA_PRIVATE", shell)
     (tmp_path / ".env").write_text("ASPIRE_DATA_PRIVATE=1\n")
-    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is True
+    assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+
+
+@pytest.mark.parametrize("raw", [b"\xef\xbb\xbfASPIRE_DATA_PRIVATE=1\n", b"export\tASPIRE_DATA_PRIVATE=1\n"])
+def test_dotenv_parses_bom_and_tab_after_export(monkeypatch, tmp_path, raw):
+    monkeypatch.delenv("ASPIRE_DATA_PRIVATE", raising=False)
+    (tmp_path / ".env").write_bytes(raw)
+    try:
+        assert load_config(write(tmp_path, {**shipped(), "data_public": True})).data_public is False
+    finally:
+        os.environ.pop("ASPIRE_DATA_PRIVATE", None)
 
 
 def test_mcf7_baseline_refuses_to_run_with_public_data(monkeypatch, tmp_path):
