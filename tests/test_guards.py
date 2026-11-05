@@ -119,7 +119,9 @@ def test_bug_fix_rerun_gives_the_tests_no_keys(monkeypatch, tmp_path):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-leak-123456")
     monkeypatch.setenv("HTTPS_PROXY", "http://user:pw@proxy.example:8080")
     monkeypatch.setenv("https_proxy", "http://user:pw@proxy.example:8080")
-    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")  # a complete, valid git config so the script's own git calls work
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "user.name")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "x")
     r = subprocess.run([sys.executable, str(bundle / "rerun.py"), str(repo)], capture_output=True, text=True)
     assert r.returncode == 0 and "whole suite: PASS" in r.stdout, r.stdout + r.stderr
 
