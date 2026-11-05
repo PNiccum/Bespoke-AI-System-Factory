@@ -165,7 +165,8 @@ def test_plan_b_with_the_same_open_weakness_does_not_win_by_default(cfg, tmp_pat
     assert out.winner == "A" and out.problems == []  # a tie on problems goes to A, whose repair then closes W1
     b = [e.data for e in project.board.entries("recheck") if e.data["plan"] == "B"]
     assert b and b[0]["problems"][0].startswith("W1 still open")
-    assert "It is Plan B, the alternative" in arc.requests[4].messages[0]["content"]
+    b_check = next(r for r in arc.requests if r.tag == "plan-recheck-b")  # the re-checks run side by side
+    assert "It is Plan B, the alternative" in b_check.messages[0]["content"]
 
 
 def test_a_repair_that_leaves_the_blocker_open_is_reported(cfg, tmp_path):
