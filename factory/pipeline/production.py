@@ -323,18 +323,21 @@ class Production:
                                f"build-{order.id}", pages, parse=parse_files, fmt="FILE blocks",
                                salvage=salvage)
         except RuntimeError as e:  # no usable reply: the files stay unwritten, and the critic and QA see the gap
+            # files kept from a cut-off reply are not written when the retry fails; "salvaged" says what was lost
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
-                                               "failed": str(e)[:1000], "notes": ""}, refs=[ref])
+                                               "failed": str(e)[:1000], "notes": "",
+                                               **({"salvaged": sorted(salvage.files)} if salvage.files else {})},
+                            refs=[ref])
             return
-        finally:
-            if salvage.files:  # a cut-off reply's finished files were kept: recorded so live runs can count it
-                self.board.post("note", "code", {"order": order.id, "salvaged": sorted(salvage.files),
-                                                 "text": "cut-off builder reply: finished files kept, retry asked "
-                                                         "only for the rest"}, refs=[ref])
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
-            self._write(built, order, ref)
+            written = self._write(built, order, ref)
+        # kept files that reached disk, recorded so live runs can count the salvage (llm_calls.jsonl has no prompts)
+        if kept := sorted(set(salvage.files) & set(written)):
+            self.board.post("note", "code", {"order": order.id, "salvaged": kept,
+                                             "text": "cut-off builder reply: finished files kept and written"},
+                            refs=[ref])
 
-    def _write(self, built: Built, order: WorkOrder, ref: str) -> None:
+    def _write(self, built: Built, order: WorkOrder, ref: str) -> list[str]:
         written, refused = [], []
         for f in built.files:
             rel = f.path.removeprefix(f"{OUTPUT}/").lstrip("/")
@@ -349,6 +352,7 @@ class Production:
                 written.append(rel)
         self.board.post("build", BUILDER, {"order": order.id, "written": written, "refused": refused,
                                            "notes": built.notes}, refs=[ref])
+        return written
 
     def organize(self, design: Design, plan: ProjectPlan) -> None:
         """README.md and run.json from the design, so the result explains and runs itself."""

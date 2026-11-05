@@ -5,7 +5,9 @@ import zipfile
 
 import pytest
 
+from factory.llm import Usage
 from factory.llm.gate import approve_all, deny_all
+from factory.llm.providers import RawResult
 from factory.pipeline import critique as critique_module
 from factory.pipeline.critique import CriticLoop
 from factory.pipeline.knowledge import KnowledgeLoop
@@ -480,28 +482,50 @@ def test_a_resumed_build_starts_at_the_critic_on_the_earlier_builds_files(cfg, t
     assert not llm.providers["arc"].texts  # every scripted reply was used: the critic and QA ran, nothing else
 
 
+class CutFirstBuild(Scripted):
+    """Cuts off the first builder reply (picked by its prompt, not its position) after one finished file."""
+
+    def complete(self, req):
+        first_build = "=== FILE:" in req.messages[-1]["content"] and "cut off" not in req.messages[-1]["content"]
+        if first_build and not getattr(self, "cut", False):
+            self.cut = True
+            self.requests.append(req)
+            return RawResult(f"=== FILE: primer.py ===\n{CODE}=== END FILE ===\n=== FILE: util.py ===\nx = (",
+                             "", "max_tokens", Usage(500, 200))
+        return super().complete(req)
+
+
+def salvage_notes(project):
+    return [e.data for e in project.board.entries("note") if "salvaged" in e.data]
+
+
 def test_a_cut_off_build_keeps_its_finished_files_and_says_so_on_the_board(cfg, tmp_path):
-    from factory.llm import Usage
-    from factory.llm.providers import RawResult
-
-    class CutOnce(Scripted):
-        def complete(self, req):
-            if len(self.requests) == 2:  # the first builder reply: one file finished, the next cut off
-                self.requests.append(req)
-                return RawResult(f"=== FILE: primer.py ===\n{CODE}=== END FILE ===\n=== FILE: util.py ===\nx = (",
-                                 "", "max_tokens", Usage(500, 200))
-            return super().complete(req)
-
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
-    llm.providers["arc"] = CutOnce(design(), orders("T1", "primer.py", "util.py"),
-                                   "=== FILE: util.py ===\nX = 1\n=== END FILE ===\nNOTES: rest",
-                                   orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"),
+                                         "=== FILE: util.py ===\nX = 1\n=== END FILE ===\nNOTES: rest",
+                                         orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
     Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
     out = project.root / "output"
     assert (out / "primer.py").read_text() == CODE and (out / "util.py").read_text() == "X = 1\n"
-    notes = [e.data for e in project.board.entries("note") if "salvaged" in e.data]
-    assert notes == [{"order": "T1.1", "salvaged": ["primer.py"],
-                      "text": "cut-off builder reply: finished files kept, retry asked only for the rest"}]
+    assert salvage_notes(project) == [{"order": "T1.1", "salvaged": ["primer.py"],
+                                       "text": "cut-off builder reply: finished files kept and written"}]
+
+
+def test_kept_files_are_not_reported_as_written_when_the_retry_fails(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)  # no paid rescue
+    llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), "no blocks", "still none",
+                                         orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert not (project.root / "output" / "primer.py").exists() and salvage_notes(project) == []
+    failed = project.board.entries("build")[0].data
+    assert failed["written"] == [] and failed["failed"] and failed["salvaged"] == ["primer.py"]
+
+
+def test_a_build_that_is_not_cut_off_leaves_no_salvage_note(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE)
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert salvage_notes(project) == [] and all("salvaged" not in e.data for e in project.board.entries("build"))
 
 
 def test_final_qa_prompt_tells_qa_to_name_a_failing_check():
