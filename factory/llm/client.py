@@ -450,7 +450,10 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         try:
             c = llm.complete(role, p, system=system, tag=f"{tag}-paid", data=data, max_tokens=max_tokens,
                              escalate=True)
-            return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
+            data_ = parse(c) if parse else c.json()
+            # the rescue was asked for everything, so merging marks every kept piece it wrote again as rewritten
+            return settled((model_cls.model_validate(salvage.merge(data_) if salvage and kept_note else data_), c,
+                            errors))
         except (SpendDenied, BudgetExceeded, DataScopeError) as e:  # not approved or not allowed: no spend
             errors.append(f"paid rescue skipped: {str(e)[:160]}")
         except (TruncatedError, ValueError, ValidationError) as e:

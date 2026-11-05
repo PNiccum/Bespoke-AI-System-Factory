@@ -533,6 +533,17 @@ def test_a_kept_file_the_retry_writes_again_is_not_counted_as_saved(cfg, tmp_pat
     assert (project.root / "output" / "primer.py").read_text() == "X = 2\n"
 
 
+def test_a_paid_rescue_that_rewrites_kept_files_is_not_counted_as_salvage(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)  # approve_all: the rescue is approved
+    again = "=== FILE: primer.py ===\nX = 2\n=== END FILE ===\n=== FILE: util.py ===\nX = 1\n=== END FILE ==="
+    llm.providers["arc"] = CutFirstBuild(design(), orders("T1", "primer.py", "util.py"), "no blocks", "still none",
+                                         orders("T2", "tests/test_primer.py"), built(("tests/test_primer.py", TEST)))
+    llm.providers["openai"] = rescue = Scripted(again)
+    Production(llm, Registry.load(cfg, ROOT / "registry"), project, wiki).run()
+    assert llm.providers["arc"].cut and len(rescue.requests) == 1  # the paid step ran, through the gate
+    assert salvage_notes(project) == [] and (project.root / "output" / "primer.py").read_text() == "X = 2\n"
+
+
 def test_a_build_that_is_not_cut_off_leaves_no_salvage_note(cfg, tmp_path):
     llm, project, wiki = project_after_knowledge(cfg, tmp_path)
     llm.providers["arc"] = Scripted(*PRODUCE)

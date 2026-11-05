@@ -209,6 +209,7 @@ class FileSalvage:
         return sorted({_out_rel(p) for p in self.files if p not in self.rewritten})
 
     def keep(self, partial: str) -> str | None:
+        self.rewritten = set()  # a new cut-off starts a new retry: what an earlier merge saw no longer applies
         for path, body in FILE_BLOCK.findall(partial):
             self.files[path.strip().strip("`")] = body
         if not self.files:
@@ -333,7 +334,8 @@ class Production:
             # files kept from a cut-off reply are not written when the retry fails; "salvaged" says what was lost
             self.board.post("build", BUILDER, {"order": order.id, "written": [], "refused": [],
                                                "failed": str(e)[:1000], "notes": "",
-                                               **({"salvaged": salvage.kept()} if salvage.files else {})},
+                                               **({"salvaged": sorted({_out_rel(p) for p in salvage.files})}
+                                                  if salvage.files else {})},
                             refs=[ref])
             return
         with self._write_lock:  # parallel builders: the file cap is counted and files written one order at a time
