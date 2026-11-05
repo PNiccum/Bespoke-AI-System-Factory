@@ -407,10 +407,21 @@ class Production:
             events.record("checks", f"syntax error in {rel}: {why}", stage="checks", severity="warning", once=True,
                           refs=["check:syntax", f"file:{rel}"])
         if checks.tests_ok is False and not checks.setup_error and not timed_out:
-            what = (f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}" if checks.failed
-                    else f"pytest failed without naming a test: {checks.output_tail[-200:]}")
-            events.record("checks", what, stage="checks", severity="warning", once=True,
-                          refs=["check:tests", *(f"test:{t}" for t in checks.failed[:5])])
+            if not checks.failed:
+                events.record("checks", f"pytest failed without naming a test: {checks.output_tail[-200:]}",
+                              stage="checks", severity="warning", once=True, refs=["check:tests"])
+                return
+            # the failing set changes as repairs land (A, then A and B, then B): an open event whose tests all pass
+            # now is corrected, and a new event is written only for a test no open event names yet, so the log
+            # holds one open event per problem rather than one per check run
+            now = {f"test:{t}" for t in checks.failed}
+            open_tests = [e for e in events.open_events() if "check:tests" in e.refs and any(
+                r.startswith("test:") for r in e.refs)]
+            events.resolve([e.id for e in open_tests if not now & set(e.refs)],
+                           "those tests pass in a later run", sorted(now))
+            if now - {r for e in open_tests for r in e.refs}:
+                events.record("checks", f"{len(checks.failed)} failing test(s): {', '.join(checks.failed[:5])}",
+                              stage="checks", severity="warning", refs=["check:tests", *sorted(now)])
 
 
 def split_orders(orders: list[WorkOrder], limit: int = MAX_ORDER_FILES) -> list[WorkOrder]:

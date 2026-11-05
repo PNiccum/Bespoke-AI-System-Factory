@@ -251,3 +251,24 @@ def test_parallel_records_get_distinct_ids(tmp_path):
     with ThreadPoolExecutor(8) as pool:
         ids = list(pool.map(lambda i: log.record("x", f"problem {i}"), range(40)))
     assert len(set(ids)) == 40 and len(log.events()) == 40
+
+
+def test_a_changing_set_of_failing_tests_does_not_stack_events(tmp_path):
+    from types import SimpleNamespace
+
+    from factory.pipeline.production import Checks, Production
+    log = EventLog(tmp_path / "r" / "events.jsonl", "r")
+    p = Project.create(tmp_path, "p")
+    me = SimpleNamespace(llm=SimpleNamespace(events=log), project=p)
+
+    def run(*failed):
+        Production._record_checks(me, Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=not failed,
+                                             failed=list(failed)))
+        return [(e.message[:1], e.status) for e in log.events()]
+
+    assert run("test_a") == [("1", "open")]
+    assert run("test_a") == [("1", "open")]  # the same failure again: nothing new
+    assert run("test_a", "test_b") == [("1", "open"), ("2", "open")]  # test_b is new
+    assert run("test_b") == [("1", "corrected"), ("2", "open")]  # test_a passes now; test_b is already known
+    assert run() == [("1", "corrected"), ("2", "corrected")]
+    assert [e.how for e in log.events()] == ["those tests pass in a later run", "a later test run passed"]
