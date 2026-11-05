@@ -11,6 +11,7 @@ code, tools, roles or capabilities, so it cannot change what ASPIRE is able to t
     python -m factory.extend --agent coder --adopt          # apply it if it passes every gate
     python -m factory.extend --rollback coder               # put back the prompt it had before the last adoption
     python -m factory.extend --agent builder --case <id>    # also replay a failure case from the archive
+    python -m factory.extend --agent coder --tasks bench/tasks.yaml   # judge on one tier only
     python -m factory.extend --from-events                  # re-design from errors open in 3 of the last 10 runs
 
 The proposer (a GLM model) writes ``CANDIDATES`` prompts, each told to take a different approach from the ones before
@@ -22,7 +23,9 @@ The gates, in order; a proposal stops at the first it fails:
 1. **Scope** (plain code): the spec validates, is a model agent on the same role (so the same model and price), keeps
    or narrows the incumbent's capabilities and tools, has a new name, a prompt under 3,000 characters, and no secret.
 2. **Held-out benchmark** (plain code judging free model runs): the candidate replaces the incumbent on the held-out
-   tasks of ``bench/tasks.yaml``. It must solve at least as many, without using more than 1.5 times the tokens. The
+   tasks of ``bench/tasks.yaml`` and ``bench/tasks_hard.yaml`` (``--tasks`` picks other files). It must solve at
+   least as many, without using more than 1.5 times the tokens. The hard tier is where ASPIRE and a single call
+   differ most, so it is the gate with signal; the easy tier is where they tie. The
    benchmark only exercises the coding workflow's agents; for any other agent (the pipeline's critics, auditors and
    so on) this gate says so and the panel below gets a second free family instead.
 3. **Review panel** (free model of another family; optionally a paid one): reads the old and new spec and must accept.
@@ -253,9 +256,25 @@ def archive_text(path: Path, incumbent: str) -> str:
     return "\n".join(f"- {r['name']}: {r['status']} ({r['benchmark']})" for r in rows) or "- none yet"
 
 
+DEFAULT_TASK_FILES = ("bench/tasks.yaml", "bench/tasks_hard.yaml")
+
+
+def gate_tasks(root: Path, tasks_file: Path | list[Path] | None = None) -> list[BenchTask]:
+    """The benchmark tasks self-extension learns from (development) and is judged on (held out): both tiers unless
+    ``tasks_file`` names one or more files. Each file's ``heldout`` flags are kept as written."""
+    files = [root / f for f in DEFAULT_TASK_FILES] if tasks_file is None else \
+        [tasks_file] if isinstance(tasks_file, Path) else list(tasks_file)
+    if missing := [str(f) for f in files if not f.is_file()]:
+        raise FileNotFoundError(f"no benchmark file at {', '.join(missing)}")
+    tasks = [t for f in files for t in load_tasks(f, root)]
+    if len({t.name for t in tasks}) != len(tasks):
+        raise ValueError("the benchmark files share a task name")
+    return tasks
+
+
 def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest], bool] = deny_all,
             paid_panel: bool = False, providers: dict | None = None, registry_dir: Path | None = None,
-            tasks_file: Path | None = None, dev_runs: list[Outcome] | None = None, guidance: str = "",
+            tasks_file: Path | list[Path] | None = None, dev_runs: list[Outcome] | None = None, guidance: str = "",
             adopt_if_passed: bool = False, by_person: bool = False, candidates: int = CANDIDATES, case: str = "",
             replay: bool = True) -> Result:
     """Run one proposal through every gate it reaches and write it up. ``guidance`` is what a re-design audit asked
@@ -268,7 +287,7 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
     llm = LLM(cfg, run_dir, use_cache=False, approver=approver, **({"providers": providers} if providers else {}))
     registry = Registry.load(cfg, registry_dir)
     incumbent = registry.agents[agent]
-    tasks = load_tasks(tasks_file or cfg.root / "bench" / "tasks.yaml", cfg.root)
+    tasks = gate_tasks(cfg.root, tasks_file)
     dev, heldout = [t for t in tasks if not t.heldout], [t for t in tasks if t.heldout]
     out = cfg.work_dir / "proposals"
     archive = out / "archive.jsonl"
@@ -555,6 +574,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--window", type=int, default=WINDOW, help="--from-events: newest runs to look at")
     ap.add_argument("--min-runs", type=int, default=MIN_RUNS, help="--from-events: runs an error must be open in")
     ap.add_argument("--no-replay", action="store_true", help="skip replaying archived failures (each is a full build)")
+    ap.add_argument("--tasks", action="append", default=[], metavar="FILE",
+                    help="benchmark file(s) for the gate (default: bench/tasks.yaml and bench/tasks_hard.yaml, "
+                         "nine held-out tasks; one run of each per candidate, free models)")
     args = ap.parse_args(argv)
     cfg = load_config(args.config)
     if args.rollback:
@@ -577,7 +599,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     result = propose(cfg, args.agent, approver=approver, paid_panel=args.paid_panel, guidance=args.guidance,
                      adopt_if_passed=args.adopt, by_person=args.adopt, case=args.case, candidates=args.candidates,
-                     replay=not args.no_replay)
+                     replay=not args.no_replay, tasks_file=[cfg.root / f for f in args.tasks] or None)
     for g in result.gates:
         print(f"{'passed' if g.passed else 'FAILED':<7} {g.name}: {g.detail}")
     print(f"\n{result.status}: {result.folder / 'report.md'}")
