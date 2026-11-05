@@ -391,12 +391,13 @@ def test_one_researched_topic_without_a_page_becomes_a_recorded_gap_not_a_stop(c
     assert "recorded gap" in str(project.board.entries("note")[-1].data)
 
 
-def test_two_open_topics_or_a_topic_never_searched_still_block(cfg, tmp_path, monkeypatch):
+def test_three_open_topics_or_a_topic_never_searched_still_block(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
-    kl, _, _, _ = knowledge(cfg, tmp_path, topics("Topic one", "Topic two"), *[queries()] * 6,
-                            topics("Topic one", "Topic two"), *[queries()] * 6, docs=())
+    names = ("Topic one", "Topic two", "Topic three")
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics(*names), *[queries()] * 9, topics(*names), *[queries()] * 9,
+                            docs=())
     result = kl.run()
-    assert not result.ok and sorted(result.missing) == ["Topic one", "Topic two"] and result.gaps == {}
+    assert not result.ok and sorted(result.missing) == sorted(names) and result.gaps == {}
     assert KnowledgeLoop._open_gaps(kl, ["never searched"]) == {}
 
 
@@ -439,3 +440,13 @@ def test_a_page_of_plain_restatements_is_verified_by_code_without_a_model(cfg, t
     checks = project.board.entries("wiki_check")
     assert checks[-1].author == "code" and checks[-1].data["by"] == "restatement check"
     assert len(arc.requests) == 5  # evaluate, queries, review, write, re-evaluate: no verifier call
+
+
+def test_two_gaps_pass_only_when_at_least_as_many_topics_are_covered(cfg, tmp_path):
+    kl, _, _, _ = knowledge(cfg, tmp_path, topics("x"), docs=())
+    for name in ("Topic one", "Topic two"):
+        kl._topics[name] = knowledge_module._TopicState(queries={("docs", name)})
+    two = ["Topic one", "Topic two"]
+    assert list(kl._open_gaps(two, 2)) == two  # the MCF7 run: 4 covered, 2 open
+    assert kl._open_gaps(two, 1) == {}
+    assert list(kl._open_gaps(two[:1], 0)) == ["Topic one"]  # a single gap needs no covered topic

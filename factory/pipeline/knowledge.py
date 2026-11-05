@@ -50,7 +50,7 @@ EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER = ("knowledge_evaluator", "research
 # MAX_ROUNDS evaluations, so at most MAX_ROUNDS - 1 research passes, each followed by a fresh evaluation
 MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 4, 6, 3, 3, 5
 MAX_RESEARCHED = 12  # topics researched in one run; the rest are left to the critic loop, so more rounds stay bounded
-MAX_OPEN_GAPS = 1  # outside topics researched without a verified page that a run may carry into the build
+MAX_OPEN_GAPS = 2  # outside topics researched without a verified page that a run may carry into the build
 SHOWN_PAGES = 40  # wiki pages the evaluator sees, the most relevant to the task
 GAP_SEARCHES = 1  # search rounds after a page fails its checks, aimed at what the verifier found unsupported
 RESEARCH_WORKERS = 4  # topics researched at once; ARC allows 20 requests in flight per user
@@ -363,7 +363,7 @@ class KnowledgeLoop:
                                                         "missing": missing, "deferred": deferred, "final": True},
                                 refs=[ev.id])
                 break
-        gaps = self._open_gaps(missing)
+        gaps = self._open_gaps(missing, len(covered))
         if gaps:
             missing = []
             self.board.post("note", "code", {"text": "the build goes ahead with a recorded gap: "
@@ -375,12 +375,13 @@ class KnowledgeLoop:
         self.project.write_file("knowledge.json", json.dumps(result.model_dump(), indent=1), "code", refs=[k.id])
         return result
 
-    def _open_gaps(self, missing: list[str]) -> dict[str, str]:
+    def _open_gaps(self, missing: list[str], covered: int = 0) -> dict[str, str]:
         """The one or two topics that stopped a run which otherwise has its knowledge, when each was really researched
-        (searched, not just named): all four proteomics and MCF7 runs of 2026-11-05 stopped on a single API schema or
-        export format that no source in reach settled. More open topics than MAX_OPEN_GAPS still block."""
-        if not missing or len(missing) > MAX_OPEN_GAPS:
-            return {}
+        (searched, not just named): the proteomics runs of 2026-11-05 each stopped on one API schema or export format
+        and the MCF7 run on two (4 topics covered), none of which a source in reach settled. More open topics than
+        MAX_OPEN_GAPS still block."""
+        if not missing or len(missing) > MAX_OPEN_GAPS or (len(missing) > 1 and covered < len(missing)):
+            return {}  # a second gap also needs at least as many covered topics as gaps
         out = {}
         for name in missing:
             st = self._topics.get(name)

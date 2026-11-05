@@ -68,3 +68,46 @@ def test_a_list_with_only_id_gene_and_description_gets_decoys_with_descriptions(
     assert next(r for r in got if r["Protein ID"] == "Q9ZZZ9")["Gene name"] == "FAKE1"
     said = capsys.readouterr().out
     assert "fold=None" in said and "WARNING" not in said and "carry none" in said
+
+
+def test_a_replicate_count_xlsx_gets_decoys_with_counts_and_is_written_as_csv(tmp_path, capsys):
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Protein ID", "Gene name", "Description ", "Control 1/ Nonproliferative", "Control 2/ Nonproliferative",
+               "Treatment1/ Proliferative", "Treatment2/ Proliferative", None])
+    ws.append(["P06493", "CDK1", "Cyclin-dependent kinase 1", 5, 7, 20, 18, None])
+    ws.append(["P12004", "PCNA", "PCNA", 0, 3, 9, 11, None])
+    lst, out = tmp_path / "big.xlsx", tmp_path / "out.csv"
+    wb.save(lst)
+    assert add_decoys.main([str(lst), str(out)]) == 0
+    got = rows(out, ",")
+    assert list(got[0]) == ["Protein ID", "Gene name", "Description", "Control 1/ Nonproliferative",
+                            "Control 2/ Nonproliferative", "Treatment1/ Proliferative", "Treatment2/ Proliferative"]
+    assert got[0]["Control 1/ Nonproliferative"] == "5" and len(got) == 6
+    vim = next(r for r in got if r["Protein ID"] == "P08670")  # log2fc 1.6: treatment about 6 * 3 = 18, control about 6
+    assert 4 <= int(vim["Control 2/ Nonproliferative"]) <= 8 and 14 <= int(vim["Treatment1/ Proliferative"]) <= 22
+    assert vim["Description"] == "Vimentin"
+    said = capsys.readouterr().out
+    assert "fold=None" in said and "replicate counts=['Control 1/ Nonproliferative'" in said and "carry none" not in said
+
+
+def test_baseline_summary_gives_the_listed_proteins_and_the_extremes_computed_by_code(tmp_path):
+    spec = importlib.util.spec_from_file_location("baseline", ROOT / "bench/research/mcf7_release/baseline.py")
+    baseline = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(baseline)
+    counts, lst = tmp_path / "counts.csv", tmp_path / "list.csv"
+    counts.write_text(
+        "Protein ID,Gene name,Description ,Control 1/ Nonproliferative,Control 2/ Nonproliferative,"
+        "Treatment1/ Proliferative,Treatment2/ Proliferative\n"
+        "P06493,CDK1,Cyclin-dependent kinase 1,3,3,15,15\n"      # (15+1)/(3+1) = 4 -> +2.00
+        "P12004,PCNA,PCNA,0,0,0,0\n"                              # 0.00, on the list but not up
+        "P11111,UPPY,Up protein,1,1,63,63\n"                      # +5.00, not on the list
+        "P22222,DOWNY,Down protein,31,31,1,1\n", encoding="utf-8")  # -4.00, not on the list
+    lst.write_text("Protein ID,Gene name,Description\nP06493,CDK1,x\nP12004,PCNA,y\n", encoding="utf-8")
+    out = baseline.counts_summary(str(lst), str(counts), extremes=1)
+    assert "4 proteins were detected; 2 control and 2 treatment replicates" in out
+    assert "P06493\tCDK1\t+2.00" in out and "P12004\tPCNA\t+0.00" in out
+    up, down = out.split("most increased")[1], out.split("most decreased")[1]
+    assert "P11111\tUPPY\t+5.00" in up.split("###")[0] and "P22222\tDOWNY\t-4.00" in down
+    assert "P06493" not in down  # listed proteins are not repeated among the extremes

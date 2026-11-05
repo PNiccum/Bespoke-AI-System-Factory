@@ -11,9 +11,9 @@ repository or reaches Claude or OpenAI. `ASPIRE_DATA_PRIVATE=1` enforces that in
 | `request.md` | The lab's request in plain words (no list data) |
 | `answers.md` | Written answers the Interviewer gets in an unattended run: input format, data rule, deliverable, sources, limits |
 | `decoys.csv` | Four planted rows (mouse vimentin, an isoform duplicate, human vimentin, a made-up accession) |
-| `add_decoys.py` | Appends the decoys to a copy of the list in the list's own columns, delimiter and fold-change scale |
-| `checklist.md` | A 40-point scoring sheet built from public knowledge of the experiment, not from the list |
-| `baseline.py` | The comparison: one ARC call that answers the questions directly |
+| `add_decoys.py` | Appends the decoys to a copy of a table in its own columns (three-column list, fold-change table, or replicate counts; reads .xlsx and writes CSV) |
+| `checklist.md` | A 46-point scoring sheet built from public knowledge of the experiment, not from the list |
+| `baseline.py` | The comparison: one ARC call on the 95-protein list plus a code-computed summary of the counts (fold change of each listed protein, the 40 most up and 40 most down others); the full table does not fit one call, ASPIRE gets all of it |
 
 ## Run it (laptop, VT VPN, free ARC models)
 
@@ -30,10 +30,9 @@ Then run what ASPIRE delivered, on a copy of the list with the decoys appended:
 
 ```powershell
 python $T/add_decoys.py <lab list> list_with_decoys.csv
-# the lab list has three columns (Protein ID, Gene name, Description) and no fold change, so decoys carry none either;
-# if another list does have one under an unusual header, name it: --fold-col "<header>" (also --accession-col, --gene-col)
-python <deliverable>/interpret.py list_with_decoys.csv --out runs/mcf7-aspire
-python $T/baseline.py list_with_decoys.csv --out runs/mcf7-baseline
+python $T/add_decoys.py "<lab counts table>.xlsx" counts_with_decoys.csv   # needs openpyxl, or export to CSV first
+python <deliverable>/interpret.py list_with_decoys.csv --counts counts_with_decoys.csv --out runs/mcf7-aspire
+python $T/baseline.py list_with_decoys.csv --counts counts_with_decoys.csv --out runs/mcf7-baseline
 ```
 
 ## Score it

@@ -2,6 +2,10 @@ MCF7 cells were deprived of FBS for 48 h and released for 24 h in serum-enriched
 list of 95 proteins, a selected subset of the proteins that went up after release. Objective: identify new proteins and
 pathways that drive the aberrant proliferation of ER+ breast cancer cells.
 
+The lab also has the full measured table that the 95 came from: spectral counts for about 3,300 proteins in three
+control (nonproliferative, serum-starved) and three treatment (proliferative, released) replicates. Use it to check the
+95 against the data, to compute the changes yourself, and as the background for enrichment.
+
 Build a pipeline I can run on that list (and on the next list the lab sends) that answers:
 
 1. Is this protein set indicative of release into the cell cycle and proliferation? Which phases, pathways and
