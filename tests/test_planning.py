@@ -30,8 +30,8 @@ def edit(a=PLAN, b=PLAN_B):
     return json.dumps({"plan_a": a, "plan_b": b, "changes": ["added subtasks"]})
 
 
-def recheck(*open_ids):
-    return json.dumps({"open": [{"id": i, "why": "still no subtasks"} for i in open_ids]})
+def recheck(*open_ids, blocks=True):
+    return json.dumps({"open": [{"id": i, "why": "still no subtasks", "blocks": blocks} for i in open_ids]})
 
 
 def vote(choice):
@@ -148,3 +148,22 @@ def test_restart_copies_the_project_up_to_its_approval(cfg, tmp_path):
     llm = pl.llm
     llm.providers["arc"] = Scripted(critique(), ANALYSIS, edit(), recheck(), recheck(), vote("A"), vote("A"))
     assert PlanningLoop(llm, Registry.load(cfg, ROOT / "registry"), new).run().winner == "A"
+
+
+def test_an_open_weakness_that_does_not_change_the_result_is_noted_and_the_plan_goes_ahead(cfg, tmp_path):
+    # csv_profile, 2026-11-05: "T2 depends on T1 unnecessarily" kept a plan from a build that had reached QA 5/5
+    pl, _, project = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck("W1", blocks=False), recheck(),
+                          vote("A"), vote("A"))
+    out = pl.run()
+    assert out.winner == "A" and out.problems == [] and out.votes == {"plan_critic": "A", "plan_analyst": "A"}
+    a = [e.data for e in project.board.entries("recheck") if e.data["plan"] == "A"][0]
+    assert a["problems"] == [] and a["noted"] == ["W1 noted: no subtasks (still no subtasks)"]
+    assert a["open"][0]["blocks"] is False
+
+
+def test_a_recheck_reply_without_the_blocks_field_still_blocks(cfg, tmp_path):
+    old = json.dumps({"open": [{"id": "W1", "why": "still no subtasks"}]})  # a model that ignored the new field
+    pl, _, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), old, old, vote("A"), vote("A"),
+                    json.dumps(PLAN), old)
+    out = pl.run()
+    assert out.problems and out.problems[0].startswith("W1 still open")

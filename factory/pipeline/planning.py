@@ -14,8 +14,11 @@ plus one repair round when the winner fails its checks.
 
 The critic's weaknesses are blockers on Plan A (approved 2026-11-03 after the primer build, whose plan kept a
 weakness the critic had named: gene ESummary gives no RefSeq transcripts). The editor must say, for each one, what it
-changed; the critic then re-checks the edited Plan A, and every weakness it finds still open counts as a problem, so
-Plan A cannot win with it. The repair round gets the open weaknesses too, and the critic checks the repair once more.
+changed; the critic then re-checks the edited Plan A. An open weakness that would make the delivered result wrong,
+incomplete or not runnable counts as a problem, so Plan A cannot win with it; one that would not (wasted work, order,
+an unnecessary dependency) is recorded on the blackboard as noted and lets the build go ahead (2026-11-05: csv_profile
+stopped at planning over "T2 depends on T1 unnecessarily", a plan that had reached final QA 5/5 the day before).
+The repair round gets the blocking weaknesses too, and the critic checks the repair once more.
 
 Every step is a blackboard entry, and the result is ``plan.json``: the refined plan with tasks and subtasks that the
 knowledge loop starts from.
@@ -63,6 +66,7 @@ class Edited(BaseModel):
 class Open(BaseModel):
     id: str
     why: str
+    blocks: bool = True  # left as is, would the delivered result be wrong, incomplete or not runnable?
 
 
 class Recheck(BaseModel):
@@ -147,7 +151,11 @@ still has it. {which} A claimed change that the plan text does not show does not
 ## {title}
 {plan_a}
 
-Reply with JSON only: {{"open": [{{"id": "W1", "why": "<what is still wrong>"}}]}} (empty when all are fixed)"""
+For each open weakness, "blocks" is true when, left as is, it would make the delivered result wrong, incomplete or \
+not runnable, and false when it only costs effort, order or tidiness (wasted work, an unnecessary dependency, style).
+
+Reply with JSON only: {{"open": [{{"id": "W1", "why": "<what is still wrong>", "blocks": true}}]}} (empty when all \
+are fixed)"""
 
 # Plan B was never put through the critic's review, so without a recheck of its own it could win only because Plan
 # A's open weaknesses spoiled every vote for A (the 2026-11-04 primer run), even when B has the same weaknesses.
@@ -206,7 +214,7 @@ class PlanningLoop:
             found = Recheck(open=[Open(id=k, why="the re-check gave no valid reply") for k in weaknesses])
         left = _open(found, weaknesses)
         self.board.post("recheck", CRITIC, {"plan": label, "open": [o.model_dump() for o in found.open],
-                                            "problems": left}, refs=[ref])
+                                            "problems": left, "noted": _noted(found, weaknesses)}, refs=[ref])
         return left
 
     def run(self) -> Outcome:
@@ -302,7 +310,13 @@ class PlanningLoop:
 
 
 def _open(found: Recheck, weaknesses: dict[str, str]) -> list[str]:
-    return [f"{o.id} still open: {weaknesses[o.id]} ({o.why})" for o in found.open if o.id in weaknesses]
+    """The open weaknesses that block the plan, as problems."""
+    return [f"{o.id} still open: {weaknesses[o.id]} ({o.why})" for o in found.open if o.id in weaknesses and o.blocks]
+
+
+def _noted(found: Recheck, weaknesses: dict[str, str]) -> list[str]:
+    """The open weaknesses that do not change the result: recorded, not held against the plan."""
+    return [f"{o.id} noted: {weaknesses[o.id]} ({o.why})" for o in found.open if o.id in weaknesses and not o.blocks]
 
 
 def decide(votes: dict[str, str], problems: dict[str, list[str]]) -> Literal["A", "B"]:
