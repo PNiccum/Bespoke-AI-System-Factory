@@ -100,8 +100,8 @@ else:
     a.metric("Corrected", s["corrected"])
     b.metric("Not corrected", s["open"])
     st.caption("Code records each event and decides when it is corrected; the historian only explains.")
-    if elog[0].domain:
-        st.caption(f"Domain: {elog[0].domain}")
+    if domain := next((e.domain for e in elog if e.domain), ""):  # the first events may predate the tag
+        st.caption(f"Domain: {domain}")
     st.dataframe([{"id": e.id, "status": e.status, "source": e.source, "stage": e.stage, "severity": e.severity,
                    "message": e.message[:160], "corrected by": e.how} for e in elog], hide_index=True,
                  use_container_width=True)

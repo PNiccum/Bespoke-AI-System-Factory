@@ -333,8 +333,8 @@ class LLM:
                       **asdict(raw.usage))
             if raw.stop_reason == "max_tokens":
                 out[i] = TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens})")
-                self.events.record("llm", f"{tag or role}: reply cut off at max_tokens (batch)", stage=tag or role,
-                                   severity="warning")
+                # the same shape as converse's record of a cut-off, so the two share a fingerprint
+                self.events.record("llm", f"{role}: {rc.model}: TruncatedError: {out[i]}"[:400], stage=tag or role)
             elif raw.stop_reason == "refusal":
                 out[i] = RefusedError(f"{tag or role}: model declined the request")
             else:
