@@ -148,6 +148,9 @@ def run_build(args) -> int:
     else:
         print(f"Not delivered after {result.rounds} round(s). Re-design report: {result.redesign.report}")
     print(f"Cost: {llm.ledger.summary()}")
+    from factory.historian import write_run_history
+    if history := write_run_history(llm, llm.run_dir):  # the run met errors: a plain-words account (free ARC role)
+        print(f"History: {history}")
     return 0 if result.status == "delivered" else 1
 
 
@@ -195,6 +198,11 @@ def main(argv: list[str] | None = None) -> int:
                              "folder (planning, research and build then run fresh)")
     restart.add_argument("--project", required=True)
     restart.add_argument("--config", default="configs/factory.yaml")
+    similar = sub.add_parser("similar", help="list delivered projects whose request is close to this one; no model "
+                             "calls")
+    similar.add_argument("request", nargs="?")
+    similar.add_argument("--request-file")
+    similar.add_argument("--config", default="configs/factory.yaml")
     wiki = sub.add_parser("wiki", help="rewrite the wiki's index.md and list problems (broken links, orphans, "
                           "unverified pages); no model calls")
     wiki.add_argument("--config", default="configs/factory.yaml")
@@ -215,6 +223,12 @@ def main(argv: list[str] | None = None) -> int:
         src = Project.open(Path(args.project))
         new = Project.restart(src, src.root.parent)
         print(f"new project: {new.root}\nnext: python -m factory plan --project {new.root}")
+        return 0
+    if args.command == "similar":
+        from factory.pipeline import precedent
+        text = Path(args.request_file).read_text(encoding="utf-8") if args.request_file else (args.request or "")
+        found = precedent.find(load_config(args.config).work_dir / "projects", text)
+        print(precedent.render(found) or "no delivered project is close to this request")
         return 0
     if args.command == "wiki":
         from factory.pipeline.wiki import Wiki

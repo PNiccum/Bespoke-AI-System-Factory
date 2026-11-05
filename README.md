@@ -106,6 +106,13 @@ plan (acceptance checks present, ids unique, no task depending on a later one) a
 creates `workspace/<name>/projects/<id>/` with `task.txt`, `plan_a.json` and `blackboard.jsonl`, the shared log
 every later stage of the pipeline reads and writes (`factory/pipeline/`).
 
+Before the first question, plain code looks for an earlier delivered project with a similar request
+(`factory/pipeline/precedent.py`, no model call): the request becomes a fingerprint (its content keywords and a hash
+of them), every project whose final QA approved is scored against it, and the best few (a `precedent` entry on the
+blackboard, even when empty) are shown to the Interviewer, the plan critic and the head orchestrator as a starting
+template: what was asked, how it was designed and laid out, and where its deliverable is. They may follow it, adapt it
+or ignore it. `python -m factory similar "<request>"` lists the matches.
+
 Then the planning loop puts three model families on Plan A:
 
 ```bash
@@ -130,6 +137,11 @@ release or push in the last three years, and whether the sandbox can import it (
 `ASPIRE_SANDBOX_PACKAGES`; everything else is a reference to follow, not import). The result, with URLs and fetch
 dates, is `reuse.json`; the evaluator sees it and the head orchestrator records what it adopts (`ASPIRE_SCOUT=0` turns
 it off). The research connectors also include `pypi` (a package's README) and `github` (repository descriptions).
+
+Before the evaluator runs, plain code (`self_contained` in `factory/pipeline/knowledge.py`) looks for a signal in the task
+and plan that research could help: an API, a named data source, a file format, or a field with its own methods. With none,
+the knowledge loop is skipped (`knowledge.json` has `skipped` set and no pages), saving the evaluator and per-topic calls;
+the scout still runs first. One hit keeps the full loop. `ASPIRE_SKIP_RESEARCH=0` turns the skip off; `--again` always researches.
 
 The knowledge evaluator (gpt-oss) lists the topics the work depends on. The librarian checks the shared wiki
 (`workspace/<name>/wiki/`) in plain code: a topic is covered by a verified page with at least two sources. For each
@@ -203,7 +215,9 @@ python -m factory.bench_projects --only wordstats --repeat 3
 - `bench/tasks_hard.yaml` holds eight repository tasks. Some have two bugs in one class or a cause two modules
   away from the symptom. One is a feature built to tests that already exist (`inventory_remove`), and the rest are a
   parser or an algorithm brought up to its written spec. They are judged like the main benchmark, with hidden
-  tests, and kept in their own file so the main numbers and self-extension's held-out gate do not change.
+  tests, and kept in their own file so the main numbers do not change. Four of them are held out: self-extension
+  learns from the other four and is judged on these, because the hard tier is where ASPIRE and a single call
+  differ (18/24 against 11/24), while the main tier is where they tie.
 - `bench/projects.yaml` holds four small tools: a word-frequency CLI, a CSV profiler, an access-log error-spike
   finder, and an OpenAlex reading-list digest. Each starts from a written request and Plan A, then goes through the
   planning loop, the knowledge loop, production, the critic loop and final QA. Plain code then runs acceptance tests
@@ -269,6 +283,16 @@ python -m factory.demo record runs/<a finished run> demos/parse_date.json   # it
 python -m factory.demo replay demos/parse_date.json                         # offline: no network, no model
 ```
 
+Tests can also replay a run **by stage** instead of by exact request (`factory/replay.py`), so a gate or loop bug
+found in a live run can be reproduced offline even after the prompts change. On the machine that made the run
+(the replies live in its `work/cache.sqlite`):
+
+    python -m factory.replay record runs/<run> tests/fixtures/replays/<name>.json --public-data
+
+`--public-data` is required (recordings are committed); keys are refused, and `--deny-list FILE` refuses any reply
+containing a line of the file (use it for lab lists; they must never be recorded). `replay_providers(cfg, recording)`
+returns providers to pass to `LLM(...)`; see `tests/test_replay.py`.
+
 A replay runs the real agents, tests, review and bundle export again; only the model replies come from the
 recording, and a reply it lacks fails rather than being fetched. The web app lists `demos/*.json` under
 **Recorded runs** and says, while one plays, when it was recorded and what the original run cost. Test output is
@@ -282,6 +306,20 @@ python -m factory.mcp --root path/to/repos
 ```
 
 See [docs/mcp.md](docs/mcp.md) for the tools, why ASPIRE uses MCP, and a client config.
+
+## Regression checks before a merge
+
+GitHub Actions cannot reach ARC, so the live checks run on a laptop on the VT network, free models only, before a
+pull request that changes how ASPIRE asks or judges a model is merged:
+
+| Change touches | Run on the laptop | Pass when |
+|---|---|---|
+| `factory/orchestrator.py`, `factory/workflows/`, `registry/agents/coder.yaml`, `reviewer.yaml`, `code_navigator.yaml` | `python -m factory.bench --tasks bench/tasks_hard.yaml --repeat 3` (about 80 minutes) | ASPIRE's total over the 24 runs, hidden tests included, is within one of the last recorded run or above it (one task in one trial is run-to-run noise; two is not) |
+| `factory/pipeline/`, the pipeline agents' prompts | `python -m factory.bench_projects` | No project stops earlier than it did in the last recorded run |
+| Anything else | `pytest` in CI | green |
+
+The main tier (`python -m factory.bench`) is a tie between ASPIRE and a single call, so it is a smoke test, not a
+regression check. Record each run under the project folder's `evaluation/live/` and in `docs/evaluation.md`.
 
 ## Demo walkthrough
 
@@ -307,7 +345,10 @@ Diagrams: [docs/uml/](docs/uml/) (class and sequence diagrams; `ASPIRE-UML.pdf` 
 | `factory/planner.py` | Intake: rules, then the planner model, route a request; the block catalog; recorded gaps |
 | `factory/extend.py` | Self-extension: several candidates, scope gate, held-out benchmark, review panel, failure replay, then adopt (with rollback) or stop for a person |
 | `factory/failures.py` | The failure archive: snapshots of failed projects, replays, regression cases, fixes that worked |
+| `factory/repairs.py` | The repair library: final-QA repairs that stuck (issue + diff), shown to the solver as the closest past repairs |
+| `factory/tally.py` | Per-stage model tally from `llm_calls.jsonl`: calls, finish rate, fallback and cut-off hand-offs (`python -m factory.tally`) |
 | `factory/demo.py`, `demos/` | Recorded runs: save a run's model replies, replay it offline |
+| `factory/replay.py` | Stage-tagged replay: record a run's replies by stage, replay them offline in tests (survives prompt changes) |
 | `factory/orchestrator.py` | Runs a task: template plan, contract-net awards, patch, check, cross-family review, repair |
 | `factory/workflows/` | The other task types: `test_gen.py` (write, check, mutation score, review), `pr_review.py` (inspect, test delta, review, grounding), and their bundles |
 | `factory/registry/` | Agent specs and selection by contract net (bids computed from specs and history, no model calls) |

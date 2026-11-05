@@ -53,8 +53,9 @@ def verdicts(**accept):
                                      "missing_knowledge": "" if a else "salt-corrected Tm"} for i, a in accept.items()]})
 
 
-def qa(*met):
-    return json.dumps({"tasks": [{"id": t, "met": m, "evidence": "test_tm"} for t, m in met], "issues": []})
+def qa(*met, check="python primer.py ACGT prints nothing; expected a melting temperature"):
+    return json.dumps({"tasks": [{"id": t, "met": m, "evidence": "test_tm", **({} if m else {"failing_check": check})}
+                                 for t, m in met], "issues": []})
 
 
 PRODUCE = [design(), orders("T1", "primer.py"), built(("primer.py", CODE)),
@@ -284,6 +285,8 @@ def test_a_stage_that_crashes_goes_to_redesign_not_out_of_build(cfg, tmp_path, m
     assert result.status == "stopped" and result.rounds == 1
     note = project.board.latest("note").data
     assert note == {"stage": "production, round 1", "error": "design: no valid output after 3 attempts"}
+    (event,) = [e for e in llm.events.events() if e.source == "pipeline"]
+    assert event.stage == "production, round 1" and event.status == "open"  # nothing corrected it
 
 
 def test_a_new_build_moves_stale_output_aside(cfg, tmp_path):
@@ -394,6 +397,8 @@ def test_final_qa_findings_are_repaired_before_anything_is_rejected(cfg, tmp_pat
                                     fixes("QT2", content=CODE + "# salt-corrected\n"), qa(("T1", True), ("T2", True)))
     result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
     assert result.status == "delivered" and result.rounds == 1 and result.repairs == 1
+    qa_events = [e for e in llm.events.events() if e.source == "qa"]  # QA said no, then a repair got it approved
+    assert qa_events and all(e.status == "corrected" and "1 QA repair" in e.how for e in qa_events)
 
 
 def test_a_qa_repair_that_breaks_the_checks_is_put_back(cfg, tmp_path):
@@ -417,3 +422,73 @@ def test_failing_checks_tell_the_solver_why_each_test_fails(cfg, tmp_path):
     assert not checks.ok and "assert 12 == 99" in " ".join(checks.reasons.values())
     text = json_checks(checks)
     assert "why each fails" in text and "the test or the code is wrong" in text
+
+
+def test_qa_cannot_reject_green_tests_without_naming_a_failing_check(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path, approver=deny_all)
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", False), check=""))
+    result = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False)
+    assert result.status == "delivered" and result.repairs == 0 and result.final.approved
+    t2 = next(t for t in result.final.tasks if t.id == "T2")
+    assert t2.met and t2.overridden and "named no failing check" in t2.evidence
+
+
+def test_qa_naming_a_test_that_passed_is_overridden_but_a_concrete_failure_stands():
+    from factory.pipeline.final import QA, TaskResult, defer_to_code
+    from factory.pipeline.production import Checks
+    green = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True, passed=["tests/t.py::test_a"])
+    qa_ = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="tests/t.py::test_a fails"),
+                    TaskResult(id="T2", met=False, evidence="x", failing_check="run `a.py 3`: expected 9, got 6")])
+    defer_to_code(qa_, green)
+    assert qa_.tasks[0].met and not qa_.tasks[1].met
+    prefix = green.model_copy(update={"passed": ["test_a"]})  # a passed id that is a prefix of a failing one
+    qp = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="test_ab fails: expected 1, got 2")])
+    defer_to_code(qp, prefix)
+    assert not qp.tasks[0].met
+    ctx = QA(tasks=[TaskResult(id="T1", met=False, evidence="x",
+                               failing_check="tests/t.py::test_a passes but `a.py 3` prints 6, expected 9")])
+    defer_to_code(ctx, green)  # a passing test named as context does not hide a concrete failure
+    assert not ctx.tasks[0].met
+    wrong = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="tests/t.py::test_a fails: got 6")])
+    defer_to_code(wrong, green)  # an observed result, however short, stands
+    assert not wrong.tasks[0].met
+    bare = QA(tasks=[TaskResult(id="T1", met=False, evidence="x", failing_check="tests/t.py::test_a is wrong")])
+    defer_to_code(bare, green)
+    assert bare.tasks[0].met and "passes in the sandbox" in bare.tasks[0].override_reason
+    for ran, ok in ((False, None), (True, None)):  # no tests ran: nothing is green, QA stands
+        qn = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
+        defer_to_code(qn, green.model_copy(update={"tests_ran": ran, "tests_ok": ok}))
+        assert not qn.tasks[0].met
+    red = green.model_copy(update={"tests_ok": False})
+    qb = QA(tasks=[TaskResult(id="T1", met=False, evidence="x")])
+    defer_to_code(qb, red)
+    assert not qb.tasks[0].met  # failing checks: QA's word is not second-guessed
+
+
+def test_a_resumed_build_starts_at_the_critic_on_the_earlier_builds_files(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", True)))
+    assert build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False).status == "delivered"
+    files = sorted(p.name for p in (project.root / "output").rglob("*") if p.is_file())
+    llm.providers["arc"] = Scripted(review(True), qa(("T1", True), ("T2", True)))  # no design, orders or builds
+    again = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False, resume=True)
+    assert again.status == "delivered" and again.rounds == 1
+    assert sorted(p.name for p in (project.root / "output").rglob("*") if p.is_file()) == files
+    assert not (project.root / "superseded").exists()  # the files were kept, not moved aside
+    assert project.board.latest("note").data["resumed"] == len(files) or any(
+        e.data.get("resumed") for e in project.board.entries("note"))
+    assert not llm.providers["arc"].texts  # every scripted reply was used: the critic and QA ran, nothing else
+
+
+def test_final_qa_prompt_tells_qa_to_name_a_failing_check():
+    from factory.pipeline.final import QA_PROMPT
+    assert "ONLY by naming a concrete failing check" in QA_PROMPT and '"failing_check"' in QA_PROMPT
+
+
+def test_qa_is_not_overridden_when_no_test_passed():
+    from factory.pipeline.final import QA, TaskResult, defer_to_code
+    from factory.pipeline.production import Checks
+    empty = Checks(compiled=["a.py"], syntax_errors={}, tests_ran=True, tests_ok=True, passed=[])  # zero collected
+    q = QA(tasks=[TaskResult(id="T1", met=False, evidence="the feature is absent")])
+    defer_to_code(q, empty)
+    assert not q.tasks[0].met

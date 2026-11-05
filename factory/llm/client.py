@@ -34,6 +34,8 @@ import httpx
 from pydantic import ValidationError
 
 from factory.config import FactoryConfig, RoleConfig
+from factory.events import FILE as EVENTS_FILE
+from factory.events import EventLog, log_of
 from factory.llm.cache import ResponseCache, request_key
 from factory.llm.cost import BudgetExceeded, Ledger, Usage, price_call
 from factory.llm.gate import Approver, SpendDenied, SpendGate, SpendLedger, SpendRequest, estimate_usd
@@ -47,7 +49,12 @@ class DataScopeError(RuntimeError):
 
 
 class TruncatedError(RuntimeError):
-    """The response hit its token limit; it is logged and never parsed."""
+    """The response hit its token limit; it is logged and never parsed. ``partial`` is the text that did arrive, so a
+    caller whose format is made of independent pieces (the builder's FILE blocks) can keep the finished ones."""
+
+    def __init__(self, message: str = "", partial: str = ""):
+        super().__init__(message)
+        self.partial = partial
 
 
 class RefusedError(RuntimeError):
@@ -141,6 +148,7 @@ class LLM:
         self.providers = providers or {name: make_provider(name, p) for name, p in cfg.providers.items()}
         self._gates = {name: provider_gate(name, p.max_concurrency) for name, p in cfg.providers.items()}
         self._log_lock = threading.Lock()
+        self.events = EventLog(run_dir / EVENTS_FILE, run_dir.name)  # every error this run meets (factory/events.py)
         # Which tier and which model per role this run used, so a run can be reproduced from its directory.
         info = run_dir / "run_info.json"
         if not info.exists():
@@ -173,12 +181,19 @@ class LLM:
         models = [rc.model, *rc.fallbacks]
         if lighter and rc.on_truncation and not escalate:
             models = [rc.on_truncation, *(m for m in models if m != rc.on_truncation)]
+        skipped: list[str] = []  # events for models that were unavailable; corrected if a fallback answers
         for i, model in enumerate(models):
             try:
-                return self._converse_one(role, rc.model_copy(update={"model": model}), messages, system, tools,
+                done = self._converse_one(role, rc.model_copy(update={"model": model}), messages, system, tools,
                                           tag, data, max_tokens)
+                if skipped:
+                    self.events.resolve(skipped, f"fallback model {model} answered", [tag or role])
+                return done
             except Exception as e:
-                if i == len(models) - 1 or not model_unavailable(e):
+                last = i == len(models) - 1 or not model_unavailable(e)
+                skipped.append(self.events.record("llm", f"{role}: {model}: {type(e).__name__}: {e}"[:400],
+                                                  stage=tag or role, severity="error" if last else "warning"))
+                if last:
                     raise
                 self._log(tag=tag, role=role, model=model, provider=rc.provider, fallback_to=models[i + 1],
                           error=f"{type(e).__name__}: {e}"[:300])
@@ -194,14 +209,14 @@ class LLM:
             raise DataScopeError(f"role {role!r} uses {rc.provider!r}, which may only receive public data, "
                                  f"and this config does not declare its inputs public (data_public)")
         req = Request(model=rc.model, messages=messages, max_tokens=max_tokens or rc.max_tokens, system=system,
-                      effort=rc.effort, params=rc.params, tools=tools)
+                      effort=rc.effort, params=rc.params, tools=tools, tag=tag)
         key = request_key({"provider": rc.provider, **req.as_dict()})
 
         if self.cache and (hit := self.cache.get(key)):
             raw = RawResult(hit["text"], hit["thinking"], hit["stop_reason"], Usage(**hit["usage"]),
                             hit.get("tool_calls", []))
             self.ledger.add(0.0, 0.0, 0, cached=True)
-            self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, cached=True)
+            self._log(tag=tag, role=role, model=rc.model, provider=rc.provider, cached=True, prompt_sha256=key)
             return Completion(role, rc.model, raw.text, raw.thinking, raw.stop_reason, raw.usage, 0.0, 0.0, 0.0, True,
                               raw.tool_calls)
 
@@ -220,7 +235,8 @@ class LLM:
                   **asdict(raw.usage), **({"tool_calls": [c["name"] for c in raw.tool_calls]} if raw.tool_calls else {}))
 
         if raw.stop_reason == "max_tokens":
-            raise TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens}); retry with smaller input")
+            raise TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens}); retry with smaller input",
+                                 partial=raw.text)
         if raw.stop_reason == "refusal":
             raise RefusedError(f"{tag or role}: model declined the request")
         if self.cache:
@@ -268,7 +284,8 @@ class LLM:
                 raw = RawResult(hit["text"], hit["thinking"], hit["stop_reason"], Usage(**hit["usage"]),
                                 hit.get("tool_calls", []))
                 self.ledger.add(0.0, 0.0, 0, cached=True)
-                self._log(tag=it.get("tag", ""), role=role, model=rc.model, provider=rc.provider, cached=True)
+                self._log(tag=it.get("tag", ""), role=role, model=rc.model, provider=rc.provider, cached=True,
+                          prompt_sha256=key)
                 out[i] = Completion(role, rc.model, raw.text, raw.thinking, raw.stop_reason, raw.usage, 0.0, 0.0,
                                     0.0, True, raw.tool_calls)
             else:
@@ -317,6 +334,8 @@ class LLM:
                       **asdict(raw.usage))
             if raw.stop_reason == "max_tokens":
                 out[i] = TruncatedError(f"{tag or role}: response hit max_tokens ({req.max_tokens})")
+                # the same shape as converse's record of a cut-off, so the two share a fingerprint
+                self.events.record("llm", f"{role}: {rc.model}: TruncatedError: {out[i]}"[:400], stage=tag or role)
             elif raw.stop_reason == "refusal":
                 out[i] = RefusedError(f"{tag or role}: model declined the request")
             else:
@@ -342,13 +361,18 @@ class LLM:
 
     def _call_with_retries(self, provider: str, req: Request, role: str, tag: str) -> tuple[RawResult, float]:
         retries = self.cfg.providers[provider].stream_retries
+        seen: list[str] = []
         for attempt in range(retries + 1):
             try:
                 with self._gates[provider]:
                     t0 = time.monotonic()
                     raw = self.providers[provider].complete(req)
+                    if seen:
+                        self.events.resolve(seen, f"retry {attempt} succeeded", [tag or role])
                     return raw, time.monotonic() - t0
             except (*TRANSIENT, TransientHTTPError) as e:
+                seen.append(self.events.record("llm", f"{provider}/{req.model}: {type(e).__name__}: {e}"[:400],
+                                               stage=tag or role, severity="warning"))
                 self._log(tag=tag, role=role, model=req.model, provider=provider,
                           error=f"{type(e).__name__}: {e}"[:300], attempt=attempt)
                 if attempt == retries:
@@ -368,7 +392,7 @@ class LLM:
 
 def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls, tag: str,
                        attempts: int = 3, data: DataClass = "private", max_tokens: int | None = None,
-                       escalate: bool = False, parse=None, fmt: str = "JSON", rescue: bool = True):
+                       escalate: bool = False, parse=None, fmt: str = "JSON", rescue: bool = True, salvage=None):
     """Call the model until the output parses and validates, or give up.
 
     ``rescue``: when every free attempt fails and the role has a paid ``quality`` step, one more attempt goes to that
@@ -379,10 +403,24 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
     asks for the corrected JSON. (Repeating the identical request would only return the cached bad reply.)
     ``parse`` turns the completion into the data to validate (default: its first JSON object); ``fmt`` names the
     format in the retry request.
+
+    ``salvage``: an object with ``keep(partial_text) -> str | None`` and ``merge(data) -> data``. When a reply is
+    cut off, ``keep`` takes the finished pieces out of the partial text and returns a sentence naming them (or None
+    when nothing is usable); the retry then asks only for the rest, and ``merge`` joins the pieces kept earlier to
+    the retry's data. Plain code keeps what the model already paid minutes to write instead of throwing it away.
     """
-    errors, cut_off = [], False
+    errors, cut_off, kept_note = [], False, None
+    events, started = log_of(llm), datetime.now(UTC).isoformat()
+
+    def settled(result):  # the attempts that failed before this one worked are corrected, by this success
+        if errors:
+            events.resolve_open(f"a later attempt returned valid output ({len(errors)} failed first)",
+                                [tag], source="llm", since=started)
+        return result
     for i in range(attempts):
         p = prompt if i == 0 else (
+            f"{prompt}\n\nYour previous reply was cut off at the output limit. {kept_note} Reply again with only "
+            f"the {fmt} for what is still missing." if cut_off and kept_note else
             f"{prompt}\n\nYour previous reply was cut off at the output limit. Reply again with only the {fmt}, "
             "much shorter: keep only what is asked for, drop comments, docstrings and repetition, and cover fewer "
             "cases if you must." if cut_off else
@@ -393,12 +431,18 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             # replies hit max_tokens (7.3 h of model time), and the same thinking model often overran again
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate,
                              lighter=cut_off)
-            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
+            data_ = parse(c) if parse else c.json()
+            return settled((model_cls.model_validate(salvage.merge(data_) if salvage and kept_note else data_), c,
+                            errors))
         except TruncatedError as e:
             errors.append(str(e))
+            # the cut-off itself is already an event (recorded where the model answered, in converse)
             cut_off = True
+            if salvage and (note := salvage.keep(e.partial)):
+                kept_note = note
         except (ValueError, ValidationError) as e:
             errors.append(f"{type(e).__name__}: {str(e)[:200]}")
+            events.record("llm", f"{tag}: unusable output: {errors[-1]}", stage=tag, severity="warning")
             cut_off = False
     if rescue and not escalate and data == "public" and role in llm.cfg.escalations:
         p = (f"{prompt}\n\nA weaker model could not produce usable output ({errors[-1][:160]}). "
@@ -406,9 +450,13 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
         try:
             c = llm.complete(role, p, system=system, tag=f"{tag}-paid", data=data, max_tokens=max_tokens,
                              escalate=True)
-            return model_cls.model_validate(parse(c) if parse else c.json()), c, errors
+            return settled((model_cls.model_validate(parse(c) if parse else c.json()), c, errors))
         except (SpendDenied, BudgetExceeded, DataScopeError) as e:  # not approved or not allowed: no spend
             errors.append(f"paid rescue skipped: {str(e)[:160]}")
         except (TruncatedError, ValueError, ValidationError) as e:
             errors.append(f"paid rescue failed: {type(e).__name__}: {str(e)[:160]}")
+            events.record("llm", f"{tag}-paid: " + ("reply cut off at max_tokens" if isinstance(e, TruncatedError)
+                                                     else f"unusable output: {errors[-1]}"),
+                          stage=tag, severity="warning")
+    events.record("llm", f"{tag}: no valid output after {attempts} attempts: {errors[-1][:200]}", stage=tag)
     raise RuntimeError(f"{tag}: no valid output after {attempts} attempts: {errors}")

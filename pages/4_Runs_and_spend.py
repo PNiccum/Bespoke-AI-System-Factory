@@ -7,6 +7,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from factory import events as ev
 from factory.config import load_config
 from factory.llm.gate import SpendLedger
 from factory.ui import inspect
@@ -66,6 +67,12 @@ c.metric("Paid", usd(t["real_usd"]))
 d.metric("If every call were paid", usd(t["priced_usd"]))
 if t["gates"]:
     st.caption(f"{t['gates']} paid call(s) went to the approval gate.")
+lost = inspect.time_lost(calls)
+if lost["model_seconds"]:
+    st.caption(f"Model time {lost['model_seconds'] / 60:.1f} min, of which {lost['lost_seconds'] / 60:.1f} min "
+               f"({100 * lost['lost_share']:.0f}%) produced nothing: {lost['cut_off']} cut off at max_tokens, "
+               f"{lost['refused']} refused; plus {lost['failed_calls']} failed call(s), {lost['retries']} retried "
+               f"attempt(s) and {lost['fallbacks']} fallback(s).")
 
 if calls:
     st.markdown("**By model**")
@@ -82,3 +89,48 @@ for fname, title in (("run_info.json", "Models per role (run_info.json)"),
     if (run / fname).exists():
         with st.expander(title):
             st.json(inspect.read_json(run / fname))
+
+elog = ev.EventLog(run / ev.FILE, run.name).events()
+st.subheader("Events: errors this run met")
+if not elog:
+    st.caption("No errors were recorded for this run.")
+else:
+    s = ev.summary(elog)
+    a, b = st.columns(2)
+    a.metric("Corrected", s["corrected"])
+    b.metric("Not corrected", s["open"])
+    st.caption("Code records each event and decides when it is corrected; the historian only explains.")
+    if domain := next((e.domain for e in elog if e.domain), ""):  # the first events may predate the tag
+        st.caption(f"Domain: {domain}")
+    st.dataframe([{"id": e.id, "status": e.status, "source": e.source, "stage": e.stage, "severity": e.severity,
+                   "message": e.message[:160], "corrected by": e.how} for e in elog], hide_index=True,
+                 use_container_width=True)
+    if (run / "history.md").exists():
+        with st.expander("Historian's account (history.md)", expanded=True):
+            st.markdown((run / "history.md").read_text(encoding="utf-8"))
+
+st.subheader("Events across all runs (meta analysis)")
+every = ev.run_events(base)
+if not every:
+    st.caption("No events recorded in any run yet.")
+else:
+    t = ev.summary(every)
+    st.caption(f"{t['events']} events in {t['runs']} runs: {t['corrected']} corrected, {t['open']} not corrected.")
+    st.dataframe([{"problem": g.fingerprint, "stage": g.stage, "times": g.count, "runs": len(g.runs),
+                   "corrected": g.corrected, "open": g.open, "came back after a fix": g.returned_after_fix,
+                   "corrected by": "; ".join(g.how)[:100], "message": g.message[:140]}
+                  for g in ev.meta_analysis(every)], hide_index=True, use_container_width=True)
+    st.markdown("**By domain** (set once per project by code at the interview)")
+    st.dataframe(ev.by_domain(every), hide_index=True, use_container_width=True)
+    meta = cfg.work_dir / "history" / "meta.md"
+    if meta.exists():
+        with st.expander("Historian's meta analysis (run `python -m factory.historian --all` to refresh)"):
+            st.markdown(meta.read_text(encoding="utf-8"))
+
+st.subheader("Stage tallies across projects")
+projects = inspect.projects(cfg.work_dir / "projects")
+if not projects:
+    st.caption("No projects yet.")
+else:
+    st.caption(f"{len(projects)} project(s), counted from their blackboards by plain code.")
+    st.dataframe(inspect.stage_tallies(projects), hide_index=True, use_container_width=True)

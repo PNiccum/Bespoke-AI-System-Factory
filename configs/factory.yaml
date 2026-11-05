@@ -79,6 +79,9 @@ roles:
   audit_reviewer: {provider: arc, model: gpt-oss-120b-thinking-high, fallbacks: [gpt-oss-120b-thinking-low, gpt-oss-120b],
                    on_truncation: gpt-oss-120b-thinking-low,
                    quality: {provider: openai, model: gpt-6.1-sol, max_tokens: 6000}}
+  # The historian explains the run's event log (factory/events.py) in plain words; it never changes a status.
+  historian: {provider: arc, model: gpt-oss-120b-thinking-high, fallbacks: [gpt-oss-120b-thinking-low, gpt-oss-120b],
+              on_truncation: gpt-oss-120b-thinking-low}
   coder:
     provider: arc
     model: GLM-5.3-thinking-high

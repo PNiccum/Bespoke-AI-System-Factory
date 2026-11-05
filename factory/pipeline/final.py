@@ -12,6 +12,7 @@ left out on purpose: it sends data outside the system, so it waits for the perso
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from pathlib import Path
 
@@ -29,6 +30,9 @@ class TaskResult(BaseModel):
     id: str
     met: bool
     evidence: str
+    failing_check: str = ""  # for an unmet task: the concrete check that fails (a command or input, expected vs actual)
+    override_reason: str = ""
+    overridden: bool = False  # set by code: QA said unmet, but the tests pass and it named no failing check
 
 
 class QA(BaseModel):
@@ -48,7 +52,12 @@ criterion is met, with the evidence (a file and what it does, or a test that pas
 nothing in the files or tests shows is not met. Judge the delivered result, not how it was made: a criterion about \
 the order of work (tests written first, or failing in a certain way before the code existed) is met when those tests \
 exist and pass now. The plain-code checks are the record of the test run; a test count or run log written in a \
-file that disagrees with them is an issue to list, not an unmet task.
+file that disagrees with them is an issue to list, not an unmet task. \
+When every test passes, mark a task unmet ONLY by naming a concrete failing check in "failing_check": a command or \
+input that would show the failure, with the expected result and what the files do instead (or that the \
+feature is absent from the files). Wording, naming, style, documentation or \
+counts are never grounds to mark a task unmet. A feature that is missing or untested counts only when you name the \
+command or input that shows it is missing. Code applies this rule: an unmet task with no failing check is set to met.
 
 ## Tasks and acceptance criteria
 {tasks}
@@ -59,8 +68,30 @@ file that disagrees with them is an issue to list, not an unmet task.
 ## Files
 {files}
 
-Reply with JSON only: {{"tasks": [{{"id": "T1", "met": true or false, "evidence": "<one sentence>"}}], \
+Reply with JSON only: {{"tasks": [{{"id": "T1", "met": true or false, "evidence": "<one sentence>", \
+"failing_check": "<only if met is false: the concrete failing check, else empty>"}}], \
 "issues": ["<anything the person would trip over>"]}}"""
+
+
+OBSERVED = re.compile(r"expected|actual|\bgot\b|prints?|returns?|raises?|error|output|exit code|[`=]", re.I)
+
+
+def defer_to_code(qa: QA, checks: Checks) -> None:
+    """When the code checks are green (files compile, tests ran and all pass), QA may reject a task only by naming a
+    concrete failing check. An unmet task with none, or one that names a test the sandbox saw pass, is set to met."""
+    if not (checks.ok and checks.tests_ran and checks.tests_ok and checks.passed):
+        return
+    for t in qa.tasks:
+        named = t.failing_check.strip()
+        if t.met:
+            continue
+        # the check names a test that passed and gives no observed result: nothing concrete fails
+        contradicted = (any(pid and re.search(rf"(?<![\w.]){re.escape(pid)}(?![\w])", named) for pid in checks.passed)
+                        and not OBSERVED.search(named))
+        if not named or contradicted:
+            t.met, t.overridden = True, True
+            t.override_reason = "named no failing check" if not named else "named a check that passes in the sandbox"
+            t.evidence = f"[code: tests pass and QA {t.override_reason}] " + t.evidence
 
 
 class FinalEvaluator:
@@ -77,8 +108,11 @@ class FinalEvaluator:
             tasks=tasks, checks=checks.model_dump_json(indent=1), files=shown_files), self.agent.system, QA,
             tag="final-qa", data=data)
         wanted = {t["id"] for t in plan["tasks"]}
+        defer_to_code(qa, checks)
         met = {t.id for t in qa.tasks if t.met}
         issues = list(qa.issues)
+        issues += [f"QA called {t.id} unmet but {t.override_reason} while the tests pass; code kept it met"
+                   for t in qa.tasks if t.overridden]
         if not checks.ok:
             issues.insert(0, "the plain-code checks fail: " + (", ".join(checks.syntax_errors) or
                                                                ", ".join(checks.failed) or "tests fail"))
