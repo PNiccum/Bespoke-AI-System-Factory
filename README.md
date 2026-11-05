@@ -106,6 +106,13 @@ plan (acceptance checks present, ids unique, no task depending on a later one) a
 creates `workspace/<name>/projects/<id>/` with `task.txt`, `plan_a.json` and `blackboard.jsonl`, the shared log
 every later stage of the pipeline reads and writes (`factory/pipeline/`).
 
+Before the first question, plain code looks for an earlier delivered project with a similar request
+(`factory/pipeline/precedent.py`, no model call): the request becomes a fingerprint (its content keywords and a hash
+of them), every project whose final QA approved is scored against it, and the best few (a `precedent` entry on the
+blackboard, even when empty) are shown to the Interviewer, the plan critic and the head orchestrator as a starting
+template: what was asked, how it was designed and laid out, and where its deliverable is. They may follow it, adapt it
+or ignore it. `python -m factory similar "<request>"` lists the matches.
+
 Then the planning loop puts three model families on Plan A:
 
 ```bash
@@ -122,6 +129,14 @@ Then the knowledge loop makes sure the wiki holds what the plan needs:
 ```bash
 python -m factory research --project workspace/factory/projects/<id>
 ```
+
+First the prior-art scout (`factory/pipeline/scout.py`) looks for what already exists: one ARC call proposes
+standard-library modules, PyPI packages and GitHub searches, and code checks each against `sys.stdlib_module_names`,
+the PyPI JSON and the GitHub search API (an invented name is dropped), then applies fixed rules: an open licence, a
+release or push in the last three years, and whether the sandbox can import it (the standard library and anything in
+`ASPIRE_SANDBOX_PACKAGES`; everything else is a reference to follow, not import). The result, with URLs and fetch
+dates, is `reuse.json`; the evaluator sees it and the head orchestrator records what it adopts (`ASPIRE_SCOUT=0` turns
+it off). The research connectors also include `pypi` (a package's README) and `github` (repository descriptions).
 
 The knowledge evaluator (gpt-oss) lists the topics the work depends on. The librarian checks the shared wiki
 (`workspace/<name>/wiki/`) in plain code: a topic is covered by a verified page with at least two sources. For each

@@ -421,3 +421,18 @@ def test_failing_checks_tell_the_solver_why_each_test_fails(cfg, tmp_path):
     assert not checks.ok and "assert 12 == 99" in " ".join(checks.reasons.values())
     text = json_checks(checks)
     assert "why each fails" in text and "the test or the code is wrong" in text
+
+
+def test_a_resumed_build_starts_at_the_critic_on_the_earlier_builds_files(cfg, tmp_path):
+    llm, project, wiki = project_after_knowledge(cfg, tmp_path)
+    llm.providers["arc"] = Scripted(*PRODUCE, review(True), qa(("T1", True), ("T2", True)))
+    assert build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False).status == "delivered"
+    files = sorted(p.name for p in (project.root / "output").rglob("*") if p.is_file())
+    llm.providers["arc"] = Scripted(review(True), qa(("T1", True), ("T2", True)))  # no design, orders or builds
+    again = build(llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {}, redesign=False, resume=True)
+    assert again.status == "delivered" and again.rounds == 1
+    assert sorted(p.name for p in (project.root / "output").rglob("*") if p.is_file()) == files
+    assert not (project.root / "superseded").exists()  # the files were kept, not moved aside
+    assert project.board.latest("note").data["resumed"] == len(files) or any(
+        e.data.get("resumed") for e in project.board.entries("note"))
+    assert not llm.providers["arc"].texts  # every scripted reply was used: the critic and QA ran, nothing else

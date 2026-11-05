@@ -12,6 +12,7 @@ code, tools, roles or capabilities, so it cannot change what ASPIRE is able to t
     python -m factory.extend --rollback coder               # put back the prompt it had before the last adoption
     python -m factory.extend --agent builder --case <id>    # also replay a failure case from the archive
     python -m factory.extend --agent coder --tasks bench/tasks.yaml   # judge on one tier only
+    python -m factory.extend --from-events                  # re-design from errors open in 3 of the last 10 runs
 
 The proposer (a GLM model) writes ``CANDIDATES`` prompts, each told to take a different approach from the ones before
 it. Every candidate that passes the scope gate is scored, and only the best goes on: on the held-out benchmark (most
@@ -40,6 +41,11 @@ failure that asked for this change (``case``) and the agent's fixed failures, re
 candidate in place. Every one must be delivered. A fixed failure is a regression test: a later prompt for the same
 agent cannot bring it back. Once a candidate is adopted and its own failure delivers, that case is marked fixed.
 
+**Recurring errors** (``--from-events``, factory/events.py ``recurring``): an error fingerprint still *open* in 3 of the
+newest 10 runs opens a case with no project snapshot (so nothing is replayed for it) and a proposal for the agent whose
+stage it is, under every gate and limit above. The same error is taken up again only after it recurs in 3 later runs.
+The benchmark's candidate choice breaks a tie in solved tasks by the fewest events the runs logged, then by tokens.
+
 Every proposal, passed or not, is appended to ``proposals/archive.jsonl``: the archive of variants and their scores
 that later proposals start from. The proposer also sees the fixes that worked on archived failures.
 """
@@ -61,6 +67,7 @@ from pydantic import BaseModel, ValidationError
 
 from factory.bench import BenchTask, Outcome, load_tasks, run_one
 from factory.config import FactoryConfig, load_config
+from factory.events import MIN_RUNS, WINDOW, Recurrence, event_count, recurring
 from factory.failures import MAX_REPLAYS, FailureArchive
 from factory.failures import replay as replay_case
 from factory.llm import LLM, BudgetExceeded, complete_validated, new_run_dir
@@ -79,6 +86,7 @@ SECOND_PANELIST = "plan_analyst"  # gpt-oss: joins the panel when the benchmark 
 JUDGES = frozenset({"reviewer", "pr_reviewer", "plan_critic", "plan_analyst", "project_critic", "final_evaluator",
                     "wiki_verifier", "knowledge_evaluator", "auditor_1", "auditor_2"})
 MAX_ADOPTIONS_PER_WEEK = 3
+MAX_CHANGES = 2  # prompt changes one recurring-error check may try (the same limit as a re-design)
 CANDIDATES = 3  # prompts the proposer writes per proposal; only the best goes through the panel
 
 PROPOSE_PROMPT = """Propose an improved version of one of ASPIRE's model agents. Only its prompt and description may
@@ -216,6 +224,12 @@ def strict(o: Outcome) -> bool:
     return o.solved and getattr(o, "hidden_solved", None) is not False
 
 
+def errors_in(runs: list[Outcome]) -> int:
+    """Events the benchmark runs wrote (factory/events.py): retries, fallbacks, unusable outputs. A candidate that
+    solves as many tasks with fewer of them is the steadier prompt."""
+    return sum(event_count(o.run_dir) for o in runs)
+
+
 def benchmark_gate(incumbent_runs: list[Outcome], candidate_runs: list[Outcome]) -> Gate:
     """Gate 2: at least as many held-out tasks solved (hidden tests included), within 1.5x the tokens."""
     solved = (sum(map(strict, incumbent_runs)), sum(map(strict, candidate_runs)))
@@ -310,7 +324,8 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
         if bench_gate.passed:
             result.gates.append(panel(llm, registry, incumbent, candidate, bench, data, paid_panel,
                                       second_family=not benched))
-        cases = ([failures.get(case)] if case else []) + failures.regressions(agent, exclude=case)
+        cases = ([failures.get(case)] if case and failures.replayable(case) else []) + \
+            failures.regressions(agent, exclude=case)
         if replay and cases and result.gates[-1].passed:
             others = [a for a in registry.agents.values() if a.name != agent]
             for c in cases[:MAX_REPLAYS]:
@@ -322,6 +337,8 @@ def propose(cfg: FactoryConfig, agent: str, *, approver: Callable[[SpendRequest]
         else:
             result.adopted = adopt(cfg, incumbent, candidate, registry_dir, stamp, proposal.why)
             if case and case in replayed and replayed[case].solved:
+                failures.record_fix(case, agent, result.id, guidance or proposal.why)
+            elif case and not failures.replayable(case):  # a recurrence case: nothing to replay, the gates passed
                 failures.record_fix(case, agent, result.id, guidance or proposal.why)
 
     result.folder = out / result.id
@@ -371,8 +388,12 @@ def choose(cfg: FactoryConfig, llm: LLM, registry: Registry, incumbent: AgentSpe
                           registry_dir=registry_dir)
         runs = [evaluate(cfg, heldout, [*others, spec], providers=providers, registry_dir=registry_dir)
                 for _, spec in valid]
-        best = max(range(len(runs)), key=lambda i: (sum(map(strict, runs[i])), -sum(o.tokens for o in runs[i])))
+        # most solved; then the fewest errors the runs logged (the event-rate tiebreaker); then the fewest tokens
+        best = max(range(len(runs)), key=lambda i: (sum(map(strict, runs[i])), -errors_in(runs[i]),
+                                                    -sum(o.tokens for o in runs[i])))
         gate = benchmark_gate(before, runs[best])
+        if any(errors_in(r) for r in [*runs, before]):
+            gate.detail += f"; logged errors {errors_in(runs[best])} vs {errors_in(before)}"
         if len(valid) > 1:
             gate.detail = (f"best of {len(valid)} ({valid[best][1].name}): {gate.detail}; others: " +
                            ", ".join(f"{spec.name} {sum(map(strict, r))}/{len(r)}"
@@ -498,6 +519,44 @@ def report(result: Result, incumbent: AgentSpec) -> str:
     return "\n".join(lines) + "\n"
 
 
+def agent_for(rec: Recurrence, registry: Registry) -> str:
+    """The model agent a recurring error belongs to, or "": its stage is the agent's name, or its role when only one
+    agent has it. Anything else (a QA verdict, a stage name that is not an agent) needs a person to read it."""
+    llm_agents = [a for a in registry.agents.values() if a.kind == "llm"]
+    named = [a.name for a in llm_agents if a.name == rec.stage]
+    by_role = [a.name for a in llm_agents if a.role == rec.stage]
+    return named[0] if named else by_role[0] if len(by_role) == 1 else ""
+
+
+def redesign_from_events(cfg: FactoryConfig, *, approver: Callable[[SpendRequest], bool] = deny_all,
+                         paid_panel: bool = False, adopt: bool = False, window: int = WINDOW, min_runs: int = MIN_RUNS,
+                         max_changes: int = MAX_CHANGES, registry_dir: Path | None = None, providers: dict | None = None,
+                         **kw) -> list[tuple[Recurrence, str, Result | None]]:
+    """Open a re-design case for each error that stays open in ``min_runs`` of the newest ``window`` runs and try one
+    prompt change for the agent it belongs to. Every limit of a normal re-design holds: at most ``max_changes`` changes
+    (MAX_CHANGES, as in a re-design), all the gates, ``may_adopt`` (judges and the weekly limit) and the
+    spend gate for paid calls. A problem is taken up again only after it recurs in ``min_runs`` later runs."""
+    failures = FailureArchive.of(cfg)
+    registry = Registry.load(cfg, registry_dir)
+    found = recurring(cfg.root / cfg.runs_dir, window=window, min_runs=min_runs, since=failures.last_case_stamps())
+    out, tried = [], 0
+    for rec in found:
+        agent = agent_for(rec, registry)
+        if not agent:
+            out.append((rec, "no single model agent owns this stage; a person should read it", None))
+        elif tried >= max_changes:
+            out.append((rec, f"not tried: limit of {max_changes} changes per check", None))
+        else:
+            tried += 1
+            case = failures.open_recurrence_case(rec.fingerprint, rec.message, rec.stage, rec.runs, agent)
+            guidance = (f"This error stayed open in {len(rec.runs)} of the last {rec.window} runs ({rec.source}, stage "
+                        f"'{rec.stage}'): {rec.message}. Change the prompt so it stops happening.")
+            out.append((rec, f"case {case.id}", propose(cfg, agent, approver=approver, paid_panel=paid_panel,
+                                                        adopt_if_passed=adopt, case=case.id, guidance=guidance,
+                                                        registry_dir=registry_dir, providers=providers, **kw)))
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m factory.extend")
     ap.add_argument("--agent", help="the model agent to improve, e.g. coder")
@@ -508,6 +567,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--paid-panel", action="store_true", help="also ask the paid reviewer (asks before spending)")
     ap.add_argument("--case", default="", help="an archived failure (workspace/failures/<id>) the change should fix")
     ap.add_argument("--candidates", type=int, default=CANDIDATES, help="candidate prompts to write and compare")
+    ap.add_argument("--from-events", action="store_true",
+                    help="re-design from errors that stay open across runs (adopts only with --adopt)")
+    ap.add_argument("--window", type=int, default=WINDOW, help="--from-events: newest runs to look at")
+    ap.add_argument("--min-runs", type=int, default=MIN_RUNS, help="--from-events: runs an error must be open in")
     ap.add_argument("--no-replay", action="store_true", help="skip replaying archived failures (each is a full build)")
     ap.add_argument("--tasks", action="append", default=[], metavar="FILE",
                     help="benchmark file(s) for the gate (default: bench/tasks.yaml and bench/tasks_hard.yaml)")
@@ -516,12 +579,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.rollback:
         print(f"restored {rollback(cfg, args.rollback)}")
         return 0
-    if not args.agent:
-        ap.error("--agent or --rollback is required")
+    if not args.agent and not args.from_events:
+        ap.error("--agent, --from-events or --rollback is required")
     approver = deny_all
     if args.paid_panel:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
+    if args.from_events:
+        rows = redesign_from_events(cfg, approver=approver, paid_panel=args.paid_panel, adopt=args.adopt,
+                                    window=args.window, min_runs=args.min_runs, candidates=args.candidates,
+                                    replay=not args.no_replay)
+        for rec, note, res in rows:
+            print(f"{len(rec.runs)}/{rec.window} runs  {rec.source}/{rec.stage}: {rec.message[:100]}\n    -> {note}"
+                  + (f"; {res.status}: {res.folder / 'report.md'}" if res else ""))
+        print(f"\n{len(rows)} recurring error(s)" if rows else "no error is open in enough runs")
+        return 0
     result = propose(cfg, args.agent, approver=approver, paid_panel=args.paid_panel, guidance=args.guidance,
                      adopt_if_passed=args.adopt, by_person=args.adopt, case=args.case, candidates=args.candidates,
                      replay=not args.no_replay, tasks_file=[Path(f) for f in args.tasks] or None)
