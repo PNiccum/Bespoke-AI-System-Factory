@@ -367,3 +367,19 @@ def test_a_judge_found_by_recurrence_still_waits_for_a_person(cfg, monkeypatch, 
                                                tasks_file=ROOT / "bench" / "tasks.yaml",
                                                providers={"arc": arc, "openai": Scripted(), "claude": Scripted()})
     assert res.status == "awaiting a person" and "structural" in res.gates[-1].detail
+
+
+def test_the_tasks_flag_resolves_against_the_project_root(cfg, monkeypatch, tmp_path):
+    """`--tasks bench/tasks.yaml` must work from any working directory, like the defaults do."""
+    seen = {}
+
+    def fake_propose(cfg, agent, **kw):
+        seen.update(kw)
+        return SimpleNamespace(gates=[], status="awaiting a person", folder=tmp_path)
+
+    monkeypatch.setattr(extend, "propose", fake_propose)
+    monkeypatch.setattr(extend, "load_config", lambda path: cfg)
+    monkeypatch.chdir(tmp_path)
+    assert extend.main(["--agent", "coder", "--tasks", "bench/tasks.yaml", "--tasks", "bench/tasks_hard.yaml"]) == 0
+    assert seen["tasks_file"] == [cfg.root / "bench" / "tasks.yaml", cfg.root / "bench" / "tasks_hard.yaml"]
+    assert extend.main(["--agent", "coder"]) == 0 and seen["tasks_file"] is None

@@ -596,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     result = propose(cfg, args.agent, approver=approver, paid_panel=args.paid_panel, guidance=args.guidance,
                      adopt_if_passed=args.adopt, by_person=args.adopt, case=args.case, candidates=args.candidates,
-                     replay=not args.no_replay, tasks_file=[Path(f) for f in args.tasks] or None)
+                     replay=not args.no_replay, tasks_file=[cfg.root / f for f in args.tasks] or None)
     for g in result.gates:
         print(f"{'passed' if g.passed else 'FAILED':<7} {g.name}: {g.detail}")
     print(f"\n{result.status}: {result.folder / 'report.md'}")
