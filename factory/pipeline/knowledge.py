@@ -4,15 +4,23 @@
 2. The librarian checks the wiki in plain code: a topic is covered by a verified page with enough sources.
 3. For each missing topic, the research orchestrator (GLM) writes searches; the researchers are plain-code
    connectors (sources.py), since searching an API needs no model. The orchestrator then approves or rejects each
-   document it found, and runs a second search round when too few pass.
+   document it found, and runs more search rounds when too few pass. A later round is told the searches already run
+   and the engines not tried yet; code skips a repeated search and never reviews the same document twice for a topic.
 4. The librarian writes a wiki page from the approved documents, tagging every sentence with a verbatim quote, an
    inference or a limit (cite.py, from Bespoke_LLM). Code drops every sentence whose quote is not in its document;
    the wiki verifier (DeepSeek, another family) then checks that each quote supports its sentence, and the librarian
-   gets one rewrite when the checks fail. Only a verified page covers its topic.
+   gets one rewrite when the checks fail, told to cut or narrow each flagged sentence rather than reword it. A page
+   that still fails sends the orchestrator back to search once for sources that state what the verifier found
+   unsupported, and the librarian writes again from the larger set. Only a verified page covers its topic.
 5. The evaluator looks again, now with the new pages, and either approves or names what is still missing, so a broad
-   first pass narrows to the specifics the work needs.
+   first pass narrows to the specifics the work needs. A topic named again keeps the documents already approved for
+   it, and its page is not rewritten unless research found something new.
+6. The last evaluation still researches what it names, and plain code (the librarian's check) decides coverage, so a
+   specific topic first named there gets a page instead of being left to the critic loop. One that still has no page
+   is ``deferred``, not missing, as before.
 
-Stop rules: at most MAX_ROUNDS evaluations (the last only checks), MAX_TOPICS topics a round, RESEARCH_ROUNDS search rounds a topic,
+Stop rules: at most MAX_ROUNDS evaluations, MAX_TOPICS topics a round, RESEARCH_ROUNDS search rounds a topic plus
+GAP_SEARCHES after a rejected page,
 MAX_QUERIES searches a round, and the connectors' shared call budget. The result is ``knowledge.json``: which topics
 are covered, by which pages, and what is still missing.
 """
@@ -20,7 +28,9 @@ are covered, by which pages, and what is still missing.
 from __future__ import annotations
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
@@ -37,7 +47,8 @@ from factory.registry import Registry
 EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER = ("knowledge_evaluator", "research_orchestrator", "librarian",
                                                 "wiki_verifier")
 # MAX_ROUNDS evaluations, so at most MAX_ROUNDS - 1 research passes, each followed by a fresh evaluation
-MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 3, 6, 2, 3, 5
+MAX_ROUNDS, MAX_TOPICS, RESEARCH_ROUNDS, MAX_QUERIES, PER_QUERY = 3, 6, 3, 3, 5
+GAP_SEARCHES = 1  # search rounds after a page fails its checks, aimed at what the verifier found unsupported
 RESEARCH_WORKERS = 4  # topics researched at once; ARC allows 20 requests in flight per user
 
 
@@ -98,7 +109,7 @@ class KnowledgeResult(BaseModel):
     covered: dict[str, str]  # topic -> wiki page slug
     missing: list[str]
     rounds: int
-    deferred: list[str] = []  # first asked for in the last round, which researches nothing: left to the critic loop
+    deferred: list[str] = []  # first asked for in the last round and still without a page: left to the critic loop
     dropped: dict[str, str] = {}  # topic -> why the evaluator let it go without a page
     decided: dict[str, str] = {}  # topic -> why: a choice the plan or the builders make, so research skips it
 
@@ -179,6 +190,20 @@ help; a short list label such as "Inputs:" needs no tag. To point to another wik
 {issues}
 Reply with JSON only: {{"summary": "<one paragraph, no tags>", "body": "<markdown, every sentence tagged>"}}"""
 
+FIX_PROMPT = """
+## Fix these problems from {when}
+{issues}
+For each problem, delete the sentence or narrow it to exactly what its quote states; do not reword a claim the \
+documents do not make. Where the documents leave a point open, say so in a {{{{limit}}}} sentence. A shorter page \
+that passes the checks is better than a complete one that fails.
+"""
+
+GAP_PROMPT = """
+A wiki page written from the {n} documents approved so far failed its checks: {issues}
+Search for sources that state these points directly (for a table of constants or parameters, the paper that \
+published it or a manual that prints it).
+"""
+
 VERIFY_PROMPT = """Check this wiki page against its source documents. Code has already checked that every quoted \
 passage is really in its document; check that each quote supports the sentence resting on it, and that every \
 inference follows from the facts before it. A sentence is accurate only when its evidence supports it.
@@ -217,11 +242,24 @@ def cited(body: str, ids: list[str]) -> list[str]:
     return [i for i in ids if f"[{i}]" in body]
 
 
+@dataclass
+class _TopicState:
+    """What research on one topic has done so far, kept so a later attempt builds on it instead of starting over."""
+    approved: dict[str, Doc] = field(default_factory=dict)
+    seen: set[str] = field(default_factory=set)  # documents reviewed and rejected for this topic
+    rejected: list[str] = field(default_factory=list)  # their titles and the reasons
+    queries: set[tuple[str, str]] = field(default_factory=set)  # (engine, normalised query) already run
+    failed_with: set[str] = field(default_factory=set)  # approved ids behind the last rejected page
+    issues: list[str] = field(default_factory=list)  # the verifier's issues with that page
+
+
 class KnowledgeLoop:
     def __init__(self, llm: LLM, registry: Registry, project: Project, wiki: Wiki, searchers: dict[str, Searcher]):
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
+        self._topics: dict[str, _TopicState] = {}
+        self._lock = threading.Lock()
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str, docs: list[Doc] = ()):
         """A model call; any ARC-only document in the prompt keeps the call on ARC."""
@@ -264,10 +302,10 @@ class KnowledgeLoop:
             topics = [t.model_copy(update={"name": same_topic(t.name, asked)}) for t in needs.topics[:MAX_TOPICS]]
             decided |= {t.name: t.why for t in topics if t.kind == "project"}
             topics = [t for t in topics if t.name not in decided]
-            if rnd == MAX_ROUNDS and rnd > 1:  # the last round researches nothing, so a topic new here cannot be met
-                new = [t.name for t in topics if t.name not in asked]
-                deferred = [n for n in new if self.wiki.covers(n) is None]
-                topics = [t for t in topics if t.name not in deferred]
+            last = rnd == MAX_ROUNDS
+            # a topic first named in the last round is researched, but no evaluation follows, so if research fails
+            # it is deferred to the critic loop rather than blocking (the 2026-11-04 runs lost such topics unresearched)
+            fresh = [t.name for t in topics if t.name not in asked] if last and rnd > 1 else []
             asked += [t.name for t in topics if t.name not in asked]
             for d in needs.dropped:
                 name = same_topic(d.name, asked)
@@ -275,27 +313,34 @@ class KnowledgeLoop:
                     dropped[name] = d.why
             ev = self.board.post("topics", EVALUATOR, {"round": rnd, "enough": needs.enough,
                                                        "topics": [t.model_dump() for t in topics],
-                                                       "deferred": deferred, "dropped": dropped,
+                                                       "first_in_last_round": fresh, "dropped": dropped,
                                                        "decided": decided})
             have = {t.name: self.wiki.covers(t.name) for t in topics}
             # an earlier topic stays missing until a page covers it or the evaluator drops it with a reason: the
             # 2026-11-03 primer run lost an unresearched topic by simply not naming it again
-            missing = [t.name for t in topics if have[t.name] is None]
+            missing = [t.name for t in topics if have[t.name] is None and t.name not in fresh]
             missing += [n for n in asked if n not in missing and n not in have and n not in dropped
                         and n not in decided and n not in covered and self.wiki.covers(n) is None]
+            deferred = [n for n in fresh if have[n] is None]
             covered |= {name: page.slug for name, page in have.items() if page}
             if needs.enough and not topics:  # approved on the pages shown, so those are what the builders get
                 covered |= {p.topic: p.slug for p in pages}
             self.board.post("coverage", LIBRARIAN, {"covered": {n: p.slug for n, p in have.items() if p},
-                                                    "missing": missing}, refs=[ev.id])
-            if not missing or rnd == MAX_ROUNDS:  # the last round only checks; it starts no new research
+                                                    "missing": missing, "deferred": deferred}, refs=[ev.id])
+            todo = [t for t in topics if t.name in missing or t.name in deferred]
+            if not todo:  # nothing missing, or only earlier topics not named again: already researched, no new work
                 break
-            if not any(t.name in missing for t in topics):  # only earlier topics, already researched: no new work
-                break
-            todo = [t for t in topics if t.name in missing]
             for topic, page in zip(todo, self.research_many(todo), strict=True):
                 if page and page.verified:
                     covered[topic.name] = page.slug
+            if last:  # no evaluation follows, so the librarian's plain-code check is the last word
+                missing = [n for n in missing if n not in covered and self.wiki.covers(n) is None]
+                deferred = [n for n in deferred if n not in covered]
+                self.board.post("coverage", LIBRARIAN, {"covered": {t.name: covered[t.name] for t in todo
+                                                                    if t.name in covered},
+                                                        "missing": missing, "deferred": deferred, "final": True},
+                                refs=[ev.id])
+                break
         ok = not missing
         result = KnowledgeResult(ok=ok, covered=covered, missing=missing, rounds=rnd, deferred=deferred,
                                  dropped=dropped, decided=decided)
@@ -315,63 +360,124 @@ class KnowledgeLoop:
     # --- one topic: search, approve, write, verify ---
 
     def research(self, topic: Topic) -> WikiPage | None:
-        approved: dict[str, Doc] = {}
-        rejected: list[str] = []
+        """Search until enough approved documents, write and verify a page; on a rejected page, search once more for
+        what the verifier found unsupported and write again. State carries over when the topic is researched again."""
+        st = self._state_for(topic.name)
+        if not st.approved:  # documents approved for this topic by an earlier process (a rerun) still count
+            st.approved = self._approved_on_board(topic.name)
         for rnd in range(1, RESEARCH_ROUNDS + 1):
-            previous = (f"\nEarlier searches found too few usable documents (rejected: {'; '.join(rejected[-6:])}). "
-                        "Try different terms or engines.\n") if rnd > 1 else ""
-            queries = self._call(ORCHESTRATOR, QUERIES_PROMPT.format(
-                topic=topic.name, why=topic.why, hints=", ".join(topic.hints) or "none", previous=previous,
-                connectors=json.dumps(list(self.searchers)), max_queries=MAX_QUERIES), Queries,
-                f"queries-{topic.name}-{rnd}").queries[:MAX_QUERIES]
-            found: dict[str, Doc] = {}
-            for q in queries:
-                search = self.searchers.get(q.connector)
-                if search is None:
-                    self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "error": "unknown engine"})
-                    continue
-                try:
-                    docs = search(q.query, PER_QUERY)
-                except Exception as e:  # noqa: BLE001 (one engine failing is recorded, not fatal)
-                    self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "error": f"{type(e).__name__}: {e}"})
-                    continue
-                self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "found": [d.id for d in docs]})
-                found |= {d.id: d for d in docs if d.text.strip() and d.id not in approved}
-            if not found:
-                continue
-            docs = list(found.values())
-            review = self._call(ORCHESTRATOR, REVIEW_PROMPT.format(topic=topic.name, why=topic.why,
-                                                                   docs=show_docs(docs)), Review,
-                                f"review-{topic.name}-{rnd}", docs)
-            verdicts = {v.id: v for v in review.verdicts if v.id in found}  # verdicts on unknown ids are ignored
-            for d in docs:
-                v = verdicts.get(d.id)
-                if v and v.approve:
-                    approved[d.id] = d
-                    self.project.write_file(f"sources/{d.id.replace(':', '_')}.json", d.model_dump_json(indent=1),
-                                            ORCHESTRATOR, license=d.license)
-                    self.board.post("source", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
-                                                             "topic": topic.name, "why": v.why}, license=d.license)
-                else:
-                    rejected.append(f"{d.title[:60]}: {v.why if v else 'no verdict'}")
-            if enough_sources(approved):
+            if enough_sources(st.approved) and set(st.approved) != st.failed_with:
                 break
-        if not enough_sources(approved):
-            self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": f"only {len(approved)} approved "
+            self._search(topic, st, f"{rnd}")
+        if not enough_sources(st.approved):
+            self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": f"only {len(st.approved)} approved "
                                                    f"sources after {RESEARCH_ROUNDS} rounds"})
             return None
-        return self.write_page(topic, list(approved.values()))
+        if set(st.approved) == st.failed_with:  # the same documents already made a rejected page
+            self.board.post("note", ORCHESTRATOR, {"topic": topic.name, "text": "no new sources since the rejected "
+                                                   "page; not rewritten"})
+            return None
+        page = self.write_page(topic, list(st.approved.values()), st.issues)
+        for g in range(1, GAP_SEARCHES + 1):
+            if page.verified:
+                break
+            st.failed_with, st.issues = set(st.approved), page.issues
+            if not self._search(topic, st, f"gap{g}"):
+                break
+            page = self.write_page(topic, list(st.approved.values()), st.issues)
+        if page.verified:
+            st.failed_with, st.issues = set(), []
+        else:
+            st.failed_with, st.issues = set(st.approved), page.issues
+        return page
 
-    def write_page(self, topic: Topic, docs: list[Doc]) -> WikiPage:
+    def _state_for(self, name: str) -> _TopicState:
+        with self._lock:
+            return self._topics.setdefault(name, _TopicState())
+
+    def _approved_on_board(self, name: str) -> dict[str, Doc]:
+        out: dict[str, Doc] = {}
+        for e in self.board.entries("source"):
+            if e.data.get("topic") != name:
+                continue
+            path = self.project.root / "sources" / f"{e.data['id'].replace(':', '_')}.json"
+            if path.exists():
+                out[e.data["id"]] = Doc.model_validate_json(path.read_text(encoding="utf-8"))
+        return out
+
+    def _search(self, topic: Topic, st: _TopicState, tag: str) -> list[str]:
+        """One search round: write queries, run the new ones, review the documents not seen yet. Returns the ids it
+        approved."""
+        notes = []
+        if st.queries:
+            untried = [c for c in self.searchers if c not in {c for c, _ in st.queries}]
+            notes.append("Searches already run (do not repeat them): "
+                         + "; ".join(f"{c}: {q}" for c, q in sorted(st.queries)[-12:]) + ".")
+            if untried:
+                notes.append(f"Engines not tried yet for this topic: {', '.join(untried)}.")
+            if not enough_sources(st.approved):
+                notes.append("Earlier searches found too few usable documents"
+                             + (f" (rejected: {'; '.join(st.rejected[-6:])})" if st.rejected else "")
+                             + ". Try different terms or engines.")
+        if st.issues:
+            notes.append(GAP_PROMPT.format(n=len(st.approved), issues="; ".join(st.issues[:6])).strip())
+        previous = ("\n" + "\n".join(notes) + "\n") if notes else ""
+        queries = self._call(ORCHESTRATOR, QUERIES_PROMPT.format(
+            topic=topic.name, why=topic.why, hints=", ".join(topic.hints) or "none", previous=previous,
+            connectors=json.dumps(list(self.searchers)), max_queries=MAX_QUERIES), Queries,
+            f"queries-{topic.name}-{tag}").queries[:MAX_QUERIES]
+        found: dict[str, Doc] = {}
+        for q in queries:
+            key = (q.connector, " ".join(q.query.lower().split()))
+            if key in st.queries:  # the same search returns the same documents, already reviewed
+                self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "error": "repeat of an earlier search"})
+                continue
+            search = self.searchers.get(q.connector)
+            if search is None:
+                self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "error": "unknown engine"})
+                continue
+            try:
+                docs = search(q.query, PER_QUERY)
+            except Exception as e:  # noqa: BLE001 (one engine failing is recorded, not fatal; it may work next time)
+                self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "error": f"{type(e).__name__}: {e}"})
+                continue
+            st.queries.add(key)
+            self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "found": [d.id for d in docs]})
+            found |= {d.id: d for d in docs if d.text.strip() and d.id not in st.approved and d.id not in st.seen}
+        if not found:
+            return []
+        docs = list(found.values())
+        review = self._call(ORCHESTRATOR, REVIEW_PROMPT.format(topic=topic.name, why=topic.why,
+                                                               docs=show_docs(docs)), Review,
+                            f"review-{topic.name}-{tag}", docs)
+        verdicts = {v.id: v for v in review.verdicts if v.id in found}  # verdicts on unknown ids are ignored
+        new: list[str] = []
+        for d in docs:
+            v = verdicts.get(d.id)
+            if v and v.approve:
+                st.approved[d.id] = d
+                new.append(d.id)
+                self.project.write_file(f"sources/{d.id.replace(':', '_')}.json", d.model_dump_json(indent=1),
+                                        ORCHESTRATOR, license=d.license)
+                self.board.post("source", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
+                                                         "topic": topic.name, "why": v.why}, license=d.license)
+            else:
+                st.seen.add(d.id)
+                st.rejected.append(f"{d.title[:60]}: {v.why if v else 'no verdict'}")
+        return new
+
+    def write_page(self, topic: Topic, docs: list[Doc], earlier: list[str] = ()) -> WikiPage:
+        """``earlier``: the verifier's issues with a rejected page on this topic, which the first draft must avoid."""
         ids = [d.id for d in docs]
         license = "arc_only" if any(d.license == "arc_only" for d in docs) else "public"
-        issues: list[str] = []
+        issues: list[str] = list(earlier)
         page = None
         # pages it may link to; an ARC-only page is listed only for an ARC-only page, so no link leaks its topic
         others = {p.slug: p.topic for p in self.wiki.pages() if p.verified and p.topic != topic.name
                   and (license == "arc_only" or p.license == "public")}
         for attempt in (1, 2):  # one rewrite when the checks find problems
-            fix = f"\n## Fix these problems from the last draft\n{chr(10).join(issues)}\n" if issues else ""
+            when = "the last draft" if attempt > 1 else "an earlier page on this topic"
+            fix = FIX_PROMPT.format(when=when, issues="\n".join(issues)) if issues else ""
             draft = self._call(LIBRARIAN, WRITE_PROMPT.format(topic=topic.name, why=topic.why, docs=show_docs(docs),
                                                               example=ids[0], issues=fix, pages=page_list(others)),
                                Draft, f"wiki-{topic.name}-{attempt}", docs)

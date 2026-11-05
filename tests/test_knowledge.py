@@ -104,16 +104,38 @@ def test_a_topic_the_wiki_covers_needs_no_research(cfg, tmp_path):
 
 
 def test_an_inaccurate_page_gets_one_rewrite_then_stays_unverified(cfg, tmp_path, monkeypatch):
-    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)  # one research pass, then the check
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)  # one research pass, then the last round
     kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Primer3 settings"), queries(), review(1, 2),
                                        draft(1, 2), check(False), draft(1, 2), check(False),
-                                       topics("Primer3 settings"))
+                                       queries(),  # the gap search only repeats itself, so nothing new
+                                       topics("Primer3 settings"), queries(), queries(), queries())
     result = kl.run()
     assert not result.ok and result.missing == ["Primer3 settings"]
     page = wiki.get("Primer3 settings")
     assert not page.verified and page.issues == ["Tm range: not in the source"]
-    assert "Fix these problems" in arc.requests[5].messages[-1]["content"]
+    rewrite = arc.requests[5].messages[-1]["content"]
+    assert "Fix these problems from the last draft" in rewrite and "delete the sentence or narrow it" in rewrite
+    gap = arc.requests[7].messages[-1]["content"]
+    assert "failed its checks: Tm range: not in the source" in gap and "Searches already run" in gap
     assert wiki.covers("Primer3 settings") is None
+    assert arc.texts == [] and len(arc.requests) == 12  # named again: searched, but the same documents are not rewritten
+    assert "not rewritten" in project.board.entries("note")[-1].data["text"]
+    assert [e.data["error"] for e in project.board.entries("query")[1:]] == ["repeat of an earlier search"] * 4
+
+
+def test_a_rejected_page_searches_for_what_the_verifier_found_unsupported(cfg, tmp_path):
+    engines = {"europepmc": Engine([doc(1), doc(2)]), "openalex": Engine([doc(4)])}
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("SantaLucia parameters"), queries(), review(1, 2),
+                                       draft(1, 2), check(False), draft(1, 2), check(False),
+                                       queries("openalex"), review(4), draft(1, 4), check(True),
+                                       topics(enough=True), engines=engines)
+    result = kl.run()
+    assert result.ok and result.covered == {"SantaLucia parameters": "santalucia-parameters"}
+    gap = arc.requests[7].messages[-1]["content"]
+    assert "Engines not tried yet for this topic: openalex" in gap
+    assert "Tm range: not in the source" in arc.requests[9].messages[-1]["content"]  # the new draft avoids it
+    assert "europepmc:PMC4" in arc.requests[9].messages[-1]["content"]  # written from the larger set
+    assert wiki.covers("SantaLucia parameters").sources == ["europepmc:PMC1", "europepmc:PMC4"]
 
 
 def test_uncited_drafts_never_reach_the_verifier(cfg, tmp_path):
@@ -126,12 +148,15 @@ def test_uncited_drafts_never_reach_the_verifier(cfg, tmp_path):
 def test_too_few_approved_sources_searches_again_then_gives_up(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
     kl, arc, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), review(1, reject=[2, 3]),
-                                    queries("openalex"), topics("Rare topic"), docs=(1, 2, 3))
+                                    queries("openalex"), queries(), topics("Rare topic"),
+                                    queries(), queries(), queries(), docs=(1, 2, 3))
     result = kl.run()
-    assert not result.ok
+    assert not result.ok and arc.texts == []
     q = project.board.entries("query")
-    assert q[-1].data["error"] == "unknown engine"  # openalex is not wired in this test
+    assert q[1].data["error"] == "unknown engine"  # openalex is not wired in this test
+    assert q[2].data["error"] == "repeat of an earlier search"
     assert "rejected" in arc.requests[3].messages[-1]["content"]
+    assert len(arc.requests) == 9  # rejected documents are never reviewed again for the same topic
 
 
 def test_a_misquoted_document_is_dropped_before_the_verifier(cfg, tmp_path):
@@ -147,15 +172,15 @@ def test_a_misquoted_document_is_dropped_before_the_verifier(cfg, tmp_path):
 def test_a_failing_engine_is_recorded_not_fatal(cfg, tmp_path):
     def broken(query, n):
         raise ConnectionError("no route")
-    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), queries(), topics(enough=True),
-                                  engines={"europepmc": broken})
+    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), queries(), queries(),
+                                  topics(enough=True), engines={"europepmc": broken})
     result = kl.run()
     assert not result.ok and result.missing == ["Rare topic"]  # not named again is not the same as not needed
     assert "ConnectionError" in project.board.entries("query")[0].data["error"]
 
 
 def test_an_earlier_topic_goes_only_when_dropped_with_a_reason(cfg, tmp_path):
-    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), queries(),
+    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), queries(), queries(),
                                   topics(enough=True, dropped=["rare topic"]), docs=())
     result = kl.run()
     assert result.ok and result.dropped == {"Rare topic": "the plan states it"}
@@ -204,7 +229,8 @@ def test_a_page_written_under_the_first_name_counts_when_the_topic_is_reworded(c
 def test_a_failed_knowledge_loop_can_run_again_and_build_refuses_until_it_passes(cfg, tmp_path, monkeypatch):
     from factory.pipeline.run import build
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 1)
-    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design"))
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), queries(), queries(),
+                                       docs=())
     assert not kl.run().ok
     with pytest.raises(RuntimeError, match="did not approve"):
         build(kl.llm, Registry.load(cfg, ROOT / "registry"), project, wiki, {})
@@ -238,11 +264,38 @@ def test_one_reference_manual_is_enough_sources_for_a_page():
 
 def test_a_topic_first_asked_for_in_the_last_round_is_deferred_not_missing(cfg, tmp_path, monkeypatch):
     monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
-    kl, _, project, _ = knowledge(cfg, tmp_path, topics("Primer rules"), queries(), queries(),
-                                  topics("Retry strategy", dropped=["Primer rules"]), docs=())
+    kl, arc, project, _ = knowledge(cfg, tmp_path, topics("Primer rules"), queries(), queries(), queries(),
+                                    topics("Retry strategy", dropped=["Primer rules"]), queries(), queries(),
+                                    queries(), docs=())
     result = kl.run()
     assert result.ok and result.missing == [] and result.deferred == ["Retry strategy"]
-    assert project.board.latest("topics").data["deferred"] == ["Retry strategy"]
+    assert project.board.latest("topics").data["first_in_last_round"] == ["Retry strategy"]
+    assert project.board.latest("coverage").data == {"covered": {}, "missing": [], "deferred": ["Retry strategy"],
+                                                     "final": True}
+    assert arc.texts == []  # it was researched, and failed, before being deferred
+
+
+def test_a_topic_first_asked_for_in_the_last_round_is_researched_and_covered(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("PCR primer design"), queries(), review(1, 2),
+                                       draft(1, 2), check(True), topics("SantaLucia parameters"), queries(),
+                                       review(1, 3), draft(1, 3), check(True))
+    result = kl.run()
+    assert result.ok and result.deferred == [] and arc.texts == []
+    assert result.covered == {"PCR primer design": "pcr-primer-design",
+                              "SantaLucia parameters": "santalucia-parameters"}
+    assert wiki.covers("SantaLucia parameters").sources == ["europepmc:PMC1", "europepmc:PMC3"]
+
+
+def test_a_topic_named_again_keeps_the_documents_already_approved(cfg, tmp_path, monkeypatch):
+    monkeypatch.setattr(knowledge_module, "MAX_ROUNDS", 2)
+    engines = {"europepmc": Engine([doc(1)]), "openalex": Engine([doc(2)])}
+    kl, arc, project, wiki = knowledge(cfg, tmp_path, topics("Rare topic"), queries(), review(1), queries(),
+                                       queries(), topics("Rare topic"), queries("openalex"), review(2),
+                                       draft(1, 2), check(True), engines=engines)
+    result = kl.run()
+    assert result.ok and result.covered == {"Rare topic": "rare-topic"} and arc.texts == []
+    assert "europepmc:PMC1" in arc.requests[-2].messages[-1]["content"]  # round 1's approval still counts
 
 
 def test_a_choice_the_project_makes_for_itself_is_neither_researched_nor_missing(cfg, tmp_path):
