@@ -418,6 +418,7 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
                                 [tag], source="llm", since=started)
         return result
     for i in range(attempts):
+        told_kept = i > 0 and cut_off and bool(kept_note)  # only this prompt's reply was told to skip the kept pieces
         p = prompt if i == 0 else (
             f"{prompt}\n\nYour previous reply was cut off at the output limit. {kept_note} Reply again with only "
             f"the {fmt} for what is still missing." if cut_off and kept_note else
@@ -432,7 +433,9 @@ def complete_validated(llm: LLM, role: str, prompt: str, system: str, model_cls,
             c = llm.complete(role, p, system=system, tag=tag, data=data, max_tokens=max_tokens, escalate=escalate,
                              lighter=cut_off)
             data_ = parse(c) if parse else c.json()
-            return settled((model_cls.model_validate(salvage.merge(data_) if salvage and kept_note else data_), c,
+            if salvage and not told_kept:  # a reply that never saw the kept pieces stands alone
+                salvage.discard()
+            return settled((model_cls.model_validate(salvage.merge(data_) if salvage and told_kept else data_), c,
                             errors))
         except TruncatedError as e:
             errors.append(str(e))

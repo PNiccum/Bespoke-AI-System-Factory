@@ -310,3 +310,16 @@ def test_a_cut_off_reply_keeps_its_finished_pieces_and_asks_only_for_the_rest(cf
     assert {f.path: f.content for f in out.files} == {"a.py": "print(1)\n", "b.py": "print(2)\n"}
     assert "already received and kept, do not write them again: a.py" in seen[1]
     assert len(errors) == 1
+
+
+def test_a_retry_that_was_not_told_about_kept_pieces_stands_alone(cfg, tmp_path):
+    from factory.llm import complete_validated
+    from factory.pipeline.production import Built, FileSalvage, parse_files
+
+    cut = RawResult("=== FILE: a.py ===\nA = 1\n=== END FILE ===\n=== FILE: b.py ===\nprint(", "",
+                    "max_tokens", Usage(10, 10))
+    full = ok("=== FILE: b.py ===\nB = 1\n=== END FILE ===\nNOTES: all")
+    llm, _ = make_llm(cfg, tmp_path, arc=[cut, ok("not files"), full])  # cut, unusable, then a plain retry
+    out, _, _ = complete_validated(llm, "writer", "write it", "", Built, tag="t", data="public", parse=parse_files,
+                                   fmt="FILE blocks", salvage=(sv := FileSalvage()))
+    assert [f.path for f in out.files] == ["b.py"] and sv.files == {}

@@ -211,7 +211,9 @@ class FileSalvage:
     def keep(self, partial: str) -> str | None:
         self.rewritten = set()  # a new cut-off starts a new retry: what an earlier merge saw no longer applies
         for path, body in FILE_BLOCK.findall(partial):
-            self.files[_rel(path.strip().strip("`"))] = body  # one key per file, however the model named it
+            rel = _rel(path.strip().strip("`"))  # one key per file, however the model named it
+            if rel and ".." not in rel.split("/"):  # never tell the retry to skip a path _write would refuse
+                self.files[rel] = body
         if not self.files:
             return None
         return ("Files already received and kept, do not write them again: " + ", ".join(self.files) + ".")

@@ -560,6 +560,8 @@ def test_salvage_merge_leaves_a_malformed_reply_for_validation_to_reject():
     sv = FileSalvage()
     sv.keep("=== FILE: output/a.py ===\nA = 1\n=== END FILE ===\n")
     assert list(sv.files) == ["a.py"]
+    sv.keep("=== FILE: ../x.py ===\nX = 1\n=== END FILE ===\n=== FILE: output/ ===\n\n=== END FILE ===\n")
+    assert list(sv.files) == ["a.py"]  # paths _write would refuse are never kept
     for bad in ([1, 2], {"files": "x"}, {"other": 1}):
         assert sv.merge(bad) == bad  # no exception: validation fails and the retry loop carries on
     assert sv.merge({"files": [{"path": "b.py"}, {"path": "a.py", "content": "A = 2\n"}]})["files"] == [
