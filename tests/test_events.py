@@ -44,10 +44,10 @@ def test_a_truncated_log_line_is_skipped(tmp_path):
     assert len(log.events()) == 1
 
 
-def test_a_retry_that_succeeds_corrects_the_transient_error(cfg, tmp_path):
+def test_a_retry_that_succeeds_corrects_the_transient_error(cfg, tmp_path, monkeypatch):
     cfg.providers["arc"].stream_retries = 1
     import factory.llm.client as client
-    client.time.sleep = lambda s: None
+    monkeypatch.setattr(client.time, "sleep", lambda s: None)  # no wait between retries; restored after the test
 
     class Flaky(ByModel):
         def complete(self, req):
