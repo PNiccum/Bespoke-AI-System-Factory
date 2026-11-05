@@ -56,7 +56,9 @@ class ByPlan(Scripted):
     asking instead of by arrival order: ``(reply_for_a, reply_for_b)`` for the two re-checks (by the plan the prompt
     asks about) and ``{"plan_critic": reply, "plan_analyst": reply}`` for the two votes (by the request's tag)."""
 
-    lock = threading.Lock()
+    def __init__(self, *texts):
+        super().__init__(*texts)
+        self.lock = threading.Lock()
 
     def complete(self, req):
         with self.lock:
@@ -64,9 +66,12 @@ class ByPlan(Scripted):
             if not isinstance(group, (tuple, dict)):
                 return super().complete(req)
             if isinstance(group, tuple):
-                key = 1 if "It is Plan B" in req.messages[-1]["content"] else 0
+                assert req.tag in ("plan-recheck", "plan-recheck-b"), f"a {req.tag} call came among the re-checks"
+                key = 1 if req.tag == "plan-recheck-b" else 0
+                assert group[key] is not None, f"two {req.tag} calls"
             else:
                 key = req.tag.removeprefix("plan-vote-")
+                assert key in group, f"unexpected call {req.tag} among the votes"
             reply = group[key]
             rest = {k: v for k, v in (group.items() if isinstance(group, dict) else enumerate(group)) if k != key}
             if rest:
@@ -237,7 +242,7 @@ def test_noted_weaknesses_survive_a_repair_round_and_add_what_the_repair_left_no
     two = json.dumps({"weaknesses": ["no subtasks", "extra step"], "plan_b": PLAN_B})
     a = json.dumps({"open": [{"id": "W1", "why": "x", "blocks": True}, {"id": "W2", "why": "y", "blocks": False}]})
     repaired = json.dumps({"open": [{"id": "W1", "why": "z", "blocks": False}]})
-    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), (a, a), vote("A"), vote("A"),
+    pl, _, _ = loop(cfg, tmp_path, two, ANALYSIS, edit(), (a, recheck("W1")), vote("A"), vote("A"),
                     json.dumps({**PLAN, "title": "repaired"}), repaired)
     out = pl.run()
     assert out.winner == "A" and out.problems == []
