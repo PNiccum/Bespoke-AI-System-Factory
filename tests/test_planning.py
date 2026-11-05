@@ -52,21 +52,31 @@ def approved_project(cfg, tmp_path):
 
 
 class ByPlan(Scripted):
-    """Scripted, except that a ``(reply_for_a, reply_for_b)`` pair answers the two re-checks, which run on two threads
-    in either order, by the plan each prompt asks about instead of by arrival order."""
+    """Scripted, except that a group of replies for calls that run side by side on two threads is answered by who is
+    asking instead of by arrival order: ``(reply_for_a, reply_for_b)`` for the two re-checks (by the plan the prompt
+    asks about) and ``{"plan_critic": reply, "plan_analyst": reply}`` for the two votes (by the request's tag)."""
 
     lock = threading.Lock()
 
     def complete(self, req):
         with self.lock:
-            if isinstance(self.texts[0], tuple):
-                pair, mine = self.texts[0], 1 if "It is Plan B" in req.messages[-1]["content"] else 0
-                self.texts[0] = tuple(None if i == mine else x for i, x in enumerate(pair))
-                if all(x is None for x in self.texts[0]):
+            group = self.texts[0]
+            if not isinstance(group, (tuple, dict)):
+                return super().complete(req)
+            if isinstance(group, tuple):
+                key = 1 if "It is Plan B" in req.messages[-1]["content"] else 0
+            else:
+                key = req.tag.removeprefix("plan-vote-")
+            reply = group[key]
+            rest = {k: v for k, v in (group.items() if isinstance(group, dict) else enumerate(group)) if k != key}
+            if rest:
+                self.texts[0] = rest if isinstance(group, dict) else tuple(rest.get(i) for i in range(2))
+                if isinstance(group, tuple) and all(x is None for x in self.texts[0]):
                     self.texts.pop(0)
-                self.requests.append(req)
-                return RawResult(pair[mine], "", "end_turn", Usage(500, 200))
-            return super().complete(req)
+            else:
+                self.texts.pop(0)
+            self.requests.append(req)
+            return RawResult(reply, "", "end_turn", Usage(500, 200))
 
 
 def loop(cfg, tmp_path, *replies):
@@ -98,13 +108,15 @@ def test_an_edit_that_breaks_a_plan_is_dropped(cfg, tmp_path):
 
 def test_a_plan_with_problems_cannot_win(cfg, tmp_path):
     # Plan B stays broken after its one fix, so votes for it are spoiled and A wins.
-    pl, _, _ = loop(cfg, tmp_path, critique(BROKEN), critique(BROKEN), ANALYSIS, edit(b=BROKEN), recheck(), recheck(), vote("B"), vote("A"))
+    pl, _, _ = loop(cfg, tmp_path, critique(BROKEN), critique(BROKEN), ANALYSIS, edit(b=BROKEN), recheck(), recheck(),
+                    {"plan_critic": vote("B"), "plan_analyst": vote("A")})
     out = pl.run()
     assert out.winner == "A" and out.votes["plan_critic"] == "spoiled" and out.problems == []
 
 
 def test_a_split_vote_goes_to_plan_a(cfg, tmp_path):
-    pl, _, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck(), recheck(), vote("B"), vote("A"))
+    pl, _, _ = loop(cfg, tmp_path, critique(), ANALYSIS, edit(), recheck(), recheck(),
+                    {"plan_critic": vote("B"), "plan_analyst": vote("A")})
     assert pl.run().winner == "A"
 
 
