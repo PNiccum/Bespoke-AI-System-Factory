@@ -24,7 +24,6 @@ import json
 import sys
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Literal
@@ -228,8 +227,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.ask:
         from factory.__main__ import ask_on_terminal
         approver = ask_on_terminal
-    out = Path(args.out) / datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    out.mkdir(parents=True)
+    from factory.bench_projects import make_run_dir
+    out = make_run_dir(Path(args.out))
     outcomes = []
     for trial in range(1, args.repeat + 1):
         for task in tasks:

@@ -180,3 +180,21 @@ def test_resume_keeps_the_finished_stages_and_goes_on_from_the_first_unfinished_
     with pytest.raises(ValueError, match="no approved plan"):
         run_project(cfg, TASKS[0], providers=providers, registry_dir=ROOT / "registry",
                     resume=Project.create(cfg.work_dir / "projects", "bench wordstats").root)
+
+
+def test_results_folders_never_collide_within_one_second(tmp_path, monkeypatch):
+    import factory.bench_projects as bp
+
+    class Frozen:
+        @staticmethod
+        def now(tz=None):
+            from datetime import datetime
+            return datetime(2026, 11, 5, 20, 58, 11, tzinfo=tz)
+
+    monkeypatch.setattr(bp, "datetime", Frozen)
+    a = bp.make_run_dir(tmp_path, "projects")
+    b = bp.make_run_dir(tmp_path, "projects")  # same second, same PID
+    monkeypatch.setattr(bp.os, "getpid", lambda: 4242)
+    c = bp.make_run_dir(tmp_path, "projects")  # same second, other PID
+    assert len({a, b, c}) == 3
+    assert all(p.is_dir() and p.name.endswith("-projects") for p in (a, b, c))
