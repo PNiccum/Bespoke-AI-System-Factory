@@ -14,6 +14,7 @@ from factory.llm.gate import deny_all
 from factory.pipeline.blackboard import Project
 from factory.pipeline.interview import MAX_QUESTIONS, Interview
 from factory.pipeline.knowledge import KnowledgeLoop, default_searchers
+from factory.pipeline.lessons import lessons_after_build
 from factory.pipeline.planning import PlanningLoop
 from factory.pipeline.run import build
 from factory.pipeline.wiki import Wiki
@@ -124,9 +125,10 @@ if iv.board.latest("approval"):
             if knowledge.data["ok"] and final is None and redesign is None and st.button("Build it", type="primary"):
                 cfg = config()
                 with st.status("Building...") as status:
-                    build(iv.llm, Registry.load(cfg), iv.project, Wiki(cfg.work_dir / "wiki"),
+                    result = build(iv.llm, Registry.load(cfg), iv.project, Wiki(cfg.work_dir / "wiki"),
                           default_searchers(cfg.work_dir / "research-cache"),
                           on_stage=lambda s: status.update(label=f"Building: {s}"))
+                    lessons_after_build(iv.llm, iv.project, result.status, cfg.work_dir)
                 st.rerun()
             for review in iv.board.entries("critic_review"):
                 st.caption(f"Critic, round {review.data['round']}: " + ("acceptable" if review.data["acceptable"]

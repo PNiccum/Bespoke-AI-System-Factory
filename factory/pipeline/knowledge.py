@@ -40,6 +40,7 @@ from pydantic import BaseModel
 from factory.llm import LLM, complete_validated
 from factory.pipeline import cite
 from factory.pipeline.blackboard import Project
+from factory.pipeline.lessons import BadSources, bad_sources_text, domain_of, lessons_dir
 from factory.pipeline.sources import CONNECTORS, Doc, Searcher
 from factory.pipeline.wiki import MIN_SOURCES, Wiki, WikiPage, enough_sources
 from factory.pipeline.wiki import words as wiki_words
@@ -266,8 +267,16 @@ class KnowledgeLoop:
         self.llm, self.project, self.board, self.wiki = llm, project, project.board, wiki
         self.agents = {n: registry.agents[n] for n in (EVALUATOR, ORCHESTRATOR, LIBRARIAN, VERIFIER)}
         self.searchers = searchers
+        # sources that failed before in this domain: skipped in code, and named to the orchestrator
+        self.bad = BadSources(lessons_dir(wiki.root.parent) / "bad_sources.json")
+        self._domain = ""
         self._topics: dict[str, _TopicState] = {}
         self._lock = threading.Lock()
+
+    @property
+    def domain(self) -> str:
+        self._domain = self._domain or domain_of(self.project)
+        return self._domain
 
     def _call(self, agent: str, prompt: str, model_cls, tag: str, docs: list[Doc] = ()):
         """A model call; any ARC-only document in the prompt keeps the call on ARC."""
@@ -472,6 +481,10 @@ class KnowledgeLoop:
                 notes.append("Earlier searches found too few usable documents"
                              + (f" (rejected: {'; '.join(st.rejected[-6:])})" if st.rejected else "")
                              + ". Try different terms or engines.")
+        known = self.bad.known(self.domain, topic.name)
+        if known:
+            notes.append("Sources that failed for this topic in earlier projects (they are skipped; look elsewhere): "
+                         + bad_sources_text(known) + ".")
         if st.issues:
             notes.append(GAP_PROMPT.format(n=len(st.approved), issues="; ".join(st.issues[:6])).strip())
         previous = ("\n" + "\n".join(notes) + "\n") if notes else ""
@@ -497,6 +510,10 @@ class KnowledgeLoop:
             st.queries.add(key)
             self.board.post("query", ORCHESTRATOR, {**q.model_dump(), "found": [d.id for d in docs]})
             found |= {d.id: d for d in docs if d.text.strip() and d.id not in st.approved and d.id not in st.seen}
+        skipped = [i for i in found if i in known]  # rejected for this topic before: no model reads them again
+        if skipped:
+            found = {i: d for i, d in found.items() if i not in known}
+            self.board.post("note", "code", {"topic": topic.name, "skipped_known_bad_sources": skipped})
         if not found:
             return []
         docs = list(found.values())
@@ -510,13 +527,22 @@ class KnowledgeLoop:
             if v and v.approve:
                 st.approved[d.id] = d
                 new.append(d.id)
+                self.bad.clear(self.domain, topic.name, d.id)
                 self.project.write_file(f"sources/{d.id.replace(':', '_')}.json", d.model_dump_json(indent=1),
                                         ORCHESTRATOR, license=d.license)
                 self.board.post("source", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
                                                          "topic": topic.name, "why": v.why}, license=d.license)
             else:
                 st.seen.add(d.id)
-                st.rejected.append(f"{d.title[:60]}: {v.why if v else 'no verdict'}")
+                why = v.why if v else "no verdict"
+                st.rejected.append(f"{d.title[:60]}: {why}")
+                if v:  # a missing verdict says nothing about the document, so it is not held against it
+                    self.board.post("rejected", ORCHESTRATOR, {"id": d.id, "title": d.title, "url": d.url,
+                                                                       "topic": topic.name, "why": why},
+                                            license=d.license)
+                    if d.license == "public":  # an ARC-only document's title and reason stay out of shared files
+                        self.bad.record(self.domain, topic.name, d.id, why, title=d.title, url=d.url,
+                                        project=self.project.id)
         return new
 
     def write_page(self, topic: Topic, docs: list[Doc], earlier: list[str] = ()) -> WikiPage:
